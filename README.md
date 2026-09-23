@@ -70,7 +70,7 @@ Every commit is scanned for secret-shaped strings, locally and in CI.
 
 The `gitleaks` workflow runs the same scan over the full history on every pull request and every push to `main`. Real credentials live in `.env` (ignored) or on the AWS side, never in the tree. If one ever lands in a commit, rotate it first, then rewrite history.
 
-Maintainers and CI also run a supplementary private gitleaks rule file.
+Maintainer clones also run a supplementary private gitleaks rule file in their pre-commit hook.
 
 ## License
 
