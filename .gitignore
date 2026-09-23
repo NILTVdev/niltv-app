@@ -1,0 +1,40 @@
+# deps
+node_modules/
+
+# builds
+dist/
+build/
+cdk.out/
+.expo/
+expo-env.d.ts
+web-build/
+
+# env & secrets — never commit real values
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*secret*.json
+*credentials*.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*
+
+# test
+coverage/
+
+# Partner content API: the CloudFront signing PUBLIC keys are safe and required at synth
+!backend/lib/keys/*.pub.pem
+
+# local backfill / probe reports
+backend/backfill-*.json
+
+# maintainer scripts copied in for a single run; never committed
+backend/scripts/_local_*

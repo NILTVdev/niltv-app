@@ -1,0 +1,9 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "context": {
+    "niltv:cfDomain:dev": "d1nm1d2txb83wa.cloudfront.net",
+    "niltv:cfDistributionId:dev": "E23CTTFB3RV2CB",
+    "niltv:cfDistributionId:prod": "E2VPOMST073ADA",
+    "niltv:cfDomain:prod": "dr60jt51m7xh2.cloudfront.net"
+  }
+}

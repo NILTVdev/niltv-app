@@ -1,0 +1,73 @@
+# CI for the niltv monorepo (types / backend / mobile). Runs on pull requests
+# only: main carries the tree the PR already checked. The Expo web export is
+# the slow step, so it runs only when the mobile app, the shared types or the
+# root manifests changed.
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: What changed
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          if git diff --name-only FETCH_HEAD HEAD | grep -qE '^(mobile/|types/|package(-lock)?\.json$)'; then
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+            echo "mobile and types unchanged: the web export is skipped"
+          fi
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (all workspaces)
+        run: npm run typecheck
+
+      - name: Backend tests
+        run: npm run test --workspace @niltv/backend
+
+      - name: Mobile tests
+        run: npm run test --workspace mobile
+
+      - name: Lint (mobile)
+        run: npm run lint --workspace mobile
+
+      # The CDK app is env-agnostic and must synth without AWS credentials.
+      # Dummy account/region are set for safety only — never real values here.
+      - name: CDK synth (no AWS credentials)
+        run: npm run synth --workspace @niltv/backend
+        env:
+          CDK_DEFAULT_ACCOUNT: "111111111111"
+          CDK_DEFAULT_REGION: us-east-1
+
+      # Smoke build: static rendering executes every route's module scope in
+      # Node, so this fails on the class of error typecheck cannot see. Two
+      # real crashes shipped past a green CI before this existed.
+      - name: Mobile web export (smoke build)
+        if: steps.changed.outputs.mobile == 'true'
+        run: npx expo export --platform web --output-dir /tmp/niltv-web
+        working-directory: mobile

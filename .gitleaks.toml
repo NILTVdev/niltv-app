@@ -1,0 +1,4 @@
+# Repo-local gitleaks config: the default secret rules. Maintainers and CI
+# also run a supplementary private gitleaks rule file.
+[extend]
+useDefault = true

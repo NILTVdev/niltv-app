@@ -1,0 +1,22 @@
+{
+  "name": "@niltv/types",
+  "license": "MIT",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NILTV shared API contract (zod), entity types, and demo fixtures",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtures": "./src/fixtures.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

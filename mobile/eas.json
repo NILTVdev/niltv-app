@@ -1,0 +1,47 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://dr60jt51m7xh2.cloudfront.net",
+        "EXPO_PUBLIC_USER_POOL_ID": "us-east-1_CUAGPsaru",
+        "EXPO_PUBLIC_USER_POOL_CLIENT_ID": "4oc5cv7t9c8eud2vkve1eqm1ha"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://dr60jt51m7xh2.cloudfront.net",
+        "EXPO_PUBLIC_USER_POOL_ID": "us-east-1_CUAGPsaru",
+        "EXPO_PUBLIC_USER_POOL_CLIENT_ID": "4oc5cv7t9c8eud2vkve1eqm1ha"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6778550304"
+      }
+    }
+  }
+}
