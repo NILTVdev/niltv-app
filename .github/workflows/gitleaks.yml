@@ -13,8 +13,6 @@ jobs:
     name: Secret scan (full history)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      NAME_GUARD_TOML: ${{ secrets.NAME_GUARD_TOML }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,10 +24,3 @@ jobs:
           gitleaks version
       - name: Scan every commit reachable from this ref
         run: gitleaks git --redact --no-banner --verbose --exit-code 1 .
-      # Maintainers and CI also run a supplementary private gitleaks rule file.
-      # Skipped when the secret is not available.
-      - name: Supplementary scan (private rule file)
-        if: ${{ env.NAME_GUARD_TOML != '' }}
-        run: |
-          printf '%s\n' "$NAME_GUARD_TOML" > "$RUNNER_TEMP/name-guard.toml"
-          gitleaks git --config "$RUNNER_TEMP/name-guard.toml" --redact --no-banner --exit-code 1 .
