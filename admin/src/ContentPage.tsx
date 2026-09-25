@@ -1,4 +1,4 @@
-import type { Channel, Content, Profile, TranscodeStatus } from "@niltv/types";
+import { TITLE_NEEDS_WRITING, type Channel, type Content, type Profile, type TranscodeStatus } from "@niltv/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
 import { api, putToS3 } from "./api";
@@ -6,6 +6,9 @@ import { api, putToS3 } from "./api";
 function fmtDate(iso?: string): string {
   return iso ? new Date(iso).toLocaleString() : "—";
 }
+
+/** A rule wrote this clip's title (one caption word, a handle, the school or the channel). */
+const needsTitle = (row: Content): boolean => row.qc?.reasons.includes(TITLE_NEEDS_WRITING) ?? false;
 
 function StatusChip({ status }: { status: TranscodeStatus }) {
   return <span className={`chip ${status}`}>{status}</span>;
@@ -27,13 +30,18 @@ export function ContentPage() {
   });
 
   const [openId, setOpenId] = useState<string | null>(null);
+  const [onlyNeedsTitle, setOnlyNeedsTitle] = useState(false);
 
   const channels = channelsQ.data?.channels ?? [];
   const profiles = profilesQ.data?.items ?? [];
-  const items = contentQ.data?.items ?? [];
+  const allItems = contentQ.data?.items ?? [];
+  const needsTitleCount = allItems.filter(needsTitle).length;
+  // The filter switches itself off once the queue is empty, so the table never goes blank.
+  const filterOn = onlyNeedsTitle && needsTitleCount > 0;
+  const items = filterOn ? allItems.filter(needsTitle) : allItems;
   const channelName = (id: string) => channels.find((c) => c.id === id)?.name ?? id;
   const creatorName = (id: string) => profiles.find((p) => p.id === id)?.name ?? id;
-  const openRow = items.find((i) => i.id === openId);
+  const openRow = allItems.find((i) => i.id === openId);
 
   const loadError = contentQ.error ?? channelsQ.error ?? profilesQ.error;
 
@@ -42,6 +50,16 @@ export function ContentPage() {
       {loadError && <div className="error-banner">{loadError.message}</div>}
 
       <h2>Content</h2>
+      {needsTitleCount > 0 && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={filterOn}
+            onChange={(e) => setOnlyNeedsTitle(e.target.checked)}
+          />
+          Only clips that need a title ({needsTitleCount})
+        </label>
+      )}
       {contentQ.isPending ? (
         <p className="hint">Loading content…</p>
       ) : (
@@ -66,7 +84,10 @@ export function ContentPage() {
             )}
             {items.map((row) => (
               <tr key={row.id} className="selectable" onClick={() => setOpenId(row.id)}>
-                <td>{row.title}</td>
+                <td>
+                  {row.title}
+                  {needsTitle(row) && <span className="chip needs-title">Needs title</span>}
+                </td>
                 <td>{channelName(row.channelId)}</td>
                 <td>{creatorName(row.athleteId)}</td>
                 <td>
@@ -263,6 +284,25 @@ function ContentDrawer({
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["content"] }),
   });
 
+  // A saved title is a staff override: the enrichment pass never rewrites it,
+  // and it takes the clip out of the "needs a title" queue. Every other field
+  // goes back as it is, since the upsert treats a missing one as a change.
+  const [titleDraft, setTitleDraft] = useState(row.title);
+  useEffect(() => setTitleDraft(row.title), [row.id, row.title]);
+  const titleMut = useMutation({
+    mutationFn: (title: string) =>
+      api.upsertContent({
+        id: row.id,
+        title,
+        channelId: row.channelId,
+        athleteId: row.athleteId,
+        description: row.description,
+        rightsConfirmed: row.rightsConfirmed,
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["content"] }),
+  });
+  const trimmedTitle = titleDraft.trim();
+
   const publishMut = useMutation({
     mutationFn: () => api.publish(row.id),
     onSuccess: () => {
@@ -294,6 +334,30 @@ function ContentDrawer({
         <p className="meta">
           {channelName} · {creatorName}
         </p>
+
+        <section>
+          <h4>Title</h4>
+          {needsTitle(row) && (
+            <p className="hint">A rule wrote this title. Write a real one and it stays.</p>
+          )}
+          <input
+            type="text"
+            value={titleDraft}
+            maxLength={120}
+            disabled={titleMut.isPending}
+            onChange={(e) => setTitleDraft(e.target.value)}
+          />
+          <div className="form-actions">
+            <button
+              className="btn primary"
+              disabled={titleMut.isPending || !trimmedTitle || trimmedTitle === row.title}
+              onClick={() => titleMut.mutate(trimmedTitle)}
+            >
+              {titleMut.isPending ? "Saving…" : "Save title"}
+            </button>
+          </div>
+          {titleMut.error && <div className="error-banner">{titleMut.error.message}</div>}
+        </section>
 
         <section>
           <h4>Transcode status</h4>

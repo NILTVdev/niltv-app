@@ -29,6 +29,7 @@ the operator's view of the enrichment pass.
 | Field | From | Confidence |
 |---|---|---|
 | title, description, summary, keywords | caption cleanup (handles, hashtags, emoji stripped; first sentence; word-boundary cap) | deterministic |
+| title, when the caption has fewer than two words | the title ladder in `titleFor()`: the credited athlete, then a one-word caption (shorthand like "DITL" spelled out), then the creator's handle with school and sport, then school, sport and format ("Duke Soccer Media Day"), then the channel's people ("Duke’s Athletes"). Never a generic "New on …" line. `titleSource` on the row records the rung | deterministic; every rung but the caption adds the `title needs writing` queue reason until staff save a title in the admin library |
 | athleteId, featuredAthleteIds | author handle and caption mentions matched to profiles by current or previous handle; our own accounts are never people | deterministic; unmatched handles go to `unresolvedHandles` |
 | school | credited athlete's school, else the campus channel's school (`ACCOUNT_SCHOOLS`) | deterministic |
 | sport | the sport on screen: a sport hashtag (0.8), else caption words (0.5), else the credited athlete's roster sport as a weak hint (0.4) | scored |

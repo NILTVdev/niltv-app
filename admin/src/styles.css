@@ -275,6 +275,14 @@ tr.selectable:hover td {
   color: var(--danger);
 }
 
+/* A rule wrote the title; sits after the title text in the library table. */
+.chip.needs-title {
+  margin-left: 8px;
+  background: #fff4e5;
+  color: #8a5300;
+  border-color: #f0c36d;
+}
+
 /* ── Drawer ────────────────────────────────────────────────────────────── */
 
 .drawer-scrim {

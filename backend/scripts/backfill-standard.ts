@@ -27,7 +27,7 @@
  * without --confirm-prod. Dry run by default.
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ContentType, Sport } from "@niltv/types";
 import { channelKey, getDocClient, schoolPolicyKey } from "../src/lib/db";
 import { type EnrichContext, applyEnrichment, profilesByHandle, type SchoolPolicy } from "../src/lib/enrich";
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
       schoolPolicy: policy,
     };
     const out = applyEnrichment(next, ctx);
-    if (out["title"] !== row["title"] && titleSamples.length < 25) titleSamples.push({ id: String(row["id"]), before: String(row["title"]), after: String(out["title"]) });
+    if (out["title"] !== row["title"] && titleSamples.length < 250) titleSamples.push({ id: String(row["id"]), before: String(row["title"]), after: String(out["title"]) });
     enriched.push(out);
   }
 
@@ -300,6 +300,11 @@ async function main(): Promise<void> {
   const reasons: Record<string, number> = {};
   const unresolved: Record<string, number> = {};
   let credited = 0;
+  // Only rows the pass actually changed are written. A full put of an
+  // unchanged row can only lose a like or a view counted while this runs.
+  const before = new Map(rows.map((r) => [String(r["id"]), r]));
+  const fieldChanges: Record<string, number> = {};
+  let writes = 0;
   for (const r of enriched) {
     // Re-run QC after LLM/taxonomy changed classification.
     const { qcFor } = await import("../src/lib/enrich");
@@ -316,7 +321,12 @@ async function main(): Promise<void> {
     for (const reason of q.reasons) reasons[reason] = (reasons[reason] ?? 0) + 1;
     for (const h of (r["unresolvedHandles"] as string[] | undefined) ?? []) unresolved[h] = (unresolved[h] ?? 0) + 1;
     if (typeof r["athleteId"] === "string" && !String(r["athleteId"]).startsWith("p-")) credited += 1;
-    if (APPLY) await db.send(new PutCommand({ TableName: table, Item: r }));
+    const original = before.get(String(r["id"])) ?? {};
+    const changedFields = diffFields(original, r);
+    for (const f of changedFields) fieldChanges[f] = (fieldChanges[f] ?? 0) + 1;
+    if (changedFields.length === 0) continue;
+    writes += 1;
+    if (APPLY) await db.send(updateChanged(String(r["PK"]), String(r["SK"]), r, changedFields));
   }
   const sportCounts: Record<string, number> = {};
   const typeCounts: Record<string, number> = {};
@@ -325,7 +335,7 @@ async function main(): Promise<void> {
     typeCounts[String(r["contentType"] ?? "(none)")] = (typeCounts[String(r["contentType"] ?? "(none)")] ?? 0) + 1;
   }
   Object.assign(report, {
-    rows: enriched.length, sourcesWritten, creditedToRealAthlete: credited, profilesRealWithHandle: byHandle.size,
+    rows: enriched.length, rowsChanged: writes, fieldChanges, sourcesWritten, creditedToRealAthlete: credited, profilesRealWithHandle: byHandle.size,
     qc, topReasons: Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 12),
     topUnresolvedHandles: Object.entries(unresolved).sort((a, b) => b[1] - a[1]).slice(0, 25),
     sportCounts, typeCounts, titleSamples,
@@ -333,7 +343,61 @@ async function main(): Promise<void> {
   const out = opt("report");
   if (out) writeFileSync(out, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, titleSamples: report["titleSamples"] }, null, 2));
-  console.log(APPLY ? `wrote ${enriched.length} rows` : "dry run — nothing written");
+  console.log(APPLY ? `wrote ${writes} of ${enriched.length} rows` : `dry run — nothing written (${writes} of ${enriched.length} rows would change)`);
+}
+
+/**
+ * Writes only the fields the pass changed, on a row that still exists. Likes,
+ * views and anything else counted while the backfill runs are never part of
+ * the update, so they cannot be rolled back to the values the scan read.
+ */
+function updateChanged(pk: string, sk: string, row: Item, fields: string[]): UpdateCommand {
+  const names: Record<string, string> = {};
+  const values: Record<string, unknown> = {};
+  const sets: string[] = [];
+  const removes: string[] = [];
+  fields.forEach((field, i) => {
+    names[`#f${i}`] = field;
+    if (row[field] === undefined) removes.push(`#f${i}`);
+    else {
+      values[`:v${i}`] = row[field];
+      sets.push(`#f${i} = :v${i}`);
+    }
+  });
+  return new UpdateCommand({
+    TableName: table,
+    Key: { PK: pk, SK: sk },
+    ConditionExpression: "attribute_exists(PK)",
+    UpdateExpression: [sets.length ? `SET ${sets.join(", ")}` : "", removes.length ? `REMOVE ${removes.join(", ")}` : ""].filter(Boolean).join(" "),
+    ExpressionAttributeNames: names,
+    ...(sets.length ? { ExpressionAttributeValues: values } : {}),
+  });
+}
+
+/** Canonical JSON: object keys sorted, so key order never counts as a change. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Top-level fields that differ; the QC stamp time alone is not a change. */
+function diffFields(a: Item, b: Item): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  const out: string[] = [];
+  for (const k of keys) {
+    let x = a[k];
+    let y = b[k];
+    if (k === "qc") {
+      x = x && typeof x === "object" ? { ...(x as Item), at: undefined } : x;
+      y = y && typeof y === "object" ? { ...(y as Item), at: undefined } : y;
+    }
+    if (canonical(x) !== canonical(y)) out.push(k);
+  }
+  return out;
 }
 
 main().catch((err) => {
