@@ -30,12 +30,13 @@ import {
   useProfile,
   useUnfollow,
 } from "@/api/hooks";
+import { ApiRequestError } from "@/api/client";
 import { requireAuth } from "@/auth/store";
 import { AmbassadorBadge } from "@/components/AmbassadorBadge";
 import { Avatar } from "@/components/Avatar";
 import { channelIdForProfile, channelLogo } from "@/components/Brand";
 import { Card, thumbGradient } from "@/components/Card";
-import { EmptyState, ErrorState } from "@/components/ScreenState";
+import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { GoldButton } from "@/components/GoldButton";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { formatCount, nilSchool } from "@/lib/format";
@@ -87,10 +88,13 @@ export default function AthleteScreen() {
     sport?: string;
     isAmbassador?: string;
     rank?: string;
+    avatarUrl?: string;
+    videos?: string;
   }>();
 
   const id = params.id ?? "";
-  const profile = useProfile(id);
+  const videosOnly = params.videos === "1";
+  const profile = useProfile(videosOnly ? "" : id);
   const data = profile.data;
   useScreenView("athlete", { athleteId: id });
 
@@ -142,12 +146,10 @@ export default function AthleteScreen() {
   const detailLine = [schoolLine, sport].filter(Boolean).join(" · ");
 
   // Infinite content grid: the profile endpoint returns only the
-  // first dozen clips, so the grid pages through /v1/content?athleteId. If
-  // the deployed API predates that param (400, no retry), the profile's own
-  // capped list stands in.
-  const feed = useCreatorContentList(isChannelProfile ? "" : id);
+  // first dozen clips, so the grid pages through /v1/content?athleteId.
+  const feed = useCreatorContentList(!isChannelProfile && (videosOnly || data) ? id : "");
   const pagedClips = feed.data?.pages.flatMap((page) => page.items);
-  const clips: ContentCard[] = pagedClips ?? data?.content ?? [];
+  const clips: ContentCard[] = feed.isError ? [] : pagedClips ?? data?.content ?? [];
   const showGrid = segment === "Content";
 
   if (isChannelProfile && profileChannelId) {
@@ -158,6 +160,24 @@ export default function AthleteScreen() {
           params: { channelId: profileChannelId, name },
         }}
       />
+    );
+  }
+
+  // Never keep painting route-param identity after a revoked/unpublished profile is rejected.
+  const activeError = videosOnly ? feed.error : profile.error ??
+    (feed.error instanceof ApiRequestError && feed.error.status === 404 ? feed.error : null);
+  if (activeError) {
+    return (
+      <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
+        <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Back" style={styles.body}>
+          <Text style={[styles.meta, { color: t.text }]}>Back</Text>
+        </Pressable>
+        {activeError instanceof ApiRequestError && activeError.status === 404 ? (
+          <EmptyState message="This athlete is unavailable." />
+        ) : (
+          <ErrorState onRetry={() => void (videosOnly ? feed.refetch() : profile.refetch())} />
+        )}
+      </SafeAreaView>
     );
   }
 
@@ -195,7 +215,7 @@ export default function AthleteScreen() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <View style={[styles.avatarRing, { borderColor: t.bg }]}>
-          <Avatar name={name} seed={id || name} url={data?.avatarUrl} size={96} />
+          <Avatar name={name} seed={id || name} url={data?.avatarUrl ?? params.avatarUrl} size={96} />
         </View>
 
         <View style={styles.nameRow}>
@@ -219,16 +239,18 @@ export default function AthleteScreen() {
           </View>
         ) : null}
 
-        <GoldButton
+        {data ? <GoldButton
           label={isFollowing ? "Following" : "Follow"}
           variant={isFollowing ? "outline" : "solid"}
           onPress={toggleFollow}
           busy={busy}
           style={styles.followButton}
-        />
+        /> : null}
       </View>
 
-      {!data ? (
+      {videosOnly ? (
+        feed.isPending ? <LoadingState /> : null
+      ) : !data ? (
         profile.isError ? (
           <ErrorState onRetry={() => void profile.refetch()} />
         ) : (
@@ -297,7 +319,7 @@ export default function AthleteScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: t.bg }]}>
       <FlatList
-        data={data && showGrid ? clips : []}
+        data={(videosOnly || data) && showGrid ? clips : []}
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={styles.gridRow}
@@ -325,7 +347,8 @@ export default function AthleteScreen() {
           />
         )}
         ListEmptyComponent={
-          data && showGrid ? (
+          (videosOnly ? feed.isSuccess : data) && showGrid ? (
+            feed.isError ? <ErrorState onRetry={() => void feed.refetch()} /> :
             <EmptyState message="No clips yet. Their first drop lands here." />
           ) : null
         }

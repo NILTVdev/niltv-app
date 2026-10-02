@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useDeleteAccount, useMe, useSetPushEnabled } from "@/api/hooks";
+import { useConfig, useDeleteAccount, useMe, useSetPushEnabled } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
 import { requestAndRegister } from "@/push";
@@ -185,6 +185,8 @@ function SignedInProfile() {
 
 export default function ProfileScreen() {
   const t = useTheme();
+  const router = useRouter();
+  const directoryOn = useConfig().data?.flags.ambassadorDirectory === true;
   const status = useAuthStore((s) => s.status);
   useScreenView("profile");
 
@@ -192,6 +194,7 @@ export default function ProfileScreen() {
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.heading, { color: t.text }]}>Profile</Text>
+        {directoryOn ? <Row icon="people-outline" label="Browse athletes" onPress={() => router.push("/profiles")} /> : null}
 
         {status === "restoring" ? (
           <View style={styles.restoring}>

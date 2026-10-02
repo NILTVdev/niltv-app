@@ -42,10 +42,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useContentDetail,
   useContentList,
+  useCreatorContentList,
   useFollow,
   useLike,
   useMe,
-  useProfile,
   useUnfollow,
   useUnlike,
 } from "@/api/hooks";
@@ -648,7 +648,7 @@ export default function VideoFeedScreen() {
   );
 
   const channelList = useContentList(channelId);
-  const profile = useProfile(profileId);
+  const athleteList = useCreatorContentList(profileId);
   const detail = useContentDetail(contentId);
 
   // Live resolution: the list the clip was opened from (channel or profile),
@@ -656,12 +656,12 @@ export default function VideoFeedScreen() {
   const liveItems = channelId
     ? channelList.data?.pages.flatMap((page) => page.items)
     : profileId
-      ? profile.data?.content
+      ? athleteList.data?.pages.flatMap((page) => page.items)
       : undefined;
   const sourceSettled = channelId
     ? channelList.data !== undefined || channelList.isError
     : profileId
-      ? profile.data !== undefined || profile.isError
+      ? athleteList.data !== undefined || athleteList.isError
       : true;
   const liveIndex = liveItems?.findIndex((c) => c.id === contentId) ?? -1;
 
@@ -694,7 +694,7 @@ export default function VideoFeedScreen() {
       {focused ? <StatusBar style="light" animated /> : null}
       {liveMode === "pending" ? (
         <View style={styles.pendingWrap}>
-          {(channelId ? channelList.isError : profileId ? profile.isError : false) ||
+          {(channelId ? channelList.isError : profileId ? athleteList.isError : false) ||
           detail.isError ? (
             <>
               <Text style={styles.pendingTitle}>Can&apos;t reach NILTV</Text>
@@ -704,7 +704,7 @@ export default function VideoFeedScreen() {
                 onPress={() => {
                   void detail.refetch();
                   if (channelId) void channelList.refetch();
-                  if (profileId) void profile.refetch();
+                  if (profileId) void athleteList.refetch();
                 }}
                 style={({ pressed }) => [styles.retryButton, pressed && { backgroundColor: tokens.color.goldDeep }]}
               >
@@ -724,6 +724,9 @@ export default function VideoFeedScreen() {
           onEndOfChannel={() => {
             if (channelId && channelList.hasNextPage && !channelList.isFetchingNextPage) {
               void channelList.fetchNextPage();
+            }
+            if (profileId && athleteList.hasNextPage && !athleteList.isFetchingNextPage) {
+              void athleteList.fetchNextPage();
             }
           }}
         />

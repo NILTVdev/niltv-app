@@ -1,6 +1,5 @@
 import {
   AckResponse,
-  AthleteChip,
   ChannelsResponse,
   ConfigResponse,
   ContentDetailResponse,
@@ -14,6 +13,7 @@ import {
   type NewsletterRequest,
   type NotificationFollow,
   ProfileResponse,
+  ProfilesListResponse,
   VoteResponse,
 } from "@niltv/types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,23 +21,10 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useAuthStore } from "@/auth/store";
 import { track } from "@/telemetry";
 
-import { request, type Schema } from "./client";
+import { request } from "./client";
 import { queryKeys } from "./keys";
 
 export { queryKeys };
-
-/**
- * `{ profiles: AthleteChip[] }` — the profiles-list envelope, composed locally
- * (the directory ships dark; the shared contract doesn't carry it yet).
- * Validation still runs through the imported AthleteChip zod schema, keeping
- * the app free of a direct zod import (see client.ts).
- */
-const ProfileChips = AthleteChip.array();
-const ProfilesListResponse: Schema<{ profiles: AthleteChip[] }> = {
-  parse: (input) => ({
-    profiles: ProfileChips.parse((input as { profiles?: unknown } | null | undefined)?.profiles),
-  }),
-};
 
 export function useConfig() {
   return useQuery({
@@ -102,13 +89,12 @@ export function useContentList(channelId: string) {
 /**
  * One creator's clips, cursor-paged (GET /v1/content?athleteId=) — the
  * profile screen's infinite Content grid. The profile endpoint itself returns
- * only the first dozen clips; this pages through everything. retry stays off:
- * a backend without the athleteId param answers 400, and the screen then
- * falls back to the profile's own capped content list.
+ * only the first dozen clips; this pages through everything. Clearance failures
+ * are surfaced immediately, and these reads are never persisted to disk.
  */
 export function useCreatorContentList(athleteId: string) {
   return useInfiniteQuery({
-    queryKey: queryKeys.creatorContentList(athleteId),
+    queryKey: [...queryKeys.creatorContentList(athleteId), "public"],
     queryFn: ({ pageParam }) =>
       request(
         `/v1/content?athleteId=${encodeURIComponent(athleteId)}${
@@ -118,7 +104,9 @@ export function useCreatorContentList(athleteId: string) {
       ),
     initialPageParam: "",
     getNextPageParam: (last) => last.cursor,
-    staleTime: 60_000,
+    staleTime: 0,
+    gcTime: 0,
+    meta: { noPersist: true },
     retry: false,
     enabled: athleteId.length > 0,
   });
@@ -140,9 +128,12 @@ export function useContentDetail(id: string, enabled = true) {
 /** Person profile + their content (GET /v1/profiles/{athleteId}). */
 export function useProfile(athleteId: string) {
   return useQuery({
-    queryKey: queryKeys.profile(athleteId),
+    queryKey: [...queryKeys.profile(athleteId), "public"],
     queryFn: () => request(`/v1/profiles/${athleteId}`, ProfileResponse),
-    staleTime: 60_000,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    meta: { noPersist: true },
     enabled: athleteId.length > 0,
   });
 }
@@ -150,18 +141,22 @@ export function useProfile(athleteId: string) {
 /** Ambassador directory (dark until flags.ambassadorDirectory — design §3.1). */
 export function useAmbassadors() {
   return useQuery({
-    queryKey: queryKeys.profiles("ambassador"),
+    queryKey: queryKeys.profiles("public-ambassador"),
     queryFn: () => request("/v1/profiles?filter=ambassador", ProfilesListResponse),
-    staleTime: 300_000,
+    staleTime: 0,
+    gcTime: 0,
+    meta: { noPersist: true },
   });
 }
 
-/** Full profiles directory — the same endpoint unfiltered returns everyone. */
+/** Full athlete directory — the same endpoint unfiltered returns all cleared people. */
 export function useProfilesAll() {
   return useQuery({
-    queryKey: queryKeys.profiles("all"),
+    queryKey: queryKeys.profiles("public-all"),
     queryFn: () => request("/v1/profiles", ProfilesListResponse),
-    staleTime: 300_000,
+    staleTime: 0,
+    gcTime: 0,
+    meta: { noPersist: true },
   });
 }
 

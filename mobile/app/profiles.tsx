@@ -1,15 +1,18 @@
 /**
  * Profiles directory (demo screen-profiles, design §3.1) — built but DARK:
  * renders a themed "Coming soon" until flags.ambassadorDirectory flips on.
- * 2-col grid of everyone from GET /v1/profiles (no filter → all profiles).
+ * Searchable 2-col grid of publicly cleared athletes from GET /v1/profiles.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -20,7 +23,9 @@ import { AmbassadorBadge } from "@/components/AmbassadorBadge";
 import { Avatar } from "@/components/Avatar";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
-import { schoolMeta } from "@/lib/format";
+import { Sheet } from "@/components/Sheet";
+import { nilSchool, schoolMeta } from "@/lib/format";
+import { athleteFilterOptions, filterAthletes } from "@/lib/athleteDirectory";
 import { athleteParams } from "@/lib/athleteRoute";
 import { goBack } from "@/lib/navigation";
 import { track, useScreenView } from "@/telemetry";
@@ -35,16 +40,27 @@ export default function ProfilesScreen() {
   const { width } = useWindowDimensions();
   const directoryOn = useConfig().data?.flags.ambassadorDirectory === true;
   const profiles = useProfilesAll();
+  const [name, setName] = useState("");
+  const [school, setSchool] = useState("");
+  const [sport, setSport] = useState("");
+  const [picker, setPicker] = useState<"school" | "sport" | null>(null);
+  const athletes = profiles.isError ? [] : profiles.data?.profiles ?? [];
+  const results = filterAthletes(athletes, name, school, sport);
+  const filtered = Boolean(name || school || sport);
+  const options = picker ? athleteFilterOptions(athletes, picker) : [];
   useScreenView("profiles");
 
-  if (!directoryOn) return <ComingSoon title="Profiles" />;
+  if (!directoryOn) return <ComingSoon title="Athletes" />;
 
-  const cardWidth = (width - tokens.spacing.lg * 2 - GRID_GAP) / 2;
+  const cardWidth = Math.floor((width - tokens.spacing.lg * 2 - GRID_GAP) / 2);
 
   return (
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
       <FlatList
-        data={profiles.data?.profiles ?? []}
+        data={results}
+        keyboardShouldPersistTaps="handled"
+        refreshing={profiles.isRefetching}
+        onRefresh={() => void profiles.refetch()}
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={styles.column}
@@ -60,37 +76,91 @@ export default function ProfilesScreen() {
               <Ionicons name="chevron-back" size={22} color={t.text} />
               <Text style={[styles.backLabel, { color: t.text }]}>Back</Text>
             </Pressable>
-            <Text style={[styles.heading, { color: t.text }]}>Profiles</Text>
+            <Text style={[styles.heading, { color: t.text }]}>Athletes</Text>
             <Text style={[styles.sub, { color: t.subtext }]}>Everyone repping NILTV</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Search by name"
+              placeholderTextColor={t.subtext}
+              accessibilityLabel="Search athletes by name"
+              autoCorrect={false}
+              style={[styles.search, { color: t.text, borderColor: t.line, backgroundColor: t.surface }]}
+            />
+            <View style={styles.filters}>
+              {(["school", "sport"] as const).map((field) => (
+                <Pressable
+                  key={field}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter by ${field}`}
+                  onPress={() => setPicker(field)}
+                  style={[styles.filter, { borderColor: t.line, backgroundColor: t.surface }]}
+                >
+                  <Text numberOfLines={2} style={[styles.filterLabel, { color: t.text }]}>
+                    {field === "school" ? (school ? nilSchool(school) : "All schools") : sport || "All sports"}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color={t.subtext} />
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.filters}>
+              <Text style={[styles.count, { color: t.subtext }]}>{results.length} athletes</Text>
+              {filtered ? (
+                <Pressable accessibilityRole="button" onPress={() => { setName(""); setSchool(""); setSport(""); }}>
+                  <Text style={[styles.action, { color: t.accent }]}>Clear filters</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`View ${item.name}'s profile`}
-            onPress={() => {
-              track("card_tap", { athleteId: item.id, from: "profiles_directory" });
-              router.push({ pathname: "/athlete/[id]", params: athleteParams(item) });
-            }}
-            style={({ pressed }) => [
+          <View
+            style={[
               styles.card,
               {
                 width: cardWidth,
                 backgroundColor: t.surface,
                 borderColor: t.line,
-                opacity: pressed ? 0.8 : 1,
               },
             ]}
           >
             <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={62} />
-            <Text numberOfLines={1} style={[styles.name, { color: t.text }]}>
-              {item.name}
-            </Text>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Watch ${item.name}'s videos by name`}
+              onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
+            >
+              <Text numberOfLines={2} style={[styles.name, { color: t.text }]}>{item.name}</Text>
+            </Pressable>
             <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>
               {schoolMeta(item.school, item.sport)}
             </Text>
             {item.isAmbassador ? <AmbassadorBadge size="mini" style={styles.badge} /> : null}
-          </Pressable>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Watch ${item.name}'s videos`}
+              onPress={() => {
+                track("card_tap", { athleteId: item.id, from: "profiles_videos" });
+                router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } });
+              }}
+              style={styles.cardAction}
+            >
+              <Text style={[styles.action, { color: t.accent }]}>Watch videos</Text>
+            </Pressable>
+            {item.profilePublished ? (
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel={`View ${item.name}'s profile`}
+                onPress={() => {
+                  track("card_tap", { athleteId: item.id, from: "profiles_directory" });
+                  router.push({ pathname: "/athlete/[id]", params: athleteParams(item) });
+                }}
+                style={styles.cardAction}
+              >
+                <Text style={[styles.action, { color: t.text }]}>View profile</Text>
+              </Pressable>
+            ) : null}
+          </View>
         )}
         ListEmptyComponent={
           profiles.isPending ? (
@@ -98,10 +168,27 @@ export default function ProfilesScreen() {
           ) : profiles.isError ? (
             <ErrorState onRetry={() => void profiles.refetch()} />
           ) : (
-            <EmptyState message="No profiles yet. Check back soon." />
+            <EmptyState message={filtered ? "No athletes match. Try another name or clear the filters." : "No athletes yet. Check back soon."} />
           )
         }
       />
+      <Sheet visible={picker !== null} onClose={() => setPicker(null)} title={picker === "school" ? "School" : "Sport"}>
+        <ScrollView style={styles.options} keyboardShouldPersistTaps="handled">
+          {["", ...options].map((value) => (
+            <Pressable
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: value === (picker === "school" ? school : sport) }}
+              onPress={() => { if (picker === "school") setSchool(value); else setSport(value); setPicker(null); }}
+              style={styles.option}
+            >
+              <Text style={[styles.filterLabel, { color: t.text }]}>
+                {value ? (picker === "school" ? nilSchool(value) : value) : picker === "school" ? "All schools" : "All sports"}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Sheet>
     </SafeAreaView>
   );
 }
@@ -150,13 +237,27 @@ const styles = StyleSheet.create({
     fontFamily: tokens.font.extrabold,
     fontSize: 14,
     marginTop: tokens.spacing.sm,
+    textAlign: "center",
   },
   meta: {
     fontFamily: tokens.font.regular,
     fontSize: 11,
     marginTop: 2,
+    textAlign: "center",
   },
   badge: {
     marginTop: 9,
   },
+  search: {
+    borderWidth: 1, borderRadius: tokens.radius, padding: tokens.spacing.md,
+    fontFamily: tokens.font.regular, fontSize: 15, marginVertical: tokens.spacing.sm,
+  },
+  filters: { flexDirection: "row", alignItems: "center", gap: GRID_GAP, marginBottom: tokens.spacing.sm },
+  filter: { flex: 1, flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, borderWidth: 1, borderRadius: tokens.radius, padding: tokens.spacing.md },
+  filterLabel: { flex: 1, fontFamily: tokens.font.regular, fontSize: 13 },
+  count: { flex: 1, fontFamily: tokens.font.regular, fontSize: 13 },
+  action: { fontFamily: tokens.font.semibold, fontSize: 13 },
+  cardAction: { minHeight: 44, justifyContent: "center", alignSelf: "stretch", alignItems: "center" },
+  options: { maxHeight: 360 },
+  option: { minHeight: 48, justifyContent: "center", paddingVertical: tokens.spacing.md },
 });
