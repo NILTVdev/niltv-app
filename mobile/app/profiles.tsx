@@ -19,7 +19,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useConfig, useProfilesAll } from "@/api/hooks";
-import { AmbassadorBadge } from "@/components/AmbassadorBadge";
 import { Avatar } from "@/components/Avatar";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
@@ -28,7 +27,7 @@ import { nilSchool } from "@/lib/format";
 import { athleteFilterOptions, filterAthletes } from "@/lib/athleteDirectory";
 import { athleteParams } from "@/lib/athleteRoute";
 import { goBack } from "@/lib/navigation";
-import { track, useScreenView } from "@/telemetry";
+import { useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
 
@@ -124,64 +123,26 @@ export default function ProfilesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <View
-            style={[
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Watch ${item.name}'s videos`}
+            onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
+            style={({ pressed }) => [
               styles.card,
               {
                 width: cardWidth,
-                backgroundColor: t.surface,
+                backgroundColor: pressed ? t.inset : t.surface,
                 borderColor: t.line,
               },
             ]}
           >
             <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={68} />
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel={`Watch ${item.name}'s videos by name`}
-              onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
-              style={styles.nameLink}
-            >
+            <View style={styles.nameLink}>
               <Text numberOfLines={2} style={[styles.name, { color: t.text }]}>{item.name}</Text>
-            </Pressable>
+            </View>
             <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>{nilSchool(item.school)}</Text>
             {item.sport ? <Text numberOfLines={1} style={[styles.sport, { color: t.text }]}>{item.sport}</Text> : null}
-            <View style={styles.badgeSlot}>
-              {item.isAmbassador ? <AmbassadorBadge size="mini" /> : null}
-            </View>
-            <View style={styles.cardActions}>
-              <Pressable
-                accessibilityRole="link"
-                accessibilityLabel={`Watch ${item.name}'s videos`}
-                onPress={() => {
-                  track("card_tap", { athleteId: item.id, from: "profiles_videos" });
-                  router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } });
-                }}
-                style={({ pressed }) => [styles.cardAction, styles.videoAction, {
-                  borderColor: t.accent, backgroundColor: pressed ? t.inset : t.surface,
-                  opacity: pressed ? 0.8 : 1,
-                }]}
-              >
-                <Ionicons name="play" size={14} color={t.accent} />
-                <Text style={[styles.action, { color: t.accent }]}>Watch videos</Text>
-              </Pressable>
-              <View style={styles.profileSlot}>
-                {item.profilePublished ? (
-                  <Pressable
-                    accessibilityRole="link"
-                    accessibilityLabel={`View ${item.name}'s profile`}
-                    onPress={() => {
-                      track("card_tap", { athleteId: item.id, from: "profiles_directory" });
-                      router.push({ pathname: "/athlete/[id]", params: athleteParams(item) });
-                    }}
-                    style={({ pressed }) => [styles.cardAction, { opacity: pressed ? 0.6 : 1 }]}
-                  >
-                    <Text style={[styles.action, { color: t.text }]}>View profile</Text>
-                    <Ionicons name="arrow-forward" size={14} color={t.subtext} />
-                  </Pressable>
-              ) : null}
-            </View>
-            </View>
-          </View>
+          </Pressable>
         )}
         ListEmptyComponent={
           profiles.isPending ? (
