@@ -530,3 +530,65 @@ export const AdminEventAuditResponse = z.object({
   ),
 });
 export type AdminEventAuditResponse = z.infer<typeof AdminEventAuditResponse>;
+
+/* ── Comments & moderation ─────────────────────────────────────────────────────── */
+
+export const COMMENT_MAX_LENGTH = 500;
+
+/** Why a reader is told a comment was reported — stored with the report for staff. */
+export const CommentReportReason = z.enum([
+  "harassment",
+  "hate",
+  "sexual",
+  "violence",
+  "spam",
+  "other",
+]);
+export type CommentReportReason = z.infer<typeof CommentReportReason>;
+
+/**
+ * Comment as readers see it. `pending` is only ever returned to the author
+ * (filter hold, awaiting staff review); other readers never receive it. Removed
+ * and auto-hidden comments are left out of the list entirely.
+ */
+export const Comment = z.object({
+  id: Id,
+  contentId: Id,
+  authorId: Id,
+  authorName: z.string(),
+  body: z.string(),
+  createdAt: IsoDate,
+  status: z.enum(["visible", "pending"]),
+});
+export type Comment = z.infer<typeof Comment>;
+
+/** GET /v1/content/{id}/comments — newest first, cursor-paged. Blocked authors are already filtered out. */
+export const CommentsListResponse = z.object({
+  comments: z.array(Comment),
+  nextCursor: z.string().optional(),
+});
+export type CommentsListResponse = z.infer<typeof CommentsListResponse>;
+
+/** POST /v1/content/{id}/comments */
+export const CommentCreateRequest = z.object({
+  body: z.string().trim().min(1).max(COMMENT_MAX_LENGTH),
+});
+export type CommentCreateRequest = z.infer<typeof CommentCreateRequest>;
+
+/** 201 from POST: the stored comment (status `pending` when the filter held it). */
+export const CommentCreateResponse = z.object({ comment: Comment });
+export type CommentCreateResponse = z.infer<typeof CommentCreateResponse>;
+
+/** POST /v1/comments/{id}/report */
+export const CommentReportRequest = z.object({ reason: CommentReportReason });
+export type CommentReportRequest = z.infer<typeof CommentReportRequest>;
+
+/** GET /v1/me/blocks */
+export const BlockedUser = z.object({ userId: Id, name: z.string() });
+export type BlockedUser = z.infer<typeof BlockedUser>;
+export const BlocksResponse = z.object({ blocks: z.array(BlockedUser) });
+export type BlocksResponse = z.infer<typeof BlocksResponse>;
+
+/** `error` codes the comments routes use inside the standard envelope. */
+export const COMMENT_ERROR_REJECTED = "COMMENT_REJECTED";
+export const COMMENT_ERROR_RATE_LIMITED = "COMMENT_RATE_LIMITED";
