@@ -20,7 +20,7 @@ import {
 } from "../lib/db";
 import { forbidden, json, notFound } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
-import { type Item, resolveThumbUrl, toContentCard } from "../lib/shape";
+import { type Item, isPublicAthlete, resolveThumbUrl, toContentCard } from "../lib/shape";
 
 const CONTENT_LIMIT = 12;
 
@@ -35,7 +35,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const table = process.env.TABLE_NAME ?? "";
 
   const [profileOut, contentOut, entriesOut] = await Promise.all([
-    db.send(new GetCommand({ TableName: table, Key: profileKey(athleteId) })),
+    db.send(new GetCommand({ TableName: table, Key: profileKey(athleteId), ConsistentRead: true })),
     db.send(
       new QueryCommand({
         TableName: table,
@@ -57,7 +57,11 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   ]);
 
   const profile = profileOut.Item as Item | undefined;
-  if (!profile) return notFound();
+  // Channel pseudo-profiles still provide handles/follow targets to the channel screen.
+  const isChannel = athleteId.startsWith("p-");
+  if (!profile || (!isChannel && (!isPublicAthlete(profile) || profile["profilePublished"] !== true))) {
+    return json(404, { error: "NOT_FOUND" }, "no-store");
+  }
 
   // Counters are display, facts are truth (design §5) — but for a profile
   // stat the frozen per-entry counters are exactly the published tallies.
@@ -107,5 +111,5 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       .map((row) => toContentCard({ ...row, thumbUrl: resolveThumbUrl(row) }, channelsById, profilesById))
       .filter((card): card is ContentCard => card !== undefined),
   });
-  return json(200, body, "public, max-age=60");
+  return json(200, body, "no-store");
 };

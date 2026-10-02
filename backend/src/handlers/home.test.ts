@@ -50,7 +50,7 @@ const profileItems = [
     PK: "ATHLETE#ath-marcus", SK: "META", id: "ath-marcus", name: "Marcus Lee",
     school: "Texas", sport: "Track", statuses: ["athlete"],
   },
-];
+].map((profile) => ({ ...profile, publicVisible: true }));
 
 const niltvClip = {
   PK: "CONTENT#c-1", SK: "META", id: "c-1", title: "Camila's audition drops",

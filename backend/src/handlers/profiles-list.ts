@@ -1,24 +1,16 @@
 /**
  * GET /v1/profiles?filter=ambassador — the directory (design §4.1; ships dark
- * behind flags.ambassadorDirectory). One GSI1 PROFILES#ALL query in stored
+ * behind flags.ambassadorDirectory). Reads every GSI1 PROFILES#ALL page in stored
  * order (rank-first, then name); the ambassador filter narrows to
  * ambassador-status profiles ordered by rank.
- *
- * The contract has no dedicated list schema — the response is composed
- * locally from the imported AthleteChip (composing imported schemas is
- * allowed; redeclaring shapes is not).
+ * Only explicitly cleared people appear; the contract lives in @niltv/types.
  */
-import { QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { ApiError, AthleteChip } from "@niltv/types";
+import { ApiError, ProfilesListResponse } from "@niltv/types";
 import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
-import { z } from "zod";
-import { GSI1, PROFILES_ALL_GSI1PK, getDocClient } from "../lib/db";
+import { allProfiles } from "../lib/roster";
 import { forbidden, json } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
-import { directoryChips, type Item } from "../lib/shape";
-
-/** `{ profiles: AthleteChip[] }` — local composition of the imported chip schema. */
-const ProfilesListResponse = z.object({ profiles: z.array(AthleteChip) });
+import { directoryChips } from "../lib/shape";
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // Origin lockdown: only CloudFront (which injects x-origin-verify) may call.
@@ -29,17 +21,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     return json(400, ApiError.parse({ error: "INVALID_PARAM", message: "unsupported filter" }));
   }
 
-  const { Items } = await getDocClient().send(
-    new QueryCommand({
-      TableName: process.env.TABLE_NAME ?? "",
-      IndexName: GSI1,
-      KeyConditionExpression: "GSI1PK = :pk",
-      ExpressionAttributeValues: { ":pk": PROFILES_ALL_GSI1PK },
-    }),
-  );
+  const profiles = await allProfiles(process.env.TABLE_NAME ?? "");
 
   const body = ProfilesListResponse.parse({
-    profiles: directoryChips((Items ?? []) as Item[], filter === "ambassador"),
+    profiles: directoryChips(profiles, filter === "ambassador"),
   });
-  return json(200, body, "public, max-age=300");
+  return json(200, body, "no-store");
 };

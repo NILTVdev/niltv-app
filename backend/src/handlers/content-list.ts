@@ -7,7 +7,7 @@
  * returns only the first dozen). Exactly one of channelId/athleteId is
  * required; limit defaults to 24 and caps at 48 (two grid pages).
  */
-import { BatchGetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiError, type ContentCard, ContentListResponse } from "@niltv/types";
 import type {
   APIGatewayProxyHandlerV2,
@@ -26,7 +26,7 @@ import {
 } from "../lib/db";
 import { forbidden, json } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
-import { decodeCursor, encodeCursor, type Item, resolveThumbUrl, toContentCard } from "../lib/shape";
+import { decodeCursor, encodeCursor, type Item, isPublicAthlete, resolveThumbUrl, toContentCard } from "../lib/shape";
 
 const DEFAULT_LIMIT = 24;
 const MAX_LIMIT = 48;
@@ -59,6 +59,14 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
 
   const db = getDocClient();
   const table = process.env.TABLE_NAME ?? "";
+
+  // Video listings are available for cleared athletes even before a profile is published.
+  if (athleteId) {
+    const { Item: profile } = await db.send(new GetCommand({
+      TableName: table, Key: profileKey(athleteId), ConsistentRead: true,
+    }));
+    if (!profile || !isPublicAthlete(profile)) return json(404, { error: "NOT_FOUND" }, "no-store");
+  }
 
   // Both index partitions are sparse — only published, rights-cleared clips
   // (seed/publish rule) — so this query alone is the published gate for the
@@ -130,5 +138,5 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
       .filter((card): card is ContentCard => card !== undefined),
     ...(cursor !== undefined ? { cursor } : {}),
   });
-  return json(200, body, "public, max-age=60");
+  return json(200, body, athleteId ? "no-store" : "public, max-age=60");
 };

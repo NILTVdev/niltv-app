@@ -303,6 +303,7 @@ describe("directoryChips (/v1/profiles)", () => {
     school: "Duke",
     sport: "Lacrosse",
     statuses,
+    publicVisible: true,
     ...(ambassadorRank !== undefined ? { ambassadorRank } : {}),
   });
 
@@ -328,5 +329,15 @@ describe("directoryChips (/v1/profiles)", () => {
     const chip = directoryChips(rows, false)[0] as Record<string, unknown>;
     expect(chip["PK"]).toBeUndefined();
     expect(chip["GSI1PK"]).toBeUndefined();
+  });
+
+  it("requires explicit clearance for athletes and ambassadors", () => {
+    const hidden = [
+      { ...rows[0], publicVisible: false },
+      { ...rows[1], publicVisible: undefined },
+      { ...rows[2], id: "p-niltv" },
+    ];
+    expect(directoryChips(hidden, false)).toEqual([]);
+    expect(directoryChips(hidden, true)).toEqual([]);
   });
 });

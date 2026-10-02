@@ -164,17 +164,24 @@ const hasAmbassadorStatus = (item: Item): boolean =>
 const rankOf = (item: Item): number =>
   typeof item["ambassadorRank"] === "number" ? item["ambassadorRank"] : Number.MAX_SAFE_INTEGER;
 
+/** Clearance is explicit; channel pseudo-profiles are never directory athletes. */
+export const isPublicAthlete = (item: Item): boolean =>
+  item["publicVisible"] === true &&
+  typeof item["id"] === "string" && !item["id"].startsWith("p-") &&
+  Array.isArray(item["statuses"]) &&
+  (item["statuses"].includes("athlete") || item["statuses"].includes("ambassador"));
+
 /** AthleteChip from a raw profile item (ambassador derived from the status flags). */
 export const toAthleteChip = (item: Item): AthleteChip =>
   AthleteChip.parse({ ...item, isAmbassador: hasAmbassadorStatus(item) });
 
 /**
- * Featured Ambassadors rail: keep profiles whose statuses include
+ * Featured Ambassadors rail: keep cleared profiles whose statuses include
  * `ambassador`, order by ambassadorRank ascending (unranked last), cap at 10.
  */
 export function ambassadorChips(profiles: Item[]): AthleteChip[] {
   return profiles
-    .filter(hasAmbassadorStatus)
+    .filter((item) => isPublicAthlete(item) && hasAmbassadorStatus(item))
     .sort((a, b) => rankOf(a) - rankOf(b))
     .slice(0, 10)
     .map(toAthleteChip);
@@ -182,13 +189,14 @@ export function ambassadorChips(profiles: Item[]): AthleteChip[] {
 
 /**
  * Directory chips for GET /v1/profiles (design §4.1, dark until
- * flags.ambassadorDirectory): every profile in stored GSI order, or — with
+ * flags.ambassadorDirectory): cleared people in stored GSI order, or — with
  * the ambassador filter — only ambassador-status profiles re-sorted by rank
  * ascending, unranked last (stable, so equal ranks keep GSI order).
  */
 export function directoryChips(profiles: Item[], ambassadorsOnly: boolean): AthleteChip[] {
-  const kept = ambassadorsOnly ? profiles.filter(hasAmbassadorStatus).sort((a, b) => rankOf(a) - rankOf(b)) : profiles;
-  return kept.map(toAthleteChip);
+  const publicProfiles = profiles.filter(isPublicAthlete);
+  const kept = ambassadorsOnly ? publicProfiles.filter(hasAmbassadorStatus).sort((a, b) => rankOf(a) - rankOf(b)) : publicProfiles;
+  return kept.map((item) => ({ ...toAthleteChip(item), profilePublished: item["profilePublished"] === true }));
 }
 
 /**

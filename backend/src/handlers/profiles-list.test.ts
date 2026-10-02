@@ -30,6 +30,7 @@ const profileRow = (id: string, name: string, statuses: string[], ambassadorRank
   school: "Duke",
   sport: "Lacrosse",
   statuses,
+  publicVisible: true,
   ...(ambassadorRank !== undefined ? { ambassadorRank } : {}),
 });
 
@@ -59,7 +60,7 @@ describe("GET /v1/profiles handler", () => {
     const res = await invoke({});
 
     expect(res.statusCode).toBe(200);
-    expect(res.headers?.["cache-control"]).toBe("public, max-age=300");
+    expect(res.headers?.["cache-control"]).toBe("no-store");
 
     const query = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;
     expect(query).toMatchObject({
@@ -77,6 +78,7 @@ describe("GET /v1/profiles handler", () => {
       school: "Duke",
       sport: "Lacrosse",
       isAmbassador: true,
+      profilePublished: false,
       ambassadorRank: 1,
     });
     expect(body.profiles[2].isAmbassador).toBe(false);
@@ -98,5 +100,27 @@ describe("GET /v1/profiles handler", () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body ?? "")).toMatchObject({ error: "INVALID_PARAM" });
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("excludes uncleared athletes and channel profiles, and exposes published profile links", async () => {
+    sendMock.mockResolvedValueOnce({ Items: [
+      { ...storedRows[0], profilePublished: true },
+      { ...storedRows[1], publicVisible: false },
+      { ...storedRows[2], publicVisible: undefined },
+      { ...storedRows[3], id: "p-niltv" },
+    ] });
+    const res = await invoke();
+    expect(JSON.parse(res.body ?? "").profiles).toEqual([
+      expect.objectContaining({ id: "ath-maya", profilePublished: true }),
+    ]);
+  });
+
+  it("reads all DynamoDB pages so later athletes are searchable", async () => {
+    const lastKey = { PK: "ATHLETE#ath-maya", SK: "META" };
+    sendMock.mockResolvedValueOnce({ Items: [storedRows[0]], LastEvaluatedKey: lastKey })
+      .mockResolvedValueOnce({ Items: [storedRows[3]] });
+    const res = await invoke();
+    expect(JSON.parse(res.body ?? "").profiles.map((p: { id: string }) => p.id)).toEqual(["ath-maya", "ath-marcus"]);
+    expect(sendMock.mock.calls[1]?.[0].input.ExclusiveStartKey).toEqual(lastKey);
   });
 });

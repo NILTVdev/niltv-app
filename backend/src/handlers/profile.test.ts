@@ -33,6 +33,8 @@ const profileItem = {
   school: "Duke",
   sport: "Lacrosse",
   bio: "Two-time All-American.",
+  publicVisible: true,
+  profilePublished: true,
   statuses: ["athlete", "ambassador"],
   ambassadorRank: 2,
   followers: 184_000,
@@ -105,7 +107,7 @@ describe("GET /v1/profiles/{athleteId} handler", () => {
     const res = await invoke(profileEvent());
 
     expect(res.statusCode).toBe(200);
-    expect(res.headers?.["cache-control"]).toBe("public, max-age=60");
+    expect(res.headers?.["cache-control"]).toBe("no-store");
 
     // The content query runs on GSI2 newest-first, capped at 12.
     const contentQuery = (sendMock.mock.calls[1]?.[0] as { input: Record<string, unknown> }).input;
@@ -155,5 +157,25 @@ describe("GET /v1/profiles/{athleteId} handler", () => {
     expect(body.content).toEqual([]);
     // No channels to resolve → no BatchGet.
     expect(sendMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves channel pseudo-profile reads used by the channel screen", async () => {
+    sendMock.mockResolvedValueOnce({ Item: { ...profileItem, id: "p-niltv", publicVisible: false, profilePublished: false } })
+      .mockResolvedValueOnce({ Items: [] }).mockResolvedValueOnce({ Items: [] });
+    expect((await invoke(profileEvent("p-niltv"))).statusCode).toBe(200);
+  });
+
+  it.each([
+    { publicVisible: false, profilePublished: true },
+    { publicVisible: undefined, profilePublished: true },
+    { publicVisible: true, profilePublished: false },
+    { publicVisible: true, profilePublished: undefined },
+  ])("rejects an uncleared or unpublished direct profile URL: %j", async (flags) => {
+    sendMock.mockResolvedValueOnce({ Item: { ...profileItem, ...flags } })
+      .mockResolvedValueOnce({ Items: [] }).mockResolvedValueOnce({ Items: [] });
+    const res = await invoke(profileEvent());
+    expect(res.statusCode).toBe(404);
+    expect(res.headers?.["cache-control"]).toBe("no-store");
+    expect(JSON.parse(res.body ?? "")).toEqual({ error: "NOT_FOUND" });
   });
 });

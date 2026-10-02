@@ -57,6 +57,8 @@ describe("POST /admin/profiles — create", () => {
       followers: 0,
       totalViews: 0,
       claimedBy: null,
+      publicVisible: false,
+      profilePublished: false,
     });
 
     const put = (sendMock.mock.calls[0]?.[0] as { input: Record<string, any> }).input;
@@ -115,6 +117,8 @@ describe("POST /admin/profiles — update", () => {
     claimedBy: "u-9",
     socials: [],
     brands: ["Nike"],
+    publicVisible: true,
+    profilePublished: true,
   };
 
   it("preserves followers/totalViews/claimedBy (and media URLs) across an update", async () => {
@@ -143,6 +147,8 @@ describe("POST /admin/profiles — update", () => {
       claimedBy: "u-9",
       avatarUrl: "https://cdn/avatar.jpg",
       brands: ["Nike"], // omitted in the request → preserved
+      publicVisible: true,
+      profilePublished: true,
     });
 
     const put = (sendMock.mock.calls[1]?.[0] as { input: Record<string, any> }).input;
@@ -182,5 +188,16 @@ describe("POST /admin/profiles — update", () => {
     );
     expect(res.statusCode).toBe(404);
     expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("can revoke clearance and unpublish a profile", async () => {
+    sendMock.mockResolvedValueOnce({ Item: existingRow }).mockResolvedValueOnce({});
+    const res = await invoke(upsertEvent({
+      id: existingRow.id, name: existingRow.name, handle: existingRow.handle,
+      school: existingRow.school, sport: existingRow.sport,
+      publicVisible: false, profilePublished: false,
+    }));
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body ?? "")).toMatchObject({ publicVisible: false, profilePublished: false });
   });
 });

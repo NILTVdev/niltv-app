@@ -49,6 +49,7 @@ const profileItem = {
   school: "Duke",
   sport: "Lacrosse",
   statuses: ["athlete", "ambassador"],
+  publicVisible: true,
 };
 
 describe("GET /v1/content handler", () => {
@@ -81,13 +82,14 @@ describe("GET /v1/content handler", () => {
 
   it("pages a creator's clips via GSI2 and resolves channels from the rows", async () => {
     sendMock
+      .mockResolvedValueOnce({ Item: { ...profileItem, profilePublished: false } })
       .mockResolvedValueOnce({ Items: [contentRow("c-1", "2026-07-13T12:00:00Z")] })
       .mockResolvedValueOnce({ Responses: { "niltv-test": [channelItem, profileItem] } });
 
     const res = await invoke(listEvent({ athleteId: "ath-camila" }));
     expect(res.statusCode).toBe(200);
 
-    const query = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;
+    const query = (sendMock.mock.calls[1]?.[0] as { input: Record<string, unknown> }).input;
     expect(query).toMatchObject({
       IndexName: "GSI2",
       KeyConditionExpression: "GSI2PK = :pk",
@@ -97,7 +99,7 @@ describe("GET /v1/content handler", () => {
 
     // A creator's clips can span channels — the channel key must come from the
     // row, not from a channelId param (there is none on this path).
-    const batch = (sendMock.mock.calls[1]?.[0] as { input: Record<string, unknown> }).input;
+    const batch = (sendMock.mock.calls[2]?.[0] as { input: Record<string, unknown> }).input;
     const keys = (batch["RequestItems"] as Record<string, { Keys: unknown[] }>)["niltv-test"]!.Keys;
     expect(keys).toEqual(
       expect.arrayContaining([
@@ -109,6 +111,14 @@ describe("GET /v1/content handler", () => {
     const body = JSON.parse(res.body ?? "");
     expect(body.items).toHaveLength(1);
     expect(body.items[0]).toMatchObject({ channelName: "NIL TV", creatorName: "Camila Garza" });
+    expect(res.headers?.["cache-control"]).toBe("no-store");
+  });
+
+  it.each([false, undefined])("rejects direct athlete-video URLs without clearance: %s", async (publicVisible) => {
+    sendMock.mockResolvedValueOnce({ Item: { ...profileItem, publicVisible } });
+    const res = await invoke(listEvent({ athleteId: "ath-camila" }));
+    expect(res.statusCode).toBe(404);
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns 400 for a non-numeric or non-positive limit", async () => {

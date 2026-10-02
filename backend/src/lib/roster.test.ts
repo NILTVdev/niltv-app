@@ -52,4 +52,12 @@ describe("roster sync", () => {
   it("skips rows without a handle", () => {
     expect(profileFromAmbassador({ ...amb, ig_username: null }, undefined, "2026-09-10T00:00:00Z")).toBeUndefined();
   });
+
+  it("never infers clearance from roster confirmation, and preserves staff publication decisions", () => {
+    expect(profileFromAmbassador(amb, undefined, "2026-09-10T00:00:00Z")?.["publicVisible"]).not.toBe(true);
+    const row = profileFromAmbassador(amb, {
+      id: "ath-sam", publicVisible: true, profilePublished: true,
+    }, "2026-09-10T00:00:00Z");
+    expect(row).toMatchObject({ publicVisible: true, profilePublished: true });
+  });
 });
