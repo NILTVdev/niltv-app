@@ -26,6 +26,14 @@ the operator's view of the enrichment pass.
 
 ## What the pass derives
 
+The athlete directory requires explicit staff clearance: set `publicVisible` using
+**Cleared to appear publicly** in Admin → Profiles. Missing or false means hidden;
+roster confirmation never grants clearance. **Publish profile** independently sets
+`profilePublished`; cleared athletes can link to their videos while their profile
+is unpublished. Roster imports preserve both staff decisions. Deploy the API and
+admin changes together, review existing athletes, then enable the existing
+`flags.ambassadorDirectory` flag to expose the directory in the app.
+
 | Field | From | Confidence |
 |---|---|---|
 | title, description, summary, keywords | caption cleanup (handles, hashtags, emoji stripped; first sentence; word-boundary cap) | deterministic |

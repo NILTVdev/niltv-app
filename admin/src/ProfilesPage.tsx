@@ -12,6 +12,8 @@ type ProfileForm = {
   bio: string;
   athlete: boolean;
   ambassador: boolean;
+  publicVisible: boolean;
+  profilePublished: boolean;
   rank: string;
   /** carried through on edit so an upsert doesn't wipe fields this form doesn't cover */
   socials?: Profile["socials"];
@@ -26,6 +28,8 @@ const EMPTY: ProfileForm = {
   bio: "",
   athlete: true,
   ambassador: false,
+  publicVisible: false,
+  profilePublished: false,
   rank: "",
 };
 
@@ -47,6 +51,8 @@ export function ProfilesPage() {
         school: f.school,
         sport: f.sport,
         bio: f.bio || undefined,
+        publicVisible: f.publicVisible,
+        profilePublished: f.profilePublished,
         statuses: [
           ...(f.athlete ? (["athlete"] as const) : []),
           ...(f.ambassador ? (["ambassador"] as const) : []),
@@ -69,6 +75,8 @@ export function ProfilesPage() {
       school: p.school,
       sport: p.sport,
       bio: p.bio,
+      publicVisible: p.publicVisible === true,
+      profilePublished: p.profilePublished === true,
       athlete: p.statuses.includes("athlete"),
       ambassador: p.statuses.includes("ambassador"),
       rank: p.ambassadorRank ? String(p.ambassadorRank) : "",
@@ -101,13 +109,14 @@ export function ProfilesPage() {
               <th>Sport</th>
               <th>Statuses</th>
               <th>Rank</th>
+              <th>Public</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={6} className="empty">
+                <td colSpan={7} className="empty">
                   No profiles yet — create the first one below.
                 </td>
               </tr>
@@ -121,6 +130,7 @@ export function ProfilesPage() {
                 <td>{p.sport}</td>
                 <td>{p.statuses.join(", ") || "—"}</td>
                 <td>{p.ambassadorRank ?? "—"}</td>
+                <td>{p.publicVisible ? (p.profilePublished ? "Profile published" : "Videos only") : "Hidden"}</td>
                 <td>
                   <button
                     className="btn"
@@ -182,6 +192,22 @@ export function ProfilesPage() {
         <label className="field">
           <span>Bio</span>
           <textarea rows={3} value={form.bio} onChange={(e) => set({ bio: e.target.value })} />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.publicVisible}
+            onChange={(e) => set({ publicVisible: e.target.checked })}
+          />
+          Cleared to appear publicly
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.profilePublished}
+            onChange={(e) => set({ profilePublished: e.target.checked })}
+          />
+          Publish profile (requires public clearance)
         </label>
         <label className="check">
           <input
