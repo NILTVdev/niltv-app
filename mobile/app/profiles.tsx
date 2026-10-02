@@ -58,6 +58,7 @@ export default function ProfilesScreen() {
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
       <FlatList
         data={results}
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshing={profiles.isRefetching}
         onRefresh={() => void profiles.refetch()}
@@ -78,15 +79,18 @@ export default function ProfilesScreen() {
             </Pressable>
             <Text style={[styles.heading, { color: t.text }]}>Athletes</Text>
             <Text style={[styles.sub, { color: t.subtext }]}>Everyone repping NILTV</Text>
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Search by name"
-              placeholderTextColor={t.subtext}
-              accessibilityLabel="Search athletes by name"
-              autoCorrect={false}
-              style={[styles.search, { color: t.text, borderColor: t.line, backgroundColor: t.surface }]}
-            />
+            <View style={[styles.searchBox, { borderColor: t.line, backgroundColor: t.surface }]}>
+              <Ionicons name="search-outline" size={18} color={t.subtext} />
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="Search by name"
+                placeholderTextColor={t.subtext}
+                accessibilityLabel="Search athletes by name"
+                autoCorrect={false}
+                style={[styles.search, { color: t.text }]}
+              />
+            </View>
             <View style={styles.filters}>
               {(["school", "sport"] as const).map((field) => (
                 <Pressable
@@ -94,19 +98,25 @@ export default function ProfilesScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Filter by ${field}`}
                   onPress={() => setPicker(field)}
-                  style={[styles.filter, { borderColor: t.line, backgroundColor: t.surface }]}
+                  style={({ pressed }) => [styles.filter, {
+                    borderColor: (field === "school" ? school : sport) ? t.accent : t.line,
+                    backgroundColor: pressed ? t.inset : t.surface,
+                  }]}
                 >
-                  <Text numberOfLines={2} style={[styles.filterLabel, { color: t.text }]}>
-                    {field === "school" ? (school ? nilSchool(school) : "All schools") : sport || "All sports"}
-                  </Text>
+                  <View style={styles.filterCopy}>
+                    <Text style={[styles.filterCaption, { color: t.subtext }]}>{field === "school" ? "School" : "Sport"}</Text>
+                    <Text numberOfLines={2} style={[styles.filterLabel, { color: t.text }]}>
+                      {field === "school" ? (school ? nilSchool(school) : "All schools") : sport || "All sports"}
+                    </Text>
+                  </View>
                   <Ionicons name="chevron-down" size={16} color={t.subtext} />
                 </Pressable>
               ))}
             </View>
-            <View style={styles.filters}>
-              <Text style={[styles.count, { color: t.subtext }]}>{results.length} athletes</Text>
+            <View style={styles.resultsRow}>
+              <Text style={[styles.count, { color: t.subtext }]}>{results.length} {results.length === 1 ? "athlete" : "athletes"}</Text>
               {filtered ? (
-                <Pressable accessibilityRole="button" onPress={() => { setName(""); setSchool(""); setSport(""); }}>
+                <Pressable accessibilityRole="button" style={styles.clearFilters} onPress={() => { setName(""); setSchool(""); setSport(""); }}>
                   <Text style={[styles.action, { color: t.accent }]}>Clear filters</Text>
                 </Pressable>
               ) : null}
@@ -180,11 +190,12 @@ export default function ProfilesScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: value === (picker === "school" ? school : sport) }}
               onPress={() => { if (picker === "school") setSchool(value); else setSport(value); setPicker(null); }}
-              style={styles.option}
+              style={({ pressed }) => [styles.option, { borderColor: t.line, backgroundColor: pressed ? t.inset : t.surface }]}
             >
               <Text style={[styles.filterLabel, { color: t.text }]}>
                 {value ? (picker === "school" ? nilSchool(value) : value) : picker === "school" ? "All schools" : "All sports"}
               </Text>
+              {value === (picker === "school" ? school : sport) ? <Ionicons name="checkmark" size={18} color={t.accent} /> : null}
             </Pressable>
           ))}
         </ScrollView>
@@ -218,13 +229,13 @@ const styles = StyleSheet.create({
   },
   heading: {
     fontFamily: tokens.font.extrabold,
-    fontSize: 22,
+    fontSize: tokens.text.screen,
   },
   sub: {
     fontFamily: tokens.font.regular,
     fontSize: 13,
     marginTop: 2,
-    marginBottom: tokens.spacing.sm,
+    marginBottom: tokens.spacing.md,
   },
   card: {
     alignItems: "center",
@@ -248,16 +259,18 @@ const styles = StyleSheet.create({
   badge: {
     marginTop: 9,
   },
-  search: {
-    borderWidth: 1, borderRadius: tokens.radius, padding: tokens.spacing.md,
-    fontFamily: tokens.font.regular, fontSize: 15, marginVertical: tokens.spacing.sm,
-  },
+  searchBox: { flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, borderWidth: 1, borderRadius: tokens.radius, paddingHorizontal: tokens.spacing.md, marginBottom: tokens.spacing.md },
+  search: { flex: 1, minHeight: 48, paddingVertical: tokens.spacing.md, fontFamily: tokens.font.regular, fontSize: tokens.text.body },
   filters: { flexDirection: "row", alignItems: "center", gap: GRID_GAP, marginBottom: tokens.spacing.sm },
-  filter: { flex: 1, flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, borderWidth: 1, borderRadius: tokens.radius, padding: tokens.spacing.md },
+  filter: { flex: 1, flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, borderWidth: 1, borderRadius: tokens.radius, padding: tokens.spacing.md, minHeight: 64 },
+  filterCopy: { flex: 1, gap: tokens.spacing.xs },
+  filterCaption: { fontFamily: tokens.font.semibold, fontSize: tokens.text.label },
   filterLabel: { flex: 1, fontFamily: tokens.font.regular, fontSize: 13 },
+  resultsRow: { flexDirection: "row", alignItems: "center", minHeight: 44, marginBottom: tokens.spacing.xs },
+  clearFilters: { minHeight: 44, justifyContent: "center", paddingHorizontal: tokens.spacing.xs },
   count: { flex: 1, fontFamily: tokens.font.regular, fontSize: 13 },
   action: { fontFamily: tokens.font.semibold, fontSize: 13 },
   cardAction: { minHeight: 44, justifyContent: "center", alignSelf: "stretch", alignItems: "center" },
   options: { maxHeight: 360 },
-  option: { minHeight: 48, justifyContent: "center", paddingVertical: tokens.spacing.md },
+  option: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, paddingVertical: tokens.spacing.md, paddingHorizontal: tokens.spacing.xs, borderBottomWidth: 1 },
 });
