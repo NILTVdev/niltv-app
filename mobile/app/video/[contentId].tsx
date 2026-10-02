@@ -52,6 +52,7 @@ import {
 import { requireAuth } from "@/auth/store";
 import { AmbassadorBadge } from "@/components/AmbassadorBadge";
 import { Avatar } from "@/components/Avatar";
+import { CommentsSheet } from "@/components/CommentsSheet";
 import { channelIdForProfile, channelLogo } from "@/components/Brand";
 import { formatCount, nilSchool } from "@/lib/format";
 import { hapticImpact, hapticSelect } from "@/lib/haptics";
@@ -189,6 +190,7 @@ function FeedPage({
 
   const [posterHidden, setPosterHidden] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [playerFailed, setPlayerFailed] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -520,9 +522,18 @@ function FeedPage({
             caption={data ? formatCount(data.likes) : undefined}
             onPress={toggleLike}
           />
+          <RailButton
+            icon="chatbubble-outline"
+            label="Comments"
+            onPress={() => {
+              track("comments_open", { contentId: card.id });
+              setCommentsOpen(true);
+            }}
+          />
           <RailButton icon="share-outline" label="Share" onPress={share} />
         </View>
       </LinearGradient>
+      <CommentsSheet contentId={card.id} visible={commentsOpen} onClose={() => setCommentsOpen(false)} />
     </View>
   );
 }

@@ -104,7 +104,7 @@ function SignedInProfile() {
   function confirmDelete() {
     Alert.alert(
       "Delete your account?",
-      "This permanently removes your profile, follows and notification settings. " +
+      "This permanently removes your profile, follows, comments and notification settings. " +
         "Votes you've cast stay in contest tallies, anonymized, per the Official Rules.",
       [
         { text: "Cancel", style: "cancel" },
@@ -175,6 +175,8 @@ function SignedInProfile() {
       {/* Official Rules row returns once the rules page exists on niltv.com
           (required before any vote opens and before App Review).
           No vote is scheduled. */}
+      <Row icon="ban-outline" label="Blocked users" onPress={() => router.push("/blocked-users")} />
+
       <Row icon="log-out-outline" label="Sign out" onPress={() => void signOutAction()} />
 
       <Row icon="trash-outline" label="Delete account" danger onPress={confirmDelete} />
