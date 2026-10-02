@@ -11,5 +11,7 @@ export const queryKeys = {
   profile: (id: string) => ["profiles", "detail", id] as const,
   /** profiles directory — `filter` is the query-string filter ("ambassador") or "all" */
   profiles: (filter: string) => ["profiles", "list", filter] as const,
+  comments: (contentId: string) => ["comments", contentId] as const,
+  blocks: ["blocks"] as const,
   me: ["me"] as const,
 };

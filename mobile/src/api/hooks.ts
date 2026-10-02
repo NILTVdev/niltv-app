@@ -1,7 +1,11 @@
 import {
   AckResponse,
   AthleteChip,
+  BlocksResponse,
   ChannelsResponse,
+  CommentCreateResponse,
+  type CommentReportReason,
+  CommentsListResponse,
   ConfigResponse,
   ContentDetailResponse,
   ContentListResponse,
@@ -16,7 +20,7 @@ import {
   ProfileResponse,
   VoteResponse,
 } from "@niltv/types";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuthStore } from "@/auth/store";
 import { track } from "@/telemetry";
@@ -404,4 +408,106 @@ export function useVote() {
       void qc.invalidateQueries({ queryKey: queryKeys.event(eventId) });
     },
   });
+}
+
+/* ── Comments & moderation ─────────────────────────────────────────────────────── */
+
+/** Comments on a clip, newest first, cursor-paged. Only fetched while the sheet is open. */
+export function useComments(contentId: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.comments(contentId),
+    queryFn: ({ pageParam }) =>
+      request(
+        `/v1/content/${contentId}/comments${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ""}`,
+        CommentsListResponse,
+      ),
+    initialPageParam: "",
+    getNextPageParam: (last) => last.nextCursor,
+    staleTime: 15_000,
+    enabled: enabled && contentId.length > 0,
+  });
+}
+
+/**
+ * POST a comment. Not optimistic: the filter may reject or hold it, so the
+ * list only changes once the server's answer (visible or pending) is in.
+ */
+export function usePostComment(contentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) =>
+      request(`/v1/content/${contentId}/comments`, CommentCreateResponse, {
+        method: "POST",
+        body: { body },
+        auth: true,
+      }),
+    onSuccess: (data) => {
+      track("comment_post", { status: data.comment.status });
+      return qc.invalidateQueries({ queryKey: queryKeys.comments(contentId) });
+    },
+  });
+}
+
+/**
+ * Report a comment. The reporter's own view drops it at once (the server
+ * also stops returning it to them), so the cached pages are filtered locally.
+ */
+export function useReportComment(contentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ commentId, reason }: { commentId: string; reason: CommentReportReason }) =>
+      request(`/v1/comments/${commentId}/report`, AckResponse, {
+        method: "POST",
+        body: { reason },
+        auth: true,
+      }),
+    onSuccess: (_data, { commentId, reason }) => {
+      track("comment_report", { reason });
+      qc.setQueryData<InfiniteData<CommentsListResponse>>(queryKeys.comments(contentId), (old) =>
+        old
+          ? {
+              ...old,
+              pages: old.pages.map((p) => ({
+                ...p,
+                comments: p.comments.filter((c) => c.id !== commentId),
+              })),
+            }
+          : old,
+      );
+    },
+  });
+}
+
+export function useBlocks(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.blocks,
+    queryFn: () => request("/v1/me/blocks", BlocksResponse, { auth: true }),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+/** PUT/DELETE /v1/me/blocks/{userId}. Comment lists are server-filtered, so every list refetches. */
+function useBlockMutation(block: boolean) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      request(`/v1/me/blocks/${userId}`, AckResponse, {
+        method: block ? "PUT" : "DELETE",
+        auth: true,
+      }),
+    onSuccess: () => {
+      track(block ? "user_block" : "user_unblock", {});
+      void qc.invalidateQueries({ queryKey: queryKeys.blocks });
+      void qc.invalidateQueries({ queryKey: ["comments"] });
+    },
+  });
+}
+
+export function useBlockUser() {
+  return useBlockMutation(true);
+}
+
+export function useUnblockUser() {
+  return useBlockMutation(false);
 }
