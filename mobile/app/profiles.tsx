@@ -24,7 +24,7 @@ import { Avatar } from "@/components/Avatar";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { Sheet } from "@/components/Sheet";
-import { nilSchool, schoolMeta } from "@/lib/format";
+import { nilSchool } from "@/lib/format";
 import { athleteFilterOptions, filterAthletes } from "@/lib/athleteDirectory";
 import { athleteParams } from "@/lib/athleteRoute";
 import { goBack } from "@/lib/navigation";
@@ -119,8 +119,8 @@ export default function ProfilesScreen() {
                 <Pressable accessibilityRole="button" style={styles.clearFilters} onPress={() => { setName(""); setSchool(""); setSport(""); }}>
                   <Text style={[styles.action, { color: t.accent }]}>Clear filters</Text>
                 </Pressable>
-              ) : null}
-            </View>
+                ) : null}
+              </View>
           </View>
         }
         renderItem={({ item }) => (
@@ -134,42 +134,53 @@ export default function ProfilesScreen() {
               },
             ]}
           >
-            <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={62} />
+            <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={68} />
             <Pressable
               accessibilityRole="link"
               accessibilityLabel={`Watch ${item.name}'s videos by name`}
               onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
+              style={styles.nameLink}
             >
               <Text numberOfLines={2} style={[styles.name, { color: t.text }]}>{item.name}</Text>
             </Pressable>
-            <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>
-              {schoolMeta(item.school, item.sport)}
-            </Text>
-            {item.isAmbassador ? <AmbassadorBadge size="mini" style={styles.badge} /> : null}
-            <Pressable
-              accessibilityRole="link"
-              accessibilityLabel={`Watch ${item.name}'s videos`}
-              onPress={() => {
-                track("card_tap", { athleteId: item.id, from: "profiles_videos" });
-                router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } });
-              }}
-              style={styles.cardAction}
-            >
-              <Text style={[styles.action, { color: t.accent }]}>Watch videos</Text>
-            </Pressable>
-            {item.profilePublished ? (
+            <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>{nilSchool(item.school)}</Text>
+            {item.sport ? <Text numberOfLines={1} style={[styles.sport, { color: t.text }]}>{item.sport}</Text> : null}
+            <View style={styles.badgeSlot}>
+              {item.isAmbassador ? <AmbassadorBadge size="mini" /> : null}
+            </View>
+            <View style={styles.cardActions}>
               <Pressable
                 accessibilityRole="link"
-                accessibilityLabel={`View ${item.name}'s profile`}
+                accessibilityLabel={`Watch ${item.name}'s videos`}
                 onPress={() => {
-                  track("card_tap", { athleteId: item.id, from: "profiles_directory" });
-                  router.push({ pathname: "/athlete/[id]", params: athleteParams(item) });
+                  track("card_tap", { athleteId: item.id, from: "profiles_videos" });
+                  router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } });
                 }}
-                style={styles.cardAction}
+                style={({ pressed }) => [styles.cardAction, styles.videoAction, {
+                  borderColor: t.accent, backgroundColor: pressed ? t.inset : t.surface,
+                  opacity: pressed ? 0.8 : 1,
+                }]}
               >
-                <Text style={[styles.action, { color: t.text }]}>View profile</Text>
+                <Ionicons name="play" size={14} color={t.accent} />
+                <Text style={[styles.action, { color: t.accent }]}>Watch videos</Text>
               </Pressable>
-            ) : null}
+              <View style={styles.profileSlot}>
+                {item.profilePublished ? (
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={`View ${item.name}'s profile`}
+                    onPress={() => {
+                      track("card_tap", { athleteId: item.id, from: "profiles_directory" });
+                      router.push({ pathname: "/athlete/[id]", params: athleteParams(item) });
+                    }}
+                    style={({ pressed }) => [styles.cardAction, { opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Text style={[styles.action, { color: t.text }]}>View profile</Text>
+                    <Ionicons name="arrow-forward" size={14} color={t.subtext} />
+                  </Pressable>
+              ) : null}
+            </View>
+            </View>
           </View>
         )}
         ListEmptyComponent={
@@ -241,24 +252,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderRadius: tokens.radius,
-    paddingVertical: 14,
+    paddingTop: tokens.spacing.lg,
+    paddingBottom: tokens.spacing.sm,
     paddingHorizontal: tokens.spacing.md,
   },
   name: {
-    fontFamily: tokens.font.extrabold,
-    fontSize: 14,
-    marginTop: tokens.spacing.sm,
+    fontFamily: tokens.font.semibold,
+    fontSize: tokens.text.body,
+    lineHeight: 20,
     textAlign: "center",
   },
   meta: {
     fontFamily: tokens.font.regular,
     fontSize: 11,
+    lineHeight: 16,
+    minHeight: 32,
     marginTop: 2,
     textAlign: "center",
   },
-  badge: {
-    marginTop: 9,
-  },
+  nameLink: { alignSelf: "stretch", minHeight: 44, justifyContent: "center", marginTop: tokens.spacing.sm },
+  sport: { fontFamily: tokens.font.semibold, fontSize: tokens.text.label, marginTop: tokens.spacing.xs, textAlign: "center" },
+  badgeSlot: { minHeight: 24, justifyContent: "center", marginTop: tokens.spacing.xs },
+  cardActions: { alignSelf: "stretch", marginTop: "auto", paddingTop: tokens.spacing.sm },
+  videoAction: { borderWidth: 1, borderRadius: tokens.radius },
+  profileSlot: { minHeight: 44 },
   searchBox: { flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, borderWidth: 1, borderRadius: tokens.radius, paddingHorizontal: tokens.spacing.md, marginBottom: tokens.spacing.md },
   search: { flex: 1, minHeight: 48, paddingVertical: tokens.spacing.md, fontFamily: tokens.font.regular, fontSize: tokens.text.body },
   filters: { flexDirection: "row", alignItems: "center", gap: GRID_GAP, marginBottom: tokens.spacing.sm },
@@ -270,7 +287,7 @@ const styles = StyleSheet.create({
   clearFilters: { minHeight: 44, justifyContent: "center", paddingHorizontal: tokens.spacing.xs },
   count: { flex: 1, fontFamily: tokens.font.regular, fontSize: 13 },
   action: { fontFamily: tokens.font.semibold, fontSize: 13 },
-  cardAction: { minHeight: 44, justifyContent: "center", alignSelf: "stretch", alignItems: "center" },
+  cardAction: { flexDirection: "row", gap: tokens.spacing.xs, minHeight: 44, justifyContent: "center", alignSelf: "stretch", alignItems: "center" },
   options: { maxHeight: 360 },
   option: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: tokens.spacing.sm, paddingVertical: tokens.spacing.md, paddingHorizontal: tokens.spacing.xs, borderBottomWidth: 1 },
 });
