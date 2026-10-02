@@ -54,10 +54,14 @@ export const AthleteChip = z.object({
   school: z.string(),
   sport: z.string(),
   avatarUrl: z.string().optional(),
+  profilePublished: z.boolean().optional(),
   isAmbassador: z.boolean(),
   ambassadorRank: z.number().int().positive().optional(),
 });
 export type AthleteChip = z.infer<typeof AthleteChip>;
+
+export const ProfilesListResponse = z.object({ profiles: z.array(AthleteChip) });
+export type ProfilesListResponse = z.infer<typeof ProfilesListResponse>;
 
 export const EventCard = z.object({
   id: Id,
@@ -451,6 +455,8 @@ export const AdminProfileUpsertRequest = z.object({
   school: z.string(),
   sport: z.string(),
   bio: z.string().optional(),
+  publicVisible: z.boolean().optional(),
+  profilePublished: z.boolean().optional(),
   statuses: z.array(ProfileStatus).optional(),
   ambassadorRank: z.number().int().positive().optional(),
   socials: z.array(z.object({ platform: z.string(), url: z.string() })).optional(),

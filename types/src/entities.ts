@@ -63,6 +63,10 @@ export const Profile = z.object({
   school: z.string(),
   sport: z.string(),
   bio: z.string().default(""),
+  /** Staff clearance for appearing in the public athlete directory. Missing means hidden. */
+  publicVisible: z.boolean().optional(),
+  /** Publish the full profile independently of the athlete's video listing. */
+  profilePublished: z.boolean().optional(),
   statuses: z.array(ProfileStatus).default(["athlete"]),
   /** this month's ambassador leaderboard rank, when flagged (post-MVP UI reads it) */
   ambassadorRank: z.number().int().positive().optional(),
