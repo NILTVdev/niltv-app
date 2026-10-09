@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAthleteRecentVideos } from "@/api/hooks";
+import { athleteVideoRoute, recentAthleteVideos } from "@/lib/athleteRecentVideos";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
 
@@ -13,19 +14,16 @@ export function AthleteRecentVideos({ athleteId, name }: { athleteId: string; na
   const router = useRouter();
   const videos = useAthleteRecentVideos(athleteId);
   // A failed or revoked listing must never keep showing cached thumbnails.
-  const clips = videos.isError ? [] : videos.data?.items.slice(0, 3) ?? [];
+  const clips = recentAthleteVideos(videos.data?.items, athleteId, videos.isError);
 
   return (
-    <View style={styles.row}>
+    <View pointerEvents="box-none" style={styles.row}>
       {clips.map((clip) => (
         <Pressable
           key={clip.id}
           accessibilityRole="link"
           accessibilityLabel={`Watch ${clip.title} by ${name}`}
-          onPress={() => router.push({
-            pathname: "/video/[contentId]",
-            params: { contentId: clip.id, profileId: athleteId },
-          })}
+          onPress={() => router.push(athleteVideoRoute(clip.id, athleteId))}
           style={({ pressed }) => [styles.thumbnail, {
             backgroundColor: t.inset,
             opacity: pressed ? 0.65 : 1,
@@ -40,7 +38,7 @@ export function AthleteRecentVideos({ athleteId, name }: { athleteId: string; na
         </Pressable>
       ))}
       {Array.from({ length: 3 - clips.length }, (_, index) => (
-        <View key={`blank-${index}`} style={styles.blank} />
+        <View pointerEvents="none" key={`blank-${index}`} style={styles.blank} />
       ))}
     </View>
   );
