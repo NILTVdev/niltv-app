@@ -147,6 +147,55 @@ export const notifFollowKey = (
   SK: `${NOTIF_SK_PREFIX}${targetType}#${targetId}`,
 });
 
+/** COMMENT#{id} / META — a comment on a clip (list via GSI1, staff queue via GSI2). */
+export const commentKey = (id: string): TableKey => ({ PK: `COMMENT#${id}`, SK: "META" });
+
+/** COMMENT#{id} / REPORT#{reporterId} — one report per distinct reporter. */
+export const commentReportKey = (id: string, reporterId: string): TableKey => ({
+  PK: `COMMENT#${id}`,
+  SK: `REPORT#${reporterId}`,
+});
+
+/** USER#{id} / COMMENT#{commentId} — pointer so account deletion can find a user's comments. */
+export const userCommentKey = (userId: string, commentId: string): TableKey => ({
+  PK: `USER#${userId}`,
+  SK: `COMMENT#${commentId}`,
+});
+
+/** USER#{id} / REPORTED#{commentId} — comments this user reported (hidden from their own view). */
+export const reportedKey = (userId: string, commentId: string): TableKey => ({
+  PK: `USER#${userId}`,
+  SK: `REPORTED#${commentId}`,
+});
+
+/** USER#{id} / BLOCK#{blockedId} — a user the owner blocked. */
+export const blockKey = (userId: string, blockedId: string): TableKey => ({
+  PK: `USER#${userId}`,
+  SK: `BLOCK#${blockedId}`,
+});
+
+/** USER#{id} / RATE#comment — fixed-window write counter plus the last body hash. */
+export const commentRateKey = (userId: string): TableKey => ({ PK: `USER#${userId}`, SK: "RATE#comment" });
+
+/** GSI1 mirror of a comment — the clip's list, newest first via a descending query. */
+export const commentListGsi = (
+  contentId: string,
+  createdAt: string,
+  commentId: string,
+): { GSI1PK: string; GSI1SK: string } => ({
+  GSI1PK: `CCOMMENTS#${contentId}`,
+  GSI1SK: `${createdAt}#${commentId}`,
+});
+
+/** GSI2 mirror of a comment awaiting staff (pending, or hidden after reports). Sparse. */
+export const commentQueueGsi = (
+  createdAt: string,
+  commentId: string,
+): { GSI2PK: string; GSI2SK: string } => ({
+  GSI2PK: COMMENT_QUEUE_GSI2PK,
+  GSI2SK: `${createdAt}#${commentId}`,
+});
+
 /** GSI1 mirror of a vote row — EVENT#{eventId} / VOTE#{entryId}#{userId} (tally audit & export, design §5). */
 export const voteGsi = (
   eventId: string,
@@ -210,6 +259,14 @@ export const NOTIF_SK_PREFIX = "NOTIF#";
 
 /** SK prefix of like rows inside a USER#{id} partition. */
 export const LIKE_SK_PREFIX = "LIKE#";
+
+/** USER# partition: comment pointers, blocks and the comments a user reported. */
+export const COMMENT_SK_PREFIX = "COMMENT#";
+export const BLOCK_SK_PREFIX = "BLOCK#";
+export const REPORTED_SK_PREFIX = "REPORTED#";
+
+/** GSI2 partition of the staff moderation queue. */
+export const COMMENT_QUEUE_GSI2PK = "MODQ#open";
 
 /** SK prefix of device rows inside a USER#{id} partition. */
 export const DEVICE_SK_PREFIX = "DEVICE#";
@@ -318,6 +375,11 @@ export function isConditionalCheckFailed(err: unknown): boolean {
     cancelled.name === "TransactionCanceledException" &&
     (cancelled.CancellationReasons ?? []).some((reason) => reason.Code === "ConditionalCheckFailed")
   );
+}
+
+/** True when a single (non-transactional) write tripped its ConditionExpression. */
+export function isConditionalFailure(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { name?: string }).name === "ConditionalCheckFailedException";
 }
 
 /**
