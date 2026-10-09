@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useConfig, useProfilesAll } from "@/api/hooks";
 import { Avatar } from "@/components/Avatar";
+import { AthleteRecentVideos } from "@/components/AthleteRecentVideos";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ScreenState";
 import { Sheet } from "@/components/Sheet";
@@ -123,26 +124,23 @@ export default function ProfilesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel={`Watch ${item.name}'s videos`}
-            onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
-            style={({ pressed }) => [
-              styles.card,
-              {
-                width: cardWidth,
-                backgroundColor: pressed ? t.inset : t.surface,
-                borderColor: t.line,
-              },
-            ]}
-          >
-            <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={68} />
-            <View style={styles.nameLink}>
-              <Text numberOfLines={2} style={[styles.name, { color: t.text }]}>{item.name}</Text>
+          <View style={[styles.card, { width: cardWidth, backgroundColor: t.surface, borderColor: t.line }]}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Watch ${item.name}'s videos`}
+              onPress={() => router.push({ pathname: "/athlete/[id]", params: { ...athleteParams(item), videos: "1" } })}
+              style={({ pressed }) => [StyleSheet.absoluteFill, { backgroundColor: pressed ? t.inset : t.surface }]}
+            />
+            <View pointerEvents="none" style={styles.cardIdentity}>
+              <Avatar name={item.name} seed={item.id} url={item.avatarUrl} size={68} />
+              <View style={styles.nameLink}>
+                <Text numberOfLines={2} style={[styles.name, { color: t.text }]}>{item.name}</Text>
+              </View>
+              <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>{nilSchool(item.school)}</Text>
+              {item.sport ? <Text numberOfLines={1} style={[styles.sport, { color: t.text }]}>{item.sport}</Text> : null}
             </View>
-            <Text numberOfLines={2} style={[styles.meta, { color: t.subtext }]}>{nilSchool(item.school)}</Text>
-            {item.sport ? <Text numberOfLines={1} style={[styles.sport, { color: t.text }]}>{item.sport}</Text> : null}
-          </Pressable>
+            <AthleteRecentVideos athleteId={item.id} name={item.name} />
+          </View>
         )}
         ListEmptyComponent={
           profiles.isPending ? (
@@ -209,7 +207,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: tokens.spacing.md,
   },
+  cardIdentity: { alignSelf: "stretch", alignItems: "center" },
   card: {
+    overflow: "hidden",
     alignItems: "center",
     borderWidth: 1,
     borderRadius: tokens.radius,
