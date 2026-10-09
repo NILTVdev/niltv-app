@@ -4,6 +4,7 @@ import { restoreSession, signOut } from "./auth";
 import { config } from "./config";
 import { ContentPage } from "./ContentPage";
 import { EventsPage } from "./EventsPage";
+import { CommentsPage } from "./CommentsPage";
 import { NewsletterPage } from "./NewsletterPage";
 import { ProfilesPage } from "./ProfilesPage";
 import { SignIn } from "./SignIn";
@@ -60,7 +61,7 @@ function AuthedApp() {
 }
 
 function Shell({ email, onSignOut }: { email: string; onSignOut: () => void }) {
-  const [tab, setTab] = useState<"content" | "profiles" | "events" | "newsletter">("content");
+  const [tab, setTab] = useState<"content" | "profiles" | "events" | "newsletter" | "comments">("content");
   return (
     <>
       <header className="shell-header">
@@ -86,6 +87,9 @@ function Shell({ email, onSignOut }: { email: string; onSignOut: () => void }) {
         <button className={tab === "newsletter" ? "active" : ""} onClick={() => setTab("newsletter")}>
           Newsletter
         </button>
+        <button className={tab === "comments" ? "active" : ""} onClick={() => setTab("comments")}>
+          Comments
+        </button>
       </nav>
       <main>
         {tab === "content" ? (
@@ -94,6 +98,8 @@ function Shell({ email, onSignOut }: { email: string; onSignOut: () => void }) {
           <ProfilesPage />
         ) : tab === "events" ? (
           <EventsPage />
+        ) : tab === "comments" ? (
+          <CommentsPage />
         ) : (
           <NewsletterPage />
         )}

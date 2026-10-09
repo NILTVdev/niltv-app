@@ -4,6 +4,8 @@
  * ApiError with the server's message intact (e.g. the 409 NOT_READY reason).
  */
 import {
+  AdminCommentActionResponse,
+  AdminCommentsResponse,
   AdminContentListResponse,
   AdminContentStatusResponse,
   AdminContentUpsertRequest,
@@ -133,6 +135,18 @@ export const api = {
       null,
     ),
   listSubscribers: () => request("GET", "/admin/newsletter", AdminSubscriberListResponse),
+  /** Comment moderation: `queue` is the open staff queue, `contentId` every live comment on a clip. */
+  listComments: (q: { queue: "pending" | "reported" } | { contentId: string }) =>
+    request(
+      "GET",
+      "/admin/comments?" +
+        ("queue" in q ? `queue=${q.queue}` : `contentId=${encodeURIComponent(q.contentId)}`),
+      AdminCommentsResponse,
+    ),
+  commentAction: (id: string, action: "approve" | "restore") =>
+    request("POST", `/admin/comments/${encodeURIComponent(id)}/${action}`, AdminCommentActionResponse),
+  removeComment: (id: string, reason: string) =>
+    request("POST", `/admin/comments/${encodeURIComponent(id)}/remove`, AdminCommentActionResponse, { reason }),
 };
 
 /** Raw CSV export (design §6.7) — text body, so it bypasses the JSON request() path. */
