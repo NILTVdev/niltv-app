@@ -558,22 +558,33 @@ export const Comment = z.object({
   authorName: z.string(),
   body: z.string(),
   createdAt: IsoDate,
+  /** set once the author has edited the comment */
+  editedAt: IsoDate.optional(),
   status: z.enum(["visible", "pending"]),
 });
 export type Comment = z.infer<typeof Comment>;
 
-/** GET /v1/content/{id}/comments — newest first, cursor-paged. Blocked authors are already filtered out. */
+/**
+ * GET /v1/comments?contentId=&cursor= — newest first, cursor-paged. Blocked
+ * authors are already filtered out. Deliberately NOT under /v1/content: that
+ * prefix is edge-cached for every viewer, and this list is per-user.
+ */
 export const CommentsListResponse = z.object({
   comments: z.array(Comment),
   nextCursor: z.string().optional(),
 });
 export type CommentsListResponse = z.infer<typeof CommentsListResponse>;
 
-/** POST /v1/content/{id}/comments */
+/** POST /v1/comments */
 export const CommentCreateRequest = z.object({
+  contentId: Id,
   body: z.string().trim().min(1).max(COMMENT_MAX_LENGTH),
 });
 export type CommentCreateRequest = z.infer<typeof CommentCreateRequest>;
+
+/** PATCH /v1/comments/{id} — author edit; the filter runs again on the new text. */
+export const CommentUpdateRequest = CommentCreateRequest.pick({ body: true });
+export type CommentUpdateRequest = z.infer<typeof CommentUpdateRequest>;
 
 /** 201 from POST: the stored comment (status `pending` when the filter held it). */
 export const CommentCreateResponse = z.object({ comment: Comment });
@@ -592,3 +603,48 @@ export type BlocksResponse = z.infer<typeof BlocksResponse>;
 /** `error` codes the comments routes use inside the standard envelope. */
 export const COMMENT_ERROR_REJECTED = "COMMENT_REJECTED";
 export const COMMENT_ERROR_RATE_LIMITED = "COMMENT_RATE_LIMITED";
+/** 403: the user has not yet accepted the community guidelines (PUT /v1/me/comment-terms). */
+export const COMMENT_ERROR_TERMS_REQUIRED = "COMMENT_TERMS_REQUIRED";
+/** 403: the comment was auto-hidden after reports and is awaiting staff review, so it can't be edited. */
+export const COMMENT_ERROR_LOCKED = "COMMENT_LOCKED";
+
+/** Distinct reporters at which a comment is hidden for everyone until staff decide. */
+export const COMMENT_REPORT_HIDE_THRESHOLD = 3;
+
+/* ── Admin: comment moderation ─────────────────────────────────────────────────── */
+
+export const CommentStatus = z.enum(["visible", "pending", "hidden", "removed", "deleted"]);
+export type CommentStatus = z.infer<typeof CommentStatus>;
+
+/** A comment as staff see it: every status, report count, and the author's age bracket. */
+export const AdminComment = z.object({
+  id: Id,
+  contentId: Id,
+  authorId: Id,
+  authorName: z.string(),
+  body: z.string(),
+  createdAt: IsoDate,
+  editedAt: IsoDate.optional(),
+  status: CommentStatus,
+  reportCount: z.number().int().nonnegative(),
+  /** minors' held comments are reviewed first */
+  authorIs18plus: z.boolean(),
+});
+export type AdminComment = z.infer<typeof AdminComment>;
+
+/** GET /admin/comments?queue=pending|reported or ?contentId= — newest first. */
+export const AdminCommentsResponse = z.object({
+  comments: z.array(AdminComment),
+  nextCursor: z.string().optional(),
+});
+export type AdminCommentsResponse = z.infer<typeof AdminCommentsResponse>;
+
+/** POST /admin/comments/{id}/remove */
+export const AdminCommentRemoveRequest = z.object({ reason: z.string().trim().min(1).max(200) });
+export type AdminCommentRemoveRequest = z.infer<typeof AdminCommentRemoveRequest>;
+
+/** POST /admin/comments/{id}/approve|restore|remove */
+export const AdminCommentActionResponse = z.object({
+  status: z.enum(["approved", "restored", "removed"]),
+});
+export type AdminCommentActionResponse = z.infer<typeof AdminCommentActionResponse>;
