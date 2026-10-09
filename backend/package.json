@@ -39,6 +39,7 @@
     "@types/node": "^22.0.0",
     "aws-cdk": "^2.0.0",
     "esbuild": "^0.24.0",
+    "obscenity": "^0.4.6",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
