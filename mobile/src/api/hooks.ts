@@ -125,6 +125,21 @@ export function useContentDetail(id: string, enabled = true) {
   });
 }
 
+/** Small newest-first preview for a directory card; never persisted. */
+export function useAthleteRecentVideos(athleteId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.creatorContentList(athleteId), "preview", 3],
+    queryFn: () => request(
+      `/v1/content?athleteId=${encodeURIComponent(athleteId)}&limit=3`,
+      ContentListResponse,
+    ),
+    staleTime: 0,
+    gcTime: 0,
+    meta: { noPersist: true },
+    retry: false,
+    enabled: athleteId.length > 0,
+  });
+}
 /** Person profile + their content (GET /v1/profiles/{athleteId}). */
 export function useProfile(athleteId: string) {
   return useQuery({
