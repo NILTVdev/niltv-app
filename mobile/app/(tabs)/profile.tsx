@@ -29,7 +29,7 @@ function GuestProfile() {
       <View style={[styles.avatar, { backgroundColor: t.inset }]}>
         <Ionicons name="person" size={40} color={t.subtext} />
       </View>
-      <Text style={[styles.title, { color: t.text }]}>Join NILTV</Text>
+      <Text style={[styles.title, styles.caps, { color: t.text }]}>Join NILTV</Text>
       <Text style={[styles.copy, { color: t.subtext }]}>
         Vote in NIL STAR, follow your favorite athletes, and get notified when new drops
         land. Free, forever.
@@ -191,7 +191,7 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.heading, { color: t.text }]}>Profile</Text>
+        <Text style={[styles.heading, styles.caps, { color: t.text }]}>Profile</Text>
 
         {status === "restoring" ? (
           <View style={styles.restoring}>
@@ -264,6 +264,11 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: tokens.font.extrabold,
     fontSize: 22,
+  },
+  // The page headings run in caps; the signed-in name (also styles.title)
+  // keeps the user's own casing.
+  caps: {
+    textTransform: "uppercase",
   },
   copy: {
     fontFamily: tokens.font.regular,

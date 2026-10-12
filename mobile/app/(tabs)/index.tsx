@@ -27,7 +27,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const home = useHome();
-  // The ambassadors rail (and its "See all ›") only lights up with the
+  // The ambassadors rail (and its See more tile) only lights up with the
   // directory flag — no ambassador support yet, so it ships dark.
   const directoryOn = useConfig().data?.flags.ambassadorDirectory === true;
   useScreenView("home");
@@ -63,15 +63,15 @@ export default function HomeScreen() {
       .filter((c) => c.kind === "campus" && !NETWORK_SOURCES.has(c.id))
       .map((c) => c.id),
   );
-  // Channel rails head with the channel's horizontal lockup and a "See all"
-  // into its page, like the site's channel rails. Network rails
+  // Channel rails head with the channel's horizontal lockup, like the
+  // site's channel rails. Network rails
   // (NIL TV, NIL Star) keep their text title.
   const railChannelId = (rail: (typeof rails)[number]): string | undefined => {
     const id = rail.kind === "content" ? rail.items[0]?.channelId : undefined;
     return id && !NETWORK_SOURCES.has(id) ? id : undefined;
   };
-  // Every content rail heads with "See all" and ends in a See more tile,
-  // both into the rail's full list: channel rails open their channel
+  // Every content rail ends in a See more tile into the rail's full
+  // list (no head link, one way in): channel rails open their channel
   // page, the two network rails open their tab (Featured, NIL Star). One
   // card_tap shape for all of them.
   const railSeeAll = (rail: (typeof rails)[number]): (() => void) | undefined => {
