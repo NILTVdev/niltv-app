@@ -12,9 +12,9 @@
  * library backfill. The LLM classifier (enrich-llm.ts) is an optional second
  * opinion the caller can merge in when rules are not confident.
  */
-import { ContentQc, ContentRights, type ContentType, type Sport } from "@niltv/types";
+import { ContentQc, ContentRights, type ContentType, type Sport, TITLE_NEEDS_WRITING } from "@niltv/types";
 import type { Item } from "./shape";
-import { baseEligibility, cleanDescription, cleanTitle, resolveSyndicationFiles } from "./syndication";
+import { baseEligibility, cleanDescription, cleanTitle, resolveSyndicationFiles, titleCandidate, titleWords } from "./syndication";
 
 /* ── Text extraction ──────────────────────────────────────────────────────── */
 
@@ -193,6 +193,141 @@ export function deriveEditorial(caption: string | undefined, fallbackTitle: stri
   return { title, description, summary: summary || title, keywords: extractHashtags(caption).slice(0, 10) };
 }
 
+/* ── Title ladder ─────────────────────────────────────────────────────────── */
+
+/**
+ * Where a derived title came from. `caption` is the creator's own line;
+ * `staff` is a person's title (an override). Every other source is a rule's
+ * best guess, and the clip waits in the staff queue until someone writes one.
+ */
+export type TitleSource = "caption" | "athlete" | "caption-word" | "creator" | "school-sport" | "channel" | "staff";
+
+/** Title sources that a rule produced, not a person or the caption. */
+export const RULE_TITLE_SOURCES: ReadonlySet<string> = new Set(["athlete", "caption-word", "creator", "school-sport", "channel"]);
+
+/** The QC reason that puts a rule-made title in the staff queue (defined in the contract). */
+export { TITLE_NEEDS_WRITING };
+
+/**
+ * The generic fallback earlier versions of the pass wrote. It claims a clip
+ * is new whatever its age, so it is never produced now and never read back
+ * as if it were a caption.
+ */
+export const LEGACY_FALLBACK_TITLE = /^new on\b/i;
+
+/** Creator shorthand that reads as a title once spelled out. */
+const SHORTHAND: Readonly<Record<string, string>> = {
+  bts: "Behind the Scenes",
+  diml: "Day in My Life",
+  ditl: "Day in the Life",
+  grwm: "Get Ready With Me",
+  ootd: "Outfit of the Day",
+  qotd: "Question of the Day",
+  wieiad: "What I Eat in a Day",
+};
+
+/** Sports as they read in a title ("Duke Swim & Dive"). Classifier buckets have no name. */
+const SPORT_TITLE: Readonly<Partial<Record<Sport, string>>> = {
+  baseball: "Baseball",
+  basketball: "Basketball",
+  "cheer-dance": "Cheer & Dance",
+  "cross-country": "Cross Country",
+  esports: "Esports",
+  fencing: "Fencing",
+  "field-hockey": "Field Hockey",
+  football: "Football",
+  golf: "Golf",
+  gymnastics: "Gymnastics",
+  "ice-hockey": "Hockey",
+  lacrosse: "Lacrosse",
+  rowing: "Rowing",
+  soccer: "Soccer",
+  softball: "Softball",
+  "swim-dive": "Swim & Dive",
+  tennis: "Tennis",
+  "track-field": "Track & Field",
+  "ultimate-frisbee": "Ultimate",
+  volleyball: "Volleyball",
+  wrestling: "Wrestling",
+};
+
+/** Content types that name a recognisable format. Skits, hype and sponsored posts say nothing on a card. */
+const TYPE_TITLE: Readonly<Partial<Record<ContentType, string>>> = {
+  bts: "Behind the Scenes",
+  "celebration-highlight": "Highlights",
+  "ditl-vlog": "Day in the Life",
+  "game-day": "Game Day",
+  "gear-haul": "Gear Haul",
+  "grwm-fitcheck": "Fit Check",
+  "interview-podcast": "Interview",
+  "media-day": "Media Day",
+  "micd-up": "Mic'd Up",
+  recovery: "Recovery",
+  "singing-audition": "Audition",
+  "team-qa": "Q&A",
+  "training-workout": "Training",
+  "travel-road": "On the Road",
+  "what-i-eat": "What I Eat",
+};
+
+/**
+ * A caption whose first line is one real word ("MVP.", "gainz", "DITL 🧡"):
+ * that word, with creator shorthand spelled out. Undefined when the line has
+ * more words, or the word has fewer than two letters ("3…2…1…").
+ */
+export function captionWord(caption: string | undefined): string | undefined {
+  const words = titleWords(titleCandidate(caption ?? ""));
+  if (words.length !== 1) return undefined;
+  const word = (words[0] ?? "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  if ((word.match(/\p{L}/gu) ?? []).length < 2 || word.length > 40) return undefined;
+  return SHORTHAND[word.toLowerCase()] ?? word;
+}
+
+export interface TitleInputs {
+  /** the source caption (or the row's description when the source has none) */
+  caption?: string;
+  /** the credited athlete, only when the profile is complete */
+  athleteName?: string;
+  athleteSchool?: string;
+  /** the post's author when it is a person: not one of our accounts, not a team handle */
+  creatorHandle?: string;
+  school?: string;
+  sport?: string;
+  contentType?: string;
+  channelName: string;
+  /** the campus channel's school ("Duke" for TrueBlue TV); absent on network channels */
+  accountSchool?: string;
+}
+
+/**
+ * The title for a clip, from the most specific thing we know:
+ *   1. the caption's first line when two or more words survive cleanup
+ *   2. the credited athlete: "Jordan Rivera, Example State: Example State TV"
+ *   3. a one-word caption: "MVP", "Day in the Life" (from "DITL")
+ *   4. the creator's handle, with school and sport: "@jordan.rivera, Duke Soccer"
+ *   5. school, sport and format: "Duke Soccer Media Day"
+ *   6. the channel's people: "Duke’s Athletes", or "NIL TV Athletes"
+ * Every rung but the first is flagged for a person to write a real title.
+ */
+export function titleFor(inputs: TitleInputs): { title: string; source: TitleSource } {
+  const line = titleCandidate(inputs.caption ?? "");
+  if (titleWords(line).length >= 2) return { title: line, source: "caption" };
+  if (inputs.athleteName) {
+    const credit = inputs.athleteSchool ? `${inputs.athleteName}, ${inputs.athleteSchool}` : inputs.athleteName;
+    return { title: `${credit}: ${inputs.channelName}`, source: "athlete" };
+  }
+  const word = captionWord(inputs.caption);
+  if (word) return { title: word, source: "caption-word" };
+  const sport = inputs.sport ? SPORT_TITLE[inputs.sport as Sport] : undefined;
+  const format = inputs.contentType ? TYPE_TITLE[inputs.contentType as ContentType] : undefined;
+  if (inputs.creatorHandle) {
+    const label = [inputs.school, sport].filter(Boolean).join(" ");
+    return { title: label ? `@${inputs.creatorHandle}, ${label}` : `@${inputs.creatorHandle}`, source: "creator" };
+  }
+  if (inputs.school && (sport || format)) return { title: [inputs.school, sport, format].filter(Boolean).join(" "), source: "school-sport" };
+  return { title: inputs.accountSchool ? `${inputs.accountSchool}’s Athletes` : `${inputs.channelName} Athletes`, source: "channel" };
+}
+
 /* ── People ───────────────────────────────────────────────────────────────── */
 
 export interface AthleteResolution {
@@ -365,17 +500,9 @@ export function applyEnrichment(row: Item, ctx: EnrichContext): Item {
   next["incompleteProfile"] = people.athleteId && !creditReady ? people.athleteId : undefined;
   const lead = creditReady ? leadProfile : undefined;
 
-  // Editorial
+  // Classification first: the title ladder reads the school, sport and type.
   const leadName = str(lead?.["name"]);
   const leadSchool = str(lead?.["school"]);
-  const fallbackTitle = leadName && leadSchool ? `${leadName}, ${leadSchool}: ${ctx.channelName}` : leadName ? `${leadName}: ${ctx.channelName}` : `New on ${ctx.channelName}`;
-  const editorial = deriveEditorial(str(source["caption"]) ?? str(row["description"]) ?? str(row["title"]), fallbackTitle);
-  if (owned("title")) next["title"] = editorial.title;
-  if (owned("description")) next["description"] = editorial.description;
-  if (owned("summary")) next["summary"] = editorial.summary;
-  if (owned("keywords")) next["keywords"] = editorial.keywords;
-
-  // Classification
   const school = leadSchool ?? ctx.accountSchool;
   if (owned("school") && school) next["school"] = school;
   const sport = inferSport(str(source["caption"]), str(lead?.["sport"]));
@@ -386,6 +513,34 @@ export function applyEnrichment(row: Item, ctx: EnrichContext): Item {
     next["contentTypes"] = type.secondary;
     next["contentTypeConfidence"] = type.confidence;
   }
+
+  // Editorial. A row with no source caption falls back to its description,
+  // then its title, but never to an old generic "New on …" title, which
+  // would otherwise pass for a caption and stick forever.
+  const previousTitle = str(row["title"]);
+  const captionText = str(source["caption"]) ?? str(row["description"]) ?? (previousTitle && !LEGACY_FALLBACK_TITLE.test(previousTitle) ? previousTitle : undefined);
+  const author = str(source["authorHandle"])?.toLowerCase();
+  const ladder = titleFor({
+    caption: captionText,
+    athleteName: leadName,
+    athleteSchool: leadSchool,
+    creatorHandle: author && !ctx.ownAccounts.has(author) && isPersonHandle(author, ctx.ignoreHandles) ? author : undefined,
+    school: str(next["school"]),
+    sport: str(next["sport"]),
+    contentType: str(next["contentType"]),
+    channelName: ctx.channelName,
+    accountSchool: ctx.accountSchool,
+  });
+  const editorial = deriveEditorial(captionText, ladder.title);
+  if (owned("title")) {
+    next["title"] = ladder.title;
+    next["titleSource"] = ladder.source;
+  } else {
+    next["titleSource"] = "staff";
+  }
+  if (owned("description")) next["description"] = editorial.description;
+  if (owned("summary")) next["summary"] = editorial.summary;
+  if (owned("keywords")) next["keywords"] = editorial.keywords;
 
   // Rights: status, music and marks are rules over the origin and the school
   // policy, recomputed on every pass like any other derived field, unless a
@@ -422,9 +577,15 @@ export function qcFor(row: Item, ctx: Pick<EnrichContext, "series" | "now">): Co
   if (!hasFile) reasons.push("no playable file");
   if (!hasPoster) reasons.push("no poster");
 
-  const titleWords = String(row["title"] ?? "").split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
-  const site: ContentQc["site"] = app === "ready" && titleWords >= 2 ? "ready" : app === "ready" ? "needs-tagging" : app;
-  if (titleWords < 2) reasons.push("title under two words");
+  const titleWordCount = String(row["title"] ?? "").split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  const site: ContentQc["site"] = app === "ready" && titleWordCount >= 2 ? "ready" : app === "ready" ? "needs-tagging" : app;
+  if (titleWordCount < 2) reasons.push("title under two words");
+  // A title a rule made up (from a handle, the channel, one word of caption)
+  // waits for a person until someone writes one; a staff title is an override.
+  const overrides = Array.isArray(row["overrides"]) ? (row["overrides"] as string[]) : [];
+  if (typeof row["titleSource"] === "string" && RULE_TITLE_SOURCES.has(row["titleSource"]) && !overrides.includes("title")) {
+    reasons.push(TITLE_NEEDS_WRITING);
+  }
 
   const tagging: string[] = [];
   if (typeof row["incompleteProfile"] === "string") tagging.push("athlete profile incomplete");

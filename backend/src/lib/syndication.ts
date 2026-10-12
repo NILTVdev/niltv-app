@@ -242,13 +242,15 @@ const LEADING_JUNK = /^[\s\-–—|:;,·•.]+/u;
 
 const collapse = (value: string): string => value.replace(/\s+/g, " ").trim();
 
+/** Words in a cleaned line: space-separated tokens carrying a letter or digit. */
+export const titleWords = (text: string): string[] => text.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w));
+
 /**
- * A caption is not a title. Strip links, handles, hashtags, emoji and markup,
- * keep the first sentence, cap the length at a word boundary, and fall back
- * when fewer than two words survive — "@nilstar" and "🗣️we out here" are real
- * rows in the library.
+ * The cleaned first line of a caption, before any word-count rule: links,
+ * handles, hashtags, emoji and markup stripped, the first sentence kept, the
+ * length capped at a word boundary. Empty when nothing readable survives.
  */
-export function cleanTitle(raw: string, fallback: string, maxLength = 120): string {
+export function titleCandidate(raw: string, maxLength = 120): string {
   // A caption's first non-empty line is the title candidate; later lines are
   // credits, hashtags and calls to action (verified against 650 real rows).
   const firstLine = raw
@@ -258,16 +260,28 @@ export function cleanTitle(raw: string, fallback: string, maxLength = 120): stri
   let text = collapse((firstLine ?? raw).replace(HTML_TAG, " ").replace(URL, " ").replace(HANDLE, " ").replace(HASHTAG, " ").replace(EMOJI, ""));
   // Captions use " | " as a hard separator between the line and the credits.
   text = (text.split(/\s\|\s/u)[0] ?? text).trim();
-  // First sentence: cut at ". " / "! " / "? " or a newline, but not at a trailing ellipsis.
+  // First sentence: cut at ". " / "! " / "? " or a newline, but not at a
+  // trailing ellipsis, and never down to a single word ("Consistency! Be
+  // consistent even when…" keeps the whole line rather than one word).
   const sentence = text.match(/^(.+?[.!?])(\s|$)/u);
-  if (sentence && sentence[1] && !sentence[1].endsWith("…") && sentence[1].length >= 12) text = sentence[1];
+  if (sentence && sentence[1] && !sentence[1].endsWith("…") && sentence[1].length >= 12 && titleWords(sentence[1]).length >= 2) text = sentence[1];
   text = text.replace(TRAILING_JUNK, "").replace(LEADING_JUNK, "");
   if (text.length > maxLength) {
     const cut = text.slice(0, maxLength);
     text = cut.slice(0, cut.lastIndexOf(" ") > 40 ? cut.lastIndexOf(" ") : maxLength).replace(TRAILING_JUNK, "");
   }
-  const words = text.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w));
-  return words.length >= 2 ? text : fallback;
+  return text;
+}
+
+/**
+ * A caption is not a title. Strip links, handles, hashtags, emoji and markup,
+ * keep the first sentence, cap the length at a word boundary, and fall back
+ * when fewer than two words survive — "@nilstar" and "🗣️we out here" are real
+ * rows in the library.
+ */
+export function cleanTitle(raw: string, fallback: string, maxLength = 120): string {
+  const text = titleCandidate(raw, maxLength);
+  return titleWords(text).length >= 2 ? text : fallback;
 }
 
 /**

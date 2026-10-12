@@ -85,7 +85,23 @@ async function request<T>(
 }
 
 export const api = {
-  listContent: () => request("GET", "/admin/content", AdminContentListResponse),
+  /**
+   * The whole library. The list is a paginated Scan whose pages can be short
+   * or even empty while a cursor remains, so follow the cursor to the end
+   * (a first page alone showed only a slice of the clips).
+   */
+  listContent: async (): Promise<AdminContentListResponse> => {
+    const items: Content[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 500; page++) {
+      const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+      const res = await request("GET", `/admin/content${query}`, AdminContentListResponse);
+      items.push(...res.items);
+      cursor = res.cursor;
+      if (!cursor) break;
+    }
+    return { items };
+  },
   upsertContent: (body: z.input<typeof AdminContentUpsertRequest>) =>
     request("POST", "/admin/content", Content, AdminContentUpsertRequest.parse(body)),
   uploadUrl: (id: string, contentType: string) =>

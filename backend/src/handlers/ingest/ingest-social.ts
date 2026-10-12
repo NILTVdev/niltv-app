@@ -182,13 +182,18 @@ export const ACCOUNT_SCHOOLS: Record<string, string> = {
 const channelIdFor = (account: string): string => `ch-${account}`;
 const profileIdFor = (account: string): string => `p-${account}`;
 
-/** First non-empty caption line, hashtags stripped from the tail, ≤80 chars. */
+/**
+ * First non-empty caption line, hashtags stripped from the tail, ≤80 chars.
+ * A placeholder only: the enrichment pass that runs right after replaces it
+ * (lib/enrich titleFor). An empty caption gives the channel's name, never a
+ * "New on …" line, which would call the clip new for as long as it lives.
+ */
 export function titleFromCaption(caption: string | null, account: string): string {
   const firstLine = (caption ?? "")
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0);
-  if (!firstLine) return `New on ${displayName(account)}`;
+  if (!firstLine) return displayName(account);
   const withoutTrailingTags = firstLine.replace(/(?:\s*#[\p{L}\p{N}_]+)+\s*$/u, "").trim();
   const base = withoutTrailingTags.length > 0 ? withoutTrailingTags : firstLine;
   return base.length <= 80 ? base : `${base.slice(0, 79).trimEnd()}…`;

@@ -101,7 +101,7 @@ describe("channelAccountFor", () => {
 describe("titleFromCaption", () => {
   it("strips trailing hashtags and caps at 80 chars", () => {
     expect(titleFromCaption("Great win today #duke #soccer", "niltv")).toBe("Great win today");
-    expect(titleFromCaption(null, "niltv")).toBe("New on NIL TV");
+    expect(titleFromCaption(null, "niltv")).toBe("NIL TV");
   });
 });
 
