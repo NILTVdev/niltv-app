@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Image, StyleSheet, Text, View } from "react-native";
 
 import { Card, type CardProps } from "@/components/Card";
 import { PressableScale } from "@/components/PressableScale";
@@ -15,9 +15,8 @@ export interface RailProps {
   aspect?: CardProps["aspect"];
   cardWidth?: number;
   /**
-   * Renders a "See all ›" link beside the title (demo's section header
-   * link) and a See more tile after the last card that opens the
-   * same target.
+   * Renders a See more tile after the last card that opens the rail's
+   * full list. The tile is the only way in; the head carries no link.
    */
   onSeeAll?: () => void;
   /**
@@ -84,11 +83,6 @@ export function Rail({ title, items, aspect = "9:16", cardWidth = 180, onSeeAll,
               {title}
             </Text>
           )}
-          {onSeeAll ? (
-            <Pressable onPress={onSeeAll} accessibilityRole="link" accessibilityLabel={`See all ${title}`}>
-              <Text style={styles.seeAll}>See all ›</Text>
-            </Pressable>
-          ) : null}
         </View>
       ) : null}
       <FlatList
@@ -125,8 +119,7 @@ const styles = StyleSheet.create({
   // The site's shelf title (cinema .shelf-title): Barlow Condensed
   // 700, 19px, .16em tracking (3px here), uppercase, gold. Every shelf on the
   // site is gold, so the colour lives here, not in the theme. flexShrink lets
-  // the one-line title ellipsize instead of pushing See all off the row, the
-  // site's own phone rule for .shelf-title.
+  // the one-line title ellipsize, the site's own phone rule for .shelf-title.
   // chanh lockups are 3:1; 44 tall matches the Channels tab shelf heads.
   lockup: {
     height: 44,
@@ -139,12 +132,6 @@ const styles = StyleSheet.create({
     fontSize: 19,
     letterSpacing: 3,
     textTransform: "uppercase",
-  },
-  // .shelf-all: 13px, 600, dim.
-  seeAll: {
-    color: tokens.color.muted,
-    fontFamily: tokens.font.semibold,
-    fontSize: 13,
   },
   content: {
     paddingHorizontal: tokens.spacing.lg,
