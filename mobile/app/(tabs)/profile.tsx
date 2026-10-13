@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,11 +10,12 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useDeleteAccount, useMe, useSetPushEnabled } from "@/api/hooks";
+import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
 import { requestAndRegister } from "@/push";
@@ -82,10 +84,16 @@ function SignedInProfile() {
   const me = useMe();
   const setPushEnabled = useSetPushEnabled();
   const deleteAccount = useDeleteAccount();
+  const updateDisplayName = useUpdateDisplayName();
+  const [editingName, setEditingName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
 
-  const name = me.data?.name || storeName || "NILTV Fan";
+  const name = me.data?.displayName || me.data?.name || storeName || "NILTV Fan";
   const email = me.data?.email || storeEmail || "";
   const initial = name.trim().charAt(0).toUpperCase() || "N";
+  const normalizedDraft = displayNameDraft.trim();
+  const displayNameUnchanged = normalizedDraft === name.trim();
   const followingLabel = me.data
     ? // Everything followable today is a channel (athlete accounts arrive with the roster).
       `Following ${me.data.follows.length} channel${me.data.follows.length === 1 ? "" : "s"}`
@@ -98,6 +106,35 @@ function SignedInProfile() {
   function togglePush(enabled: boolean) {
     setPushEnabled.mutate(enabled);
     if (enabled) void requestAndRegister();
+  }
+
+  function startEditingName() {
+    setDisplayNameDraft(name);
+    setSaveMessage("");
+    updateDisplayName.reset();
+    setEditingName(true);
+  }
+
+  function cancelEditingName() {
+    setEditingName(false);
+    setDisplayNameDraft(name);
+    setSaveMessage("");
+    updateDisplayName.reset();
+  }
+
+  function saveDisplayName() {
+    if (!me.data || updateDisplayName.isPending || displayNameUnchanged || !normalizedDraft) return;
+    setSaveMessage("");
+    updateDisplayName.mutate(
+      { displayName: normalizedDraft },
+      {
+        onSuccess: () => {
+          setDisplayNameDraft(normalizedDraft);
+          setEditingName(false);
+          setSaveMessage("Display name saved.");
+        },
+      },
+    );
   }
 
   // Two-step destructive confirm (App Store 5.1.1(v), design §6.6).
@@ -128,7 +165,66 @@ function SignedInProfile() {
         <View style={[styles.avatar, { backgroundColor: tokens.color.gold }]}>
           <Text style={styles.avatarInitial}>{initial}</Text>
         </View>
-        <Text style={[styles.title, { color: t.text }]}>{name}</Text>
+        {editingName ? (
+          <>
+            <TextInput
+              accessibilityLabel="Display name"
+              autoCapitalize="words"
+              autoCorrect={false}
+              editable={!updateDisplayName.isPending}
+              maxLength={80}
+              onChangeText={setDisplayNameDraft}
+              onSubmitEditing={saveDisplayName}
+              placeholder="Display name"
+              placeholderTextColor={t.subtext}
+              returnKeyType="done"
+              style={[
+                styles.displayNameInput,
+                { backgroundColor: t.surface, borderColor: t.line, color: t.text },
+              ]}
+              value={displayNameDraft}
+            />
+            <View style={styles.nameActions}>
+              <GoldButton
+                label="Save"
+                onPress={saveDisplayName}
+                disabled={displayNameUnchanged || !normalizedDraft}
+                busy={updateDisplayName.isPending}
+                style={styles.nameSaveButton}
+              />
+              <Pressable
+                accessibilityRole="button"
+                disabled={updateDisplayName.isPending}
+                onPress={cancelEditingName}
+                style={({ pressed }) => [styles.cancelNameButton, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={[styles.cancelNameLabel, { color: t.subtext }]}>Cancel</Text>
+              </Pressable>
+            </View>
+            {updateDisplayName.isError ? (
+              <Text accessibilityRole="alert" style={styles.nameError}>
+                {updateDisplayName.error.message || "Could not save your display name. Please try again."}
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Text style={[styles.title, { color: t.text }]}>{name}</Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!me.data}
+              onPress={startEditingName}
+              style={({ pressed }) => [styles.editNameButton, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Text style={[styles.editNameLabel, { color: t.accent }]}>Edit display name</Text>
+            </Pressable>
+          </>
+        )}
+        {saveMessage ? (
+          <Text accessibilityLiveRegion="polite" style={[styles.nameSuccess, { color: t.accent }]}>
+            {saveMessage}
+          </Text>
+        ) : null}
         {email ? <Text style={[styles.copy, { color: t.subtext }]}>{email}</Text> : null}
       </View>
 
@@ -264,6 +360,49 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: tokens.font.extrabold,
     fontSize: 22,
+  },
+  displayNameInput: {
+    alignSelf: "stretch",
+    borderWidth: 1,
+    borderRadius: tokens.radius,
+    paddingHorizontal: tokens.spacing.md,
+    paddingVertical: tokens.spacing.sm,
+    fontFamily: tokens.font.regular,
+    fontSize: tokens.text.body,
+    textAlign: "center",
+  },
+  nameActions: {
+    alignSelf: "stretch",
+    gap: tokens.spacing.xs,
+  },
+  nameSaveButton: {
+    alignSelf: "stretch",
+  },
+  cancelNameButton: {
+    alignItems: "center",
+    padding: tokens.spacing.sm,
+  },
+  cancelNameLabel: {
+    fontFamily: tokens.font.semibold,
+    fontSize: 14,
+  },
+  editNameButton: {
+    padding: tokens.spacing.xs,
+  },
+  editNameLabel: {
+    fontFamily: tokens.font.semibold,
+    fontSize: 13,
+  },
+  nameError: {
+    color: "#d97970",
+    fontFamily: tokens.font.regular,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  nameSuccess: {
+    fontFamily: tokens.font.semibold,
+    fontSize: 13,
+    textAlign: "center",
   },
   // The page headings run in caps; the signed-in name (also styles.title)
   // keeps the user's own casing.
