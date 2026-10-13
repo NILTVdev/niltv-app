@@ -262,7 +262,7 @@ export class ApiStack extends Stack {
     // /v1/me reads its own partition and nothing else.
     meFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["dynamodb:Query"],
+        actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
         resources: [table.tableArn],
         conditions: {
           "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
@@ -633,7 +633,7 @@ export class ApiStack extends Stack {
     // Authed routes (Cognito JWT — design §4 access tiers).
     this.httpApi.addRoutes({
       path: "/v1/me",
-      methods: [apigwv2.HttpMethod.GET],
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
       integration: new HttpLambdaIntegration("MeIntegration", meFn),
       authorizer: this.jwtAuthorizer,
     });

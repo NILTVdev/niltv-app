@@ -30,7 +30,7 @@ export class ApiRequestError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** JSON-serialized when present */
   body?: unknown;
   /**
