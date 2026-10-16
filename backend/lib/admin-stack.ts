@@ -109,6 +109,11 @@ export class AdminStack extends Stack {
     const partnerUpsertFn = adminFn("PartnerUpsertFn", "admin-partner-upsert", "partner-upsert.ts");
     const partnerKeyFn = adminFn("PartnerKeyFn", "admin-partner-key", "partner-key.ts");
     const contentWithdrawFn = adminFn("ContentWithdrawFn", "admin-content-withdraw", "content-withdraw.ts");
+    const commentModerationFn = adminFn(
+      "CommentModerationFn",
+      "admin-comment-moderation",
+      "comment-moderation.ts",
+    );
     for (const fn of [partnerUpsertFn, partnerKeyFn]) {
       fn.addEnvironment("STAGE", stage);
       fn.addEnvironment("PARTNER_KEY_PEPPER", partnerKeyPepper.secretValue.unsafeUnwrap());
@@ -281,6 +286,25 @@ export class AdminStack extends Stack {
       keyScopedPolicy(["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"], ["PARTNER#*", "PARTNERKEY#*"]),
     );
 
+    // Comment moderation: read/update comment rows, and query the staff queue
+    // (GSI2, MODQ#open) or one clip's comments (GSI1, CCOMMENTS#*). No delete,
+    // no other partitions: removal is a tombstone update.
+    commentModerationFn.addToRolePolicy(keyScopedPolicy(["dynamodb:GetItem", "dynamodb:UpdateItem"], ["COMMENT#*"]));
+    commentModerationFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${table.tableArn}/index/GSI1`],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CCOMMENTS#*"] } },
+      }),
+    );
+    commentModerationFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${table.tableArn}/index/GSI2`],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["MODQ#*"] } },
+      }),
+    );
+
     // upload-url: presigning is pure crypto (no S3 call), but the SIGNED URL
     // executes with THIS role at upload time — so the role itself needs
     // s3:PutObject on the masters prefix, and nothing else on the bucket.
@@ -318,6 +342,11 @@ export class AdminStack extends Stack {
       { path: "/admin/partners/{id}/revoke-key", methods: [apigwv2.HttpMethod.POST], id: "PartnerRevokeKey", fn: partnerKeyFn },
       { path: "/admin/content/{id}/withdraw", methods: [apigwv2.HttpMethod.POST], id: "ContentWithdraw", fn: contentWithdrawFn },
       { path: "/admin/content/{id}/restore", methods: [apigwv2.HttpMethod.POST], id: "ContentRestore", fn: contentWithdrawFn },
+      // Comment moderation
+      { path: "/admin/comments", methods: [apigwv2.HttpMethod.GET], id: "CommentList", fn: commentModerationFn },
+      { path: "/admin/comments/{id}/approve", methods: [apigwv2.HttpMethod.POST], id: "CommentApprove", fn: commentModerationFn },
+      { path: "/admin/comments/{id}/restore", methods: [apigwv2.HttpMethod.POST], id: "CommentRestore", fn: commentModerationFn },
+      { path: "/admin/comments/{id}/remove", methods: [apigwv2.HttpMethod.POST], id: "CommentRemove", fn: commentModerationFn },
     ];
     for (const route of routes) {
       this.httpApi.addRoutes({

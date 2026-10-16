@@ -99,6 +99,8 @@ export class ApiStack extends Stack {
     const meFn = apiFn("MeFn", "me", "me.ts");
     const followFn = apiFn("FollowFn", "follow", "follow.ts");
     const likeFn = apiFn("LikeFn", "like", "like.ts");
+    const commentsFn = apiFn("CommentsFn", "comments", "comments.ts");
+    const blocksFn = apiFn("BlocksFn", "blocks", "blocks.ts");
     const voteFn = apiFn("VoteFn", "vote", "vote.ts");
     const telemetryFn = apiFn("TelemetryFn", "telemetry", "telemetry.ts");
     const pushSettingsFn = apiFn("PushSettingsFn", "push-settings", "push-settings.ts");
@@ -308,6 +310,45 @@ export class ApiStack extends Stack {
         resources: [table.tableArn],
         conditions: {
           "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CONTENT#*"] },
+        },
+      }),
+    );
+
+    // comments: the comment, its report rows and the rate item (COMMENT#*,
+    // USER#*), the clip existence check (CONTENT#*), and the per-clip list
+    // read on GSI1 — scoped to the comment partitions only. No deletes outside
+    // the author's own comment/pointer rows (same prefixes), no other GSIs.
+    commentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+        ],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["COMMENT#*", "USER#*", "CONTENT#*"] },
+        },
+      }),
+    );
+    commentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${table.tableArn}/index/GSI1`],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CCOMMENTS#*"] },
+        },
+      }),
+    );
+    // blocks: only the caller's USER#* partition (and the target's name read).
+    blocksFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:Query"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
         },
       }),
     );
@@ -647,6 +688,43 @@ export class ApiStack extends Stack {
       path: "/v1/me/likes/{contentId}",
       methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.DELETE],
       integration: new HttpLambdaIntegration("LikeIntegration", likeFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      // Not under /v1/content: that prefix is edge-cached for every viewer.
+      path: "/v1/comments",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration("CommentsContentIntegration", commentsFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/comments/{commentId}",
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration("CommentIntegration", commentsFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/comments/{commentId}/report",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration("CommentReportIntegration", commentsFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/comment-terms",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("CommentTermsIntegration", commentsFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/blocks",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration("BlocksListIntegration", blocksFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/blocks/{userId}",
+      methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
+      integration: new HttpLambdaIntegration("BlockIntegration", blocksFn),
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({
