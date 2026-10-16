@@ -7,9 +7,11 @@
  *      contest tallies and the audit export stay intact per Official Rules.
  *   2. Follow/like rows are deleted WITH their display-counter decrement
  *      (facts and counters move together, design §5).
- *   3. Devices, notif-follows, the newsletter subscription and finally the
+ *   3. Comments are anonymized in place (body cleared, author scrubbed, off
+ *      both indexes): staff report history stays coherent, no text survives.
+ *   4. Devices, notif-follows, the newsletter subscription and finally the
  *      META row are deleted.
- *   4. Cognito AdminDeleteUser last — until it succeeds the user can retry.
+ *   5. Cognito AdminDeleteUser last — until it succeeds the user can retry.
  */
 import { createHash } from "node:crypto";
 import {
@@ -17,13 +19,15 @@ import {
   CognitoIdentityProviderClient,
   UserNotFoundException,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { DeleteCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { AckResponse } from "@niltv/types";
 import type { APIGatewayProxyHandlerV2WithJWTAuthorizer } from "aws-lambda";
 import {
+  COMMENT_SK_PREFIX,
   FOLLOW_SK_PREFIX,
   LIKE_SK_PREFIX,
   VOTE_SK_PREFIX,
+  commentKey,
   contentKey,
   deletedUserPk,
   getDocClient,
@@ -130,6 +134,31 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
       await deleteWithCounter(table, rowKey, profileKey(sk.slice(FOLLOW_SK_PREFIX.length)), "followers");
     } else if (sk.startsWith(LIKE_SK_PREFIX)) {
       await deleteWithCounter(table, rowKey, contentKey(sk.slice(LIKE_SK_PREFIX.length)), "likes");
+    } else if (sk.startsWith(COMMENT_SK_PREFIX)) {
+      // The pointer row leads to the comment itself. Scrub it, then drop the pointer.
+      try {
+        await db.send(
+          new UpdateCommand({
+            TableName: table,
+            Key: commentKey(sk.slice(COMMENT_SK_PREFIX.length)),
+            UpdateExpression:
+              "SET #status = :deleted, #body = :empty, authorName = :gone, authorId = :goneId, deletedAt = :now REMOVE GSI1PK, GSI1SK, GSI2PK, GSI2SK",
+            ConditionExpression: "attribute_exists(PK) AND authorId = :sub",
+            ExpressionAttributeNames: { "#status": "status", "#body": "body" },
+            ExpressionAttributeValues: {
+              ":deleted": "deleted",
+              ":empty": "",
+              ":gone": "Deleted user",
+              ":goneId": "deleted",
+              ":now": new Date().toISOString(),
+              ":sub": sub,
+            },
+          }),
+        );
+      } catch (err) {
+        if ((err as { name?: string }).name !== "ConditionalCheckFailedException") throw err;
+      }
+      await db.send(new DeleteCommand({ TableName: table, Key: rowKey }));
     } else if (sk !== "META") {
       // DEVICE#, NOTIF#, anything future — plain delete (GSI mirrors ride along).
       await db.send(new DeleteCommand({ TableName: table, Key: rowKey }));

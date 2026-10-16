@@ -444,12 +444,14 @@ export class ApiStack extends Stack {
         },
       }),
     );
+    // COMMENT#*: the user's comments are scrubbed in place (body cleared,
+    // author anonymised) rather than deleted, so staff report history survives.
     deleteMeFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:UpdateItem"],
         resources: [table.tableArn],
         conditions: {
-          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ATHLETE#*", "CONTENT#*"] },
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ATHLETE#*", "CONTENT#*", "COMMENT#*"] },
         },
       }),
     );

@@ -126,6 +126,27 @@ describe("DELETE /v1/me handler (design §6.6)", () => {
     expect(cognito.input).toEqual({ UserPoolId: "us-east-1_test", Username: "fan@example.com" });
   });
 
+  it("scrubs the user's comments in place, then drops the pointer row", async () => {
+    sendMock.mockResolvedValueOnce({
+      Items: [
+        { PK: "USER#u-1", SK: "META", email: "fan@example.com", name: "Fan" },
+        { PK: "USER#u-1", SK: "COMMENT#k1", contentId: "c-1" },
+      ],
+    });
+    const res = await invoke(makeEvent());
+    expect(res.statusCode).toBe(200);
+
+    const calls = dbCalls();
+    const scrub = calls.find((c) => c.kind === "UpdateCommand");
+    expect(scrub?.input["Key"]).toEqual({ PK: "COMMENT#k1", SK: "META" });
+    expect(scrub?.input["UpdateExpression"]).toContain("REMOVE GSI1PK, GSI1SK, GSI2PK, GSI2SK");
+    expect(scrub?.input["ExpressionAttributeValues"]).toMatchObject({ ":empty": "", ":sub": "u-1", ":gone": "Deleted user" });
+    // Scoped to the caller's own comment: someone else's row can never be touched.
+    expect(scrub?.input["ConditionExpression"]).toContain("authorId = :sub");
+    const deleteKeys = calls.filter((c) => c.kind === "DeleteCommand").map((c) => c.input["Key"]);
+    expect(deleteKeys).toContainEqual({ PK: "USER#u-1", SK: "COMMENT#k1" });
+  });
+
   it("an already-deleted Cognito user is still success (retry path)", async () => {
     sendMock.mockResolvedValueOnce({ Items: [] });
     cognitoSendMock.mockRejectedValueOnce(new UserNotFoundException("gone" as never));
