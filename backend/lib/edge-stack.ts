@@ -337,7 +337,7 @@ export class EdgeStack extends Stack {
       corsBehavior: {
         accessControlAllowOrigins: webOrigins(stage),
         accessControlAllowHeaders: ["authorization", "content-type"],
-        accessControlAllowMethods: ["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE"],
+        accessControlAllowMethods: ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"],
         accessControlAllowCredentials: false,
         accessControlMaxAge: Duration.days(1),
         originOverride: true,

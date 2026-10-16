@@ -73,6 +73,19 @@ describe("EdgeStack cache behaviours", () => {
     }
   });
 
+  it("never caches the per-user comment and block routes", () => {
+    // The comment list applies the caller's blocks and shows their own held
+    // comments, and Authorization is not in the public-read cache key. These
+    // paths must fall through to the default CACHING_DISABLED behaviour,
+    // which is why comments live under /v1/comments, not /v1/content.
+    for (const pattern of cachedPatterns(template)) {
+      const prefix = pattern.replace(/\*$/, "");
+      expect("/v1/comments".startsWith(prefix)).toBe(false);
+      expect("/v1/comments/abc/report".startsWith(prefix)).toBe(false);
+      expect("/v1/me/blocks".startsWith(prefix)).toBe(false);
+    }
+  });
+
   it("never caches telemetry or newsletter writes", () => {
     for (const pattern of cachedPatterns(template)) {
       const prefix = pattern.replace(/\*$/, "");

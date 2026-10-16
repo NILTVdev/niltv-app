@@ -543,6 +543,7 @@ export class ApiStack extends Stack {
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,
           apigwv2.CorsHttpMethod.PUT,
+          apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.DELETE,
         ],
         allowHeaders: ["authorization", "content-type"],
