@@ -12,6 +12,18 @@ export const config = {
   awsRegion: process.env.EXPO_PUBLIC_AWS_REGION ?? "us-east-1",
   /** NIL STAR Official Rules (spec §7 compliance link). */
   rulesUrl: process.env.EXPO_PUBLIC_RULES_URL ?? "https://www.niltv.com/nil-star-rules",
+  /**
+   * Community guidelines / terms page for comments (App Store 1.2). No default:
+   * set EXPO_PUBLIC_GUIDELINES_URL (https) once the page exists. Unset, the app
+   * shows only its built-in summary and no link.
+   */
+  guidelinesUrl: process.env.EXPO_PUBLIC_GUIDELINES_URL,
+  /**
+   * A monitored address for comment concerns (App Store 1.2: published contact
+   * information). No default: set EXPO_PUBLIC_SUPPORT_EMAIL. Unset, no contact
+   * link is shown.
+   */
+  supportEmail: process.env.EXPO_PUBLIC_SUPPORT_EMAIL,
 } as const;
 
 export type Config = typeof config;
