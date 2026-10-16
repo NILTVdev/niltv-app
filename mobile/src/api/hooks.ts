@@ -478,6 +478,51 @@ export function useReportComment(contentId: string) {
   });
 }
 
+/** PATCH a comment you wrote. Not optimistic: the filter runs again on the new text. */
+export function useEditComment(contentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ commentId, body }: { commentId: string; body: string }) =>
+      request(`/v1/comments/${commentId}`, CommentCreateResponse, {
+        method: "PATCH",
+        body: { body },
+        auth: true,
+      }),
+    onSuccess: (data) => {
+      track("comment_edit", { status: data.comment.status });
+      return qc.invalidateQueries({ queryKey: queryKeys.comments(contentId) });
+    },
+  });
+}
+
+/** DELETE a comment you wrote; it leaves the cached pages straight away. */
+export function useDeleteComment(contentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: string) =>
+      request(`/v1/comments/${commentId}`, AckResponse, { method: "DELETE", auth: true }),
+    onSuccess: (_data, commentId) => {
+      track("comment_delete", {});
+      qc.setQueryData<InfiniteData<CommentsListResponse>>(queryKeys.comments(contentId), (old) =>
+        old
+          ? {
+              ...old,
+              pages: old.pages.map((p) => ({ ...p, comments: p.comments.filter((c) => c.id !== commentId) })),
+            }
+          : old,
+      );
+    },
+  });
+}
+
+/** PUT /v1/me/comment-terms: the one-time community-guidelines acceptance. */
+export function useAcceptCommentTerms() {
+  return useMutation({
+    mutationFn: () => request("/v1/me/comment-terms", AckResponse, { method: "PUT", auth: true }),
+    onSuccess: () => track("comment_terms_accept", {}),
+  });
+}
+
 export function useBlocks(enabled = true) {
   return useQuery({
     queryKey: queryKeys.blocks,
