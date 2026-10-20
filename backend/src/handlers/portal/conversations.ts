@@ -17,17 +17,18 @@
 import {
   ConversationDetail,
   GroupUpsertRequest,
+  HideMessageRequest,
   InboxResponse,
   MessagesResponse,
   MuteRequest,
   OpenDeskRequest,
+  PortalAck,
   type PortalPerson,
   ReadRequest,
   SendMessageRequest,
   desksFor,
   isStaffRole,
 } from "@niltv/types";
-import { z } from "zod";
 import { type Result, can, denied } from "../../lib/portal/access";
 import {
   type ConvAccess,
@@ -88,8 +89,6 @@ async function setGroupMembers(meta: ConvMeta, want: readonly string[]): Promise
   for (const sub of current) if (!wanted.has(sub)) await leaveConversation(sub, meta.id);
   for (const member of active.values()) if (member.status === "active") await joinConversation(member.sub, meta);
 }
-
-const HideRequest = z.object({ hidden: z.boolean().default(true) });
 
 export const handler = portalHandler({
   "GET /v1/inbox": async ({ caller }) => ok(InboxResponse.parse({ conversations: await inbox(caller.member) })),
@@ -167,7 +166,7 @@ export const handler = portalHandler({
     const req = ctx.body(SendMessageRequest);
     if (!req) return badRequest();
     const sent = await sendMessage(ctx.caller.member, thread.meta.id, req);
-    if (sent.duplicate || !sent.message) return ok({ status: "ok", duplicate: true });
+    if (sent.duplicate || !sent.message) return ok(PortalAck.parse({ status: "ok", duplicate: true }));
     await enqueue({ type: "message", convId: thread.meta.id, messageId: sent.message.id, seq: sent.message.seq });
     return ok(presentMessage(sent.message, ctx.caller.member, thread.meta), 201);
   },
@@ -178,7 +177,7 @@ export const handler = portalHandler({
     const req = ctx.body(ReadRequest);
     if (!req) return badRequest();
     await markRead(ctx.caller.member, thread.meta, Math.min(req.seq, thread.meta.seq));
-    return ok({ status: "ok" });
+    return ok(PortalAck.parse({ status: "ok" }));
   },
 
   "PUT /v1/conversations/{id}/mute": async (ctx) => {
@@ -187,16 +186,16 @@ export const handler = portalHandler({
     const req = ctx.body(MuteRequest);
     if (!req) return badRequest();
     await setMuted(ctx.caller.member, thread.meta, req.muted);
-    return ok({ status: "ok" });
+    return ok(PortalAck.parse({ status: "ok" }));
   },
 
   "POST /v1/conversations/{id}/messages/{messageId}/hide": async (ctx) => {
     if (!can(ctx.caller, "moderate")) return denied();
     const thread = await open(ctx);
     if ("refused" in thread) return thread.refused;
-    const req = ctx.body(HideRequest);
+    const req = ctx.body(HideMessageRequest);
     if (!req) return badRequest();
     if (!(await setHidden(thread.meta.id, ctx.param("messageId"), req.hidden, ctx.caller.sub))) return notFound();
-    return ok({ status: "ok" });
+    return ok(PortalAck.parse({ status: "ok" }));
   },
 });

@@ -51,7 +51,10 @@ export async function audienceLabel(audience: Audience): Promise<string> {
     case "everyone":
       return "Every athlete";
     case "campus":
-      return `${CAMPUS_CHANNELS[audience.campus]?.school ?? audience.campus} athletes`;
+      // Channel surfaces read "{School}’s Athletes" (docs/CONVENTIONS.md).
+      return CAMPUS_CHANNELS[audience.campus]
+        ? `${CAMPUS_CHANNELS[audience.campus]!.school}’s Athletes`
+        : audience.campus;
     case "sport":
       return audience.sport;
     case "group":

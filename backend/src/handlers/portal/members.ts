@@ -105,7 +105,11 @@ export const handler = portalHandler({
     if (!canEdit(caller, target, update)) return denied();
 
     const edited = new Set(target.edited);
-    for (const field of ["name", "campus", "sport"] as const) if (update[field] !== undefined) edited.add(field);
+    // A field counts as hand-edited only when the value really changes, so a
+    // form that resends unchanged values does not freeze it against the sync.
+    for (const field of ["name", "campus", "sport"] as const) {
+      if (update[field] !== undefined && (update[field] ?? undefined) !== target[field]) edited.add(field);
+    }
     const next: PortalMember = PortalMemberSchema.parse({
       ...target,
       ...(update.role !== undefined ? { role: update.role } : {}),

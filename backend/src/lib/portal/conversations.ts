@@ -204,7 +204,8 @@ export function channelAbout(scope: ChannelScope): string {
       return "Every athlete on the roster.";
     case "campus": {
       const school = CAMPUS_CHANNELS[scope.campus]?.school;
-      return school ? `${school} athletes. Joined automatically from your campus.` : "Joined automatically from your campus.";
+      // Channel surfaces read "{School}’s Athletes" (docs/CONVENTIONS.md).
+      return school ? `${school}’s Athletes. Joined automatically from your campus.` : "Joined automatically from your campus.";
     }
     case "sport":
       return `${scope.sport} on every campus. Joined automatically from your sport.`;
@@ -775,8 +776,9 @@ export function summarize(meta: ConvMeta, viewer: PortalMember, membership: Memb
       about = `Private between you and the NIL TV ${DESK_LABELS[meta.desk].toLowerCase()} desk.`;
     }
   }
-  // Staff who never opened a channel or group start at zero unread; desk
-  // threads count in full until someone on the desk reads them.
+  // Staff who never opened a channel or group start at zero unread. Desk
+  // threads count in full for each staff member until they read it
+  // themselves: every read marker is per person.
   const baseline = membership ? membership.lastReadSeq : staffViewer && meta.kind !== "desk" ? meta.seq : 0;
   return {
     id: meta.id,

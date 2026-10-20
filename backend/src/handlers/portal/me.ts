@@ -30,7 +30,9 @@ export const handler = portalHandler({
     const allowedDesks = new Set(desksFor(current.role));
     const member = {
       ...current,
-      ...(update.name !== undefined ? { name: update.name, edited: [...new Set([...current.edited, "name"])] } : {}),
+      ...(update.name !== undefined && update.name !== current.name
+        ? { name: update.name, edited: [...new Set([...current.edited, "name"])] }
+        : {}),
       ...(update.timezone !== undefined ? { timezone: update.timezone } : {}),
       ...(update.notify ? { notify: { ...current.notify, ...update.notify } } : {}),
       ...(update.desks !== undefined && isStaffRole(current.role)
@@ -39,6 +41,8 @@ export const handler = portalHandler({
       updatedAt: new Date().toISOString(),
     };
     await putMember(member);
-    return ok(PortalMeResponse.parse({ member, unreadMessages: 0 }));
+    const threads = await inbox(member);
+    const unreadMessages = threads.filter((t) => !t.muted).reduce((sum, t) => sum + t.unread, 0);
+    return ok(PortalMeResponse.parse({ member, unreadMessages }));
   },
 });

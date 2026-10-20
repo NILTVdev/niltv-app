@@ -12,6 +12,7 @@
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   InterestStatus,
+  PortalAck,
   type Posting,
   PostingActionRequest,
   PostingUpsertRequest,
@@ -178,7 +179,7 @@ export const handler = portalHandler({
             }),
           );
         } catch (err) {
-          if ((err as { name?: string }).name === "ConditionalCheckFailedException") return ok({ status: "ok" });
+          if ((err as { name?: string }).name === "ConditionalCheckFailedException") return ok(PortalAck.parse({ status: "ok" }));
           throw err;
         }
         await db.send(
@@ -192,7 +193,7 @@ export const handler = portalHandler({
         if (posting.requiresApproval) {
           await enqueue({ type: "posting.interest", postingId: posting.id, personSub: caller.sub });
         }
-        return ok({ status: "ok" });
+        return ok(PortalAck.parse({ status: "ok" }));
       }
       const removed = await db.send(
         new DeleteCommand({ TableName: table(), Key: postingInterestKey(posting.id, caller.sub), ReturnValues: "ALL_OLD" }),
@@ -207,10 +208,11 @@ export const handler = portalHandler({
           }),
         );
       }
-      return ok({ status: "ok" });
+      return ok(PortalAck.parse({ status: "ok" }));
     }
 
     if (!can(caller, "managePostings")) return denied();
+    if (!posting.requiresApproval) return badRequest("This posting does not need approval.");
     try {
       await db.send(
         new UpdateCommand({
@@ -227,6 +229,6 @@ export const handler = portalHandler({
       throw err;
     }
     await enqueue({ type: "posting.decision", postingId: posting.id, personSub: req.personSub });
-    return ok({ status: "ok" });
+    return ok(PortalAck.parse({ status: "ok" }));
   },
 });

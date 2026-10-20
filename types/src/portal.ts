@@ -302,6 +302,14 @@ export const SendMessageRequest = z.object({
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const ReadRequest = z.object({ seq: z.number().int().nonnegative() });
+
+/** Staff hide or unhide one message. */
+export const HideMessageRequest = z.object({ hidden: z.boolean().default(true) });
+export type HideMessageRequest = z.infer<typeof HideMessageRequest>;
+
+/** The reply to writes with nothing to return; `duplicate` = a resent message that had already landed. */
+export const PortalAck = z.object({ status: z.literal("ok"), duplicate: z.boolean().optional() });
+export type PortalAck = z.infer<typeof PortalAck>;
 export const MuteRequest = z.object({ muted: z.boolean() });
 
 /** Athletes and guests open a desk thread for themselves; staff open one with a person. */

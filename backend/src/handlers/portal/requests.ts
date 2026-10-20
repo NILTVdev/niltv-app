@@ -9,6 +9,7 @@
 import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import {
   HelpRequest,
+  PortalAck,
   type PortalRequest,
   PortalRequestCreate,
   PortalRequestStatus,
@@ -122,6 +123,6 @@ export const handler = portalHandler({
     const req = body(HelpRequest);
     if (!req) return badRequest();
     await enqueue({ type: "help", sub: caller.sub, topic: req.topic, message: req.message });
-    return ok({ status: "ok" }, 202);
+    return ok(PortalAck.parse({ status: "ok" }), 202);
   },
 });
