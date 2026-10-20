@@ -358,3 +358,110 @@ export function backoffDelayMs(
 
 /** Retry budget for the vote transaction — ~1.5 s worst case, well inside the API timeout. */
 export const VOTE_TRANSACTION_ATTEMPTS = 6;
+
+/* ── Portal (portal.niltv.com, src/lib/portal) ───────────────────────────── */
+/*
+ * Portal rows live in their own partitions, except the per-person rows,
+ * which sit in the USER# partition so DELETE /v1/me purges them with the
+ * account. Conversations follow the app messaging plan (CONV#), so the
+ * mobile app can read the same threads later.
+ */
+
+/** USER#{sub} / PORTAL — portal access, role and settings for one account. */
+export const portalMemberKey = (sub: string): TableKey => ({ PK: `USER#${sub}`, SK: "PORTAL" });
+
+/** GSI1 partition listing every portal member; GSI1SK is `{lowercased name}#{sub}`. */
+export const PORTAL_MEMBERS_GSI1PK = "PORTAL#MEMBERS";
+
+export const portalMemberGsi = (name: string, sub: string): { GSI1PK: string; GSI1SK: string } => ({
+  GSI1PK: PORTAL_MEMBERS_GSI1PK,
+  GSI1SK: `${name.toLowerCase()}#${sub}`,
+});
+
+/** PORTAL#CONFIG / META — admin settings (desk emails, auto-enable). */
+export const portalConfigKey = (): TableKey => ({ PK: "PORTAL#CONFIG", SK: "META" });
+
+/** CONV#{id} / META — a conversation (channel, group or desk thread). */
+export const convKey = (convId: string): TableKey => ({ PK: `CONV#${convId}`, SK: "META" });
+
+/** CONV#{id} / MSG#{ulid} — one message; ULIDs sort by time. */
+export const convMessageKey = (convId: string, messageId: string): TableKey => ({
+  PK: `CONV#${convId}`,
+  SK: `MSG#${messageId}`,
+});
+
+/** CONV#{id} / CMID#{clientMsgId} — retry guard: a resent message lands once. */
+export const convClientMsgKey = (convId: string, clientMsgId: string): TableKey => ({
+  PK: `CONV#${convId}`,
+  SK: `CMID#${clientMsgId}`,
+});
+
+export const CONV_MSG_SK_PREFIX = "MSG#";
+
+/**
+ * USER#{sub} / CONV#{id} — membership plus read state. For channels and
+ * groups the row is what grants access; staff get one lazily as their read
+ * marker. Checked on every read and write, so removal is instant.
+ */
+export const convMemberKey = (sub: string, convId: string): TableKey => ({
+  PK: `USER#${sub}`,
+  SK: `CONV#${convId}`,
+});
+
+export const CONV_MEMBER_SK_PREFIX = "CONV#";
+
+/** GSI1 mirror of a membership: CONV#{id} / USER#{sub} lists a conversation's members. */
+export const convMemberGsi = (sub: string, convId: string): { GSI1PK: string; GSI1SK: string } => ({
+  GSI1PK: `CONV#${convId}`,
+  GSI1SK: `USER#${sub}`,
+});
+
+/** GSI1 partition of every channel and group; GSI1SK is `{kind}#{title}`. */
+export const CONVS_ALL_GSI1PK = "CONVS#ALL";
+
+/** GSI1 partition of one desk's threads; GSI1SK is the last message time, newest last. */
+export const deskGsi1Pk = (desk: string): string => `DESK#${desk}`;
+
+/**
+ * MAILED#{target} / CONV#{convId} — when we last emailed a person (target =
+ * their sub) or a desk inbox (target = desk-{desk}) about a thread, so a
+ * busy thread sends one email per window, not one per message.
+ */
+export const convMailedKey = (target: string, convId: string): TableKey => ({
+  PK: `MAILED#${target}`,
+  SK: `CONV#${convId}`,
+});
+
+/** PEVENT#{id} / META — a schedule event or time poll (not a competition EVENT#). */
+export const portalEventKey = (id: string): TableKey => ({ PK: `PEVENT#${id}`, SK: "META" });
+
+/** PEVENT#{id} / VOTE#{sub} — the times one person picked on a poll. */
+export const portalEventVoteKey = (id: string, sub: string): TableKey => ({ PK: `PEVENT#${id}`, SK: `VOTE#${sub}` });
+
+/** PEVENT#{id} / RSVP#{sub} — one person's reply to a set event. */
+export const portalEventRsvpKey = (id: string, sub: string): TableKey => ({ PK: `PEVENT#${id}`, SK: `RSVP#${sub}` });
+
+/** GSI1 partition of every schedule event; GSI1SK is `{createdAt}#{id}`. */
+export const PORTAL_EVENTS_GSI1PK = "PEVENTS#ALL";
+
+/** USER#{sub} / AVAIL — weekly availability; GSI1 AVAIL#ALL lists everyone's. */
+export const availabilityKey = (sub: string): TableKey => ({ PK: `USER#${sub}`, SK: "AVAIL" });
+export const AVAIL_ALL_GSI1PK = "AVAIL#ALL";
+
+/** POSTING#{id} / META — an internal posting. */
+export const postingKey = (id: string): TableKey => ({ PK: `POSTING#${id}`, SK: "META" });
+
+/** POSTING#{id} / INTEREST#{sub} — one person's interest in a posting. */
+export const postingInterestKey = (id: string, sub: string): TableKey => ({
+  PK: `POSTING#${id}`,
+  SK: `INTEREST#${sub}`,
+});
+
+/** GSI1 partition of every posting; GSI1SK is `{createdAt}#{id}`. */
+export const POSTINGS_ALL_GSI1PK = "POSTINGS#ALL";
+
+/** PREQ#{id} / META — a page change request. */
+export const portalRequestKey = (id: string): TableKey => ({ PK: `PREQ#${id}`, SK: "META" });
+
+/** GSI1 partition of every page change request; GSI1SK is `{createdAt}#{id}`. */
+export const PORTAL_REQUESTS_GSI1PK = "PREQS#ALL";

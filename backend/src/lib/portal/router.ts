@@ -1,0 +1,54 @@
+/**
+ * Shared entry for the portal Lambdas: authorize the caller (an active
+ * portal member, see access.ts), then dispatch on the HTTP API route key
+ * ("GET /v1/inbox"). A handler file is just its route table.
+ */
+import { ApiError } from "@niltv/types";
+import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyHandlerV2WithJWTAuthorizer } from "aws-lambda";
+import type { z } from "zod";
+import { badRequest, json, notFound, parseJsonBody } from "../http";
+import { type Caller, type Result, authorize } from "./access";
+
+export interface RouteContext {
+  event: APIGatewayProxyEventV2WithJWTAuthorizer;
+  caller: Caller;
+  /** a path parameter, or "" */
+  param: (name: string) => string;
+  /** a query string value, or undefined */
+  query: (name: string) => string | undefined;
+  /** the JSON body parsed with a contract schema; undefined when invalid */
+  body: <T extends z.ZodTypeAny>(schema: T) => z.infer<T> | undefined;
+}
+
+export type Route = (ctx: RouteContext) => Promise<Result>;
+
+export const PRIVATE = "private, no-store";
+
+export const ok = (body: unknown, status = 200): Result => json(status, body, PRIVATE);
+
+export { badRequest, notFound };
+
+export function portalHandler(routes: Record<string, Route>): APIGatewayProxyHandlerV2WithJWTAuthorizer {
+  return async (event) => {
+    const auth = await authorize(event);
+    if ("response" in auth) return auth.response;
+    const route = routes[event.routeKey];
+    if (!route) return notFound();
+    const ctx: RouteContext = {
+      event,
+      caller: auth.caller,
+      param: (name) => event.pathParameters?.[name] ?? "",
+      query: (name) => event.queryStringParameters?.[name],
+      body: (schema) => {
+        const parsed = schema.safeParse(parseJsonBody(event.body, event.isBase64Encoded === true));
+        return parsed.success ? parsed.data : undefined;
+      },
+    };
+    try {
+      return await route(ctx);
+    } catch (err) {
+      console.error(`portal: ${event.routeKey} failed`, err);
+      return json(500, ApiError.parse({ error: "INTERNAL", message: "Something went wrong. Try again." }));
+    }
+  };
+}
