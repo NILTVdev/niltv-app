@@ -655,8 +655,10 @@ export async function setHidden(convIdValue: string, messageId: string, hidden: 
       new UpdateCommand({
         TableName: table(),
         Key: convMessageKey(convIdValue, messageId),
-        UpdateExpression: "SET hidden = :h, hiddenBy = :by, hiddenAt = :at",
+        // "hidden" is a DynamoDB reserved word.
+        UpdateExpression: "SET #hidden = :h, hiddenBy = :by, hiddenAt = :at",
         ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeNames: { "#hidden": "hidden" },
         ExpressionAttributeValues: { ":h": hidden, ":by": bySub, ":at": new Date().toISOString() },
       }),
     );

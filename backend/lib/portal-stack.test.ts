@@ -71,7 +71,9 @@ describe("PortalStack", () => {
     });
   });
 
-  it("runs the onboarding sync every 30 minutes", () => {
-    template.hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(30 minutes)" });
+  it("runs the onboarding sync every 30 minutes on prod only, unless context turns it on", () => {
+    template.resourceCountIs("AWS::Events::Rule", 0);
+    synth("prod").hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(30 minutes)" });
+    synth("dev", { "niltv:portalRosterSync:dev": "on" }).resourceCountIs("AWS::Events::Rule", 1);
   });
 });

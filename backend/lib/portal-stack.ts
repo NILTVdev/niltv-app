@@ -232,12 +232,17 @@ export class PortalStack extends Stack {
         resources: [this.formatArn({ service: "ssm", resource: "parameter", resourceName: apiKeyParamName.slice(1) })],
       }),
     );
-    new events.Rule(this, "RosterSyncSchedule", {
-      ruleName: `niltv-${stage}-portal-roster-sync`,
-      description: "Accepted athletes from dashboard onboarding into the portal",
-      schedule: events.Schedule.rate(Duration.minutes(30)),
-      targets: [new targets.LambdaFunction(rosterSyncFn)],
-    });
+    // Scheduled on prod. Elsewhere only when context turns it on: the dev
+    // dashboard has its own API key, and dev should not mirror real applicants.
+    const syncOn = stage === "prod" || this.node.tryGetContext(`niltv:portalRosterSync:${stage}`) === "on";
+    if (syncOn) {
+      new events.Rule(this, "RosterSyncSchedule", {
+        ruleName: `niltv-${stage}-portal-roster-sync`,
+        description: "Accepted athletes from dashboard onboarding into the portal",
+        schedule: events.Schedule.rate(Duration.minutes(30)),
+        targets: [new targets.LambdaFunction(rosterSyncFn)],
+      });
+    }
 
     // ── Routes ────────────────────────────────────────────────────────────
     const M = apigwv2.HttpMethod;

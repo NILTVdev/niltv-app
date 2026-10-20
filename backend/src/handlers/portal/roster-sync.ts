@@ -81,14 +81,21 @@ export interface SyncResult {
   created: number;
   updated: number;
   noAccount: number;
+  dryRun: boolean;
 }
 
-export async function syncRoster(apps: readonly AcceptedApplication[], now: string = new Date().toISOString()): Promise<SyncResult> {
+/** `dryRun` counts what would change and writes nothing (the pre-launch check). */
+export async function syncRoster(
+  apps: readonly AcceptedApplication[],
+  opts: { now?: string; dryRun?: boolean } = {},
+): Promise<SyncResult> {
+  const now = opts.now ?? new Date().toISOString();
+  const dryRun = opts.dryRun === true;
   const settings = await getSettings();
   const members = await listMembers();
   const byApp = new Map(members.filter((m) => m.applicationId !== undefined).map((m) => [m.applicationId!, m]));
   const byEmail = new Map(members.map((m) => [m.email.toLowerCase(), m]));
-  const result: SyncResult = { accepted: apps.length, created: 0, updated: 0, noAccount: 0 };
+  const result: SyncResult = { accepted: apps.length, created: 0, updated: 0, noAccount: 0, dryRun };
 
   for (const app of apps) {
     const fields = rosterFields(app);
@@ -107,7 +114,7 @@ export async function syncRoster(apps: readonly AcceptedApplication[], now: stri
       // Staff and guests who also applied keep their role; only the link is recorded.
       if (existing.role !== "athlete") {
         if (existing.applicationId !== app.id) {
-          await putMember({ ...existing, applicationId: app.id, updatedAt: now });
+          if (!dryRun) await putMember({ ...existing, applicationId: app.id, updatedAt: now });
           result.updated++;
         }
         continue;
@@ -118,9 +125,11 @@ export async function syncRoster(apps: readonly AcceptedApplication[], now: stri
         if (profileId) next = { ...next, profileId };
       }
       if (!same(existing, next)) {
-        await putMember({ ...next, updatedAt: now });
-        if (next.status === "active" && (existing.campus !== next.campus || existing.sport !== next.sport)) {
-          await syncChannelMemberships(next);
+        if (!dryRun) {
+          await putMember({ ...next, updatedAt: now });
+          if (next.status === "active" && (existing.campus !== next.campus || existing.sport !== next.sport)) {
+            await syncChannelMemberships(next);
+          }
         }
         result.updated++;
       }
@@ -139,6 +148,10 @@ export async function syncRoster(apps: readonly AcceptedApplication[], now: stri
       edited: [],
       createdAt: now,
     });
+    if (dryRun) {
+      result.created++;
+      continue;
+    }
     if (!(await createMember(member))) continue;
     result.created++;
     if (member.status === "active") {
@@ -149,12 +162,13 @@ export async function syncRoster(apps: readonly AcceptedApplication[], now: stri
   return result;
 }
 
-export const handler = async (): Promise<SyncResult> => {
+/** Scheduled with no payload; invoke with {"dryRun": true} to count without writing. */
+export const handler = async (event?: { dryRun?: boolean }): Promise<SyncResult> => {
   const baseUrl = process.env.DASHBOARD_API_URL;
   const keyParam = process.env.DASHBOARD_API_KEY_PARAM;
   if (!baseUrl || !keyParam) throw new Error("DASHBOARD_API_URL / DASHBOARD_API_KEY_PARAM unset");
   const apps = await fetchAccepted(baseUrl, await dashboardApiKey(keyParam));
-  const result = await syncRoster(apps);
+  const result = await syncRoster(apps, { dryRun: event?.dryRun === true });
   console.log("portal-roster-sync", JSON.stringify(result));
   return result;
 };

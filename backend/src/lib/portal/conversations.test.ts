@@ -15,6 +15,7 @@ import {
   convAccess,
   presentMessage,
   sendMessage,
+  setHidden,
   summarize,
 } from "./conversations";
 
@@ -202,5 +203,19 @@ describe("sendMessage", () => {
       .mockResolvedValue({});
     const out = await sendMessage(member(), "ch-everyone", { clientMsgId: "client-123", body: "hello" });
     expect(out.message?.seq).toBe(6);
+  });
+});
+
+describe("setHidden", () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+    sendMock.mockResolvedValue({});
+  });
+
+  it("names the hidden attribute through a placeholder (reserved word)", async () => {
+    expect(await setHidden("ch-everyone", "01J", true, "u-staff")).toBe(true);
+    const input = sendMock.mock.calls[0]![0].input;
+    expect(input.UpdateExpression).not.toMatch(/SET hidden/);
+    expect(input.ExpressionAttributeNames).toEqual({ "#hidden": "hidden" });
   });
 });

@@ -64,7 +64,14 @@ export function renderEmail(email: PortalEmail): { html: string; text: string } 
   return { html, text };
 }
 
+/** Reserved test domains (RFC 2606): smoke-test accounts use them and must never cost a bounce. */
+export const isTestAddress = (address: string): boolean => /\.(invalid|test|example)$/i.test(address.trim());
+
 export async function sendEmail(to: string, email: PortalEmail, replyTo?: string): Promise<boolean> {
+  if (isTestAddress(to)) {
+    console.log("portal: skipped email to a test address", { subject: email.subject });
+    return false;
+  }
   const from = process.env.FROM_EMAIL ?? "portal@niltv.com";
   const { html, text } = renderEmail(email);
   try {
@@ -72,7 +79,7 @@ export async function sendEmail(to: string, email: PortalEmail, replyTo?: string
       new SendEmailCommand({
         FromEmailAddress: `NIL TV Portal <${from}>`,
         Destination: { ToAddresses: [to] },
-        ...(replyTo ? { ReplyToAddresses: [replyTo] } : {}),
+        ...(replyTo && !isTestAddress(replyTo) ? { ReplyToAddresses: [replyTo] } : {}),
         Content: {
           Simple: {
             Subject: { Data: email.subject },
