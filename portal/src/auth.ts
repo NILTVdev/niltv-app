@@ -1,8 +1,11 @@
 /**
  * Cognito SRP auth (amazon-cognito-identity-js), same setup as the admin
- * tool: the library keeps the session in `sessionStorage`, so a signed-in
- * tab survives a reload but not a browser restart. `getIdToken()` refreshes
- * an expired session through the refresh token.
+ * tool. In a browser tab the library keeps the session in `sessionStorage`,
+ * so a signed-in tab survives a reload but not a browser restart. Opened as
+ * the installed app (from the Home Screen), it keeps the session in
+ * `localStorage` instead, so closing the app does not sign people out.
+ * Signing out clears the session from both. `getIdToken()` refreshes an
+ * expired session through the refresh token.
  *
  * Portal accounts are ordinary niltv.com accounts; the portal API decides
  * who gets in (403 NOT_MEMBER), not Cognito.
@@ -14,20 +17,38 @@ import {
   type CognitoUserSession,
 } from "amazon-cognito-identity-js";
 import { config } from "./config";
+import { runningStandalone } from "./lib/push";
 
 let pool: CognitoUserPool | undefined;
+let store: Storage | undefined;
+
+/** localStorage for the installed app (when the browser allows it), sessionStorage for a tab. Fixed per page load. */
+function sessionStore(): Storage {
+  if (!store) {
+    store = window.sessionStorage;
+    if (runningStandalone()) {
+      try {
+        window.localStorage.getItem("niltv-portal:probe");
+        store = window.localStorage;
+      } catch {
+        /* storage blocked: stay with the tab session */
+      }
+    }
+  }
+  return store;
+}
 
 function getPool(): CognitoUserPool {
   if (!pool) {
     const { userPoolId, clientId } = config.cognito;
     if (!userPoolId || !clientId) throw new Error("Cognito is not configured.");
-    pool = new CognitoUserPool({ UserPoolId: userPoolId, ClientId: clientId, Storage: window.sessionStorage });
+    pool = new CognitoUserPool({ UserPoolId: userPoolId, ClientId: clientId, Storage: sessionStore() });
   }
   return pool;
 }
 
 const userFor = (email: string): CognitoUser =>
-  new CognitoUser({ Username: email, Pool: getPool(), Storage: window.sessionStorage });
+  new CognitoUser({ Username: email, Pool: getPool(), Storage: sessionStore() });
 
 export class NotSignedInError extends Error {
   constructor() {
@@ -102,7 +123,7 @@ export function confirmPassword(email: string, code: string, newPassword: string
   });
 }
 
-/** Restore a session from sessionStorage. Resolves to the email, or null when signed out. */
+/** Restore the saved session. Resolves to the email, or null when signed out. */
 export function restoreSession(): Promise<string | null> {
   return new Promise((resolve) => {
     const user = getPool().getCurrentUser();
@@ -138,10 +159,24 @@ export function getIdToken(): Promise<string> {
   });
 }
 
+/**
+ * Sign out here, and drop this app client's tokens from both storages: a
+ * session saved by the installed app must not outlive a sign-out in a tab.
+ */
 export function signOut(): void {
   try {
     getPool().getCurrentUser()?.signOut();
   } catch {
     /* not configured: nothing to sign out of */
+  }
+  const prefix = `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}.`;
+  for (const pick of [() => window.localStorage, () => window.sessionStorage]) {
+    try {
+      const s = pick();
+      const keys = Array.from({ length: s.length }, (_, i) => s.key(i));
+      for (const k of keys) if (k?.startsWith(prefix)) s.removeItem(k);
+    } catch {
+      /* storage blocked: nothing was saved there */
+    }
   }
 }

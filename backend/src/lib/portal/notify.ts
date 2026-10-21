@@ -1,7 +1,7 @@
 /**
  * Portal notices: request handlers drop a small notice on an SQS queue and
  * return; the portal-notify Lambda (handlers/portal/notify.ts) resolves who
- * should hear about it and sends the email. Keeps SES out of the request
+ * should hear about it and how (push, summary email, or an email now). Keeps SES out of the request
  * path and gives failed sends a retry and a dead-letter queue.
  */
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
@@ -14,6 +14,8 @@ export type PortalNotice =
   | { type: "posting.decision"; postingId: string; personSub: string }
   | { type: "event.new"; eventId: string }
   | { type: "event.locked"; eventId: string }
+  /** a set event's time moved (staff edited it) */
+  | { type: "event.changed"; eventId: string; previousStartsAt?: string }
   | { type: "event.cancelled"; eventId: string }
   | { type: "request.new"; requestId: string }
   | { type: "help"; sub: string; topic: HelpTopic; message: string }
@@ -24,7 +26,7 @@ const getSqs = (): SQSClient => (sqs ??= new SQSClient({}));
 
 /**
  * Message notices wait a minute so someone reading the thread in the open
- * portal has seen it before an email would go out.
+ * portal has seen it before a push would go out.
  */
 export const MESSAGE_NOTICE_DELAY_SECONDS = 60;
 

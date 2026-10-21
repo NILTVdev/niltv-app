@@ -11,7 +11,7 @@ Every request and response shape comes from `types/src/portal.ts`.
 # from the repo root (workspaces)
 npm run dev -w @niltv/portal        # http://localhost:5190
 npm run typecheck -w @niltv/portal
-npm run test -w @niltv/portal       # vitest: time zones, .ics, nav, router, heatmap, message merging
+npm run test -w @niltv/portal       # vitest: time zones, .ics, nav, router, heatmap, messages, mentions, push
 npm run build -w @niltv/portal      # static files in portal/dist
 ```
 
@@ -33,7 +33,9 @@ Any niltv.com account can sign in. The API decides who gets in: an account
 without an active portal row gets 403 `NOT_MEMBER` and sees the no-access
 screen. The menu and the route guard read `PORTAL_PERMISSIONS` through
 `portalCan`, the same table the server checks. A 401 signs the tab out.
-Sessions live in `sessionStorage` (survive a reload, not a browser restart).
+In a browser tab the session lives in `sessionStorage` (survives a reload, not a
+browser restart). Opened as the installed app from the Home Screen, it lives in
+`localStorage`, so closing the app does not sign people out. Sign-out clears both.
 
 ## Hosting
 
@@ -42,6 +44,8 @@ Sessions live in `sessionStorage` (survive a reload, not a browser restart).
   (CloudFront: a 403/404 custom error response to `/index.html` with 200).
 - `index.html` carries `noindex, nofollow` and `public/robots.txt` disallows all.
 - Fonts load from Google Fonts, like niltv.com.
+- `public/sw.js` and `public/manifest.webmanifest` must be served as files at
+  the root (the SPA rewrite skips `.js` and `.webmanifest`).
 
 ## Polling
 
@@ -50,6 +54,25 @@ pauses both while the tab is hidden. An open thread polls
 `?after={lastId}` every 5 s while visible and re-reads the newest page once a
 minute so hide and unhide reach other viewers. The read marker moves when a
 thread is open and the tab is visible.
+
+## Notifications
+
+Quietest first: the badge in the portal for everything, a phone or browser
+notification (web push) for what is addressed to you, and one summary email
+for what is still unseen an hour later. Each member picks a cadence per topic
+in Account. Two admin switches in Settings (`activityEmails`, `webPush`) let
+anything out of the portal; both are off while testing.
+
+- The unread count shows in the tab title and on the installed app's icon.
+- `public/sw.js` handles push only: no fetch handler, no caching. The app
+  registers it only when `GET /v1/me` says `notifications.webPush` is on and
+  carries a `vapidPublicKey`. Until then nothing asks for permission.
+- The permission prompt never shows on first load or sign-in. Athletes and
+  guests see a small card in a desk thread after writing there; staff when
+  they open one. "Not now" holds for 30 days (localStorage).
+- iPhone and iPad only get push once the portal is on the Home Screen. The
+  manifest (`display: standalone`) and icons in `public/` make that work.
+  The icons are generated from `mobile/assets/images/icon.png`.
 
 ## Content Hub
 

@@ -1,7 +1,8 @@
 /**
  * Messages: channels, groups and desk threads on the left, the open thread
  * on the right. On phones the list and the thread swap. The inbox polls
- * every 20 s while the tab is visible; the open thread every 5 s.
+ * every 20 s while the tab is visible; the open thread every 5 s. An "@"
+ * next to the count means an unread message mentions you.
  */
 import { type ChannelScope, type ConversationSummary, DESK_LABELS, type Desk, desksFor, isStaffRole } from "@niltv/types";
 import { Fragment, useState } from "react";
@@ -107,6 +108,12 @@ export function Messages({ id }: ScreenProps) {
           </span>
         </span>
         {c.muted ? <span className="muteicon">Muted</span> : null}
+        {c.mentioned ? (
+          <span className="at" title="Mentions you">
+            <span aria-hidden="true">@</span>
+            <span className="sr-only">Mentions you,</span>
+          </span>
+        ) : null}
         {unread ? (
           <span className="dot">
             {c.unread > 99 ? "99+" : c.unread}

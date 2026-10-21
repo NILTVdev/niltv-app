@@ -423,14 +423,22 @@ export const CONVS_ALL_GSI1PK = "CONVS#ALL";
 export const deskGsi1Pk = (desk: string): string => `DESK#${desk}`;
 
 /**
- * MAILED#{target} / CONV#{convId} — when we last emailed a person (target =
- * their sub) or a desk inbox (target = desk-{desk}) about a thread, so a
- * busy thread sends one email per window, not one per message.
+ * USER#{sub} / NOTIFY — what is waiting to reach one member outside the
+ * portal: the pending summary email, the backoff counters and today's push
+ * count. While a summary is pending the row sits in GSI1 NOTIFY#DUE.
  */
-export const convMailedKey = (target: string, convId: string): TableKey => ({
-  PK: `MAILED#${target}`,
-  SK: `CONV#${convId}`,
-});
+export const notifyStateKey = (sub: string): TableKey => ({ PK: `USER#${sub}`, SK: "NOTIFY" });
+
+/** GSI1 partition of pending summary emails; GSI1SK is when the summary is due. */
+export const NOTIFY_DUE_GSI1PK = "NOTIFY#DUE";
+
+/** USER#{sub} / PUSH#{id} — one browser push subscription (id = hash of the endpoint). */
+export const pushDeviceKey = (sub: string, id: string): TableKey => ({ PK: `USER#${sub}`, SK: `PUSH#${id}` });
+
+export const PUSH_DEVICE_SK_PREFIX = "PUSH#";
+
+/** PORTAL#NOTIFY / DESK#{desk} — when that desk's staff were last alerted. */
+export const deskAlertKey = (desk: string): TableKey => ({ PK: "PORTAL#NOTIFY", SK: `DESK#${desk}` });
 
 /** PEVENT#{id} / META — a schedule event or time poll (not a competition EVENT#). */
 export const portalEventKey = (id: string): TableKey => ({ PK: `PEVENT#${id}`, SK: "META" });

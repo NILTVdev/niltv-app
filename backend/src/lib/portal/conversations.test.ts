@@ -45,7 +45,7 @@ const conv = (over: Partial<ConvMeta> = {}): ConvMeta => ({
 const deskConv = (desk: "content" | "support" | "payments", personSub = "u-ath"): ConvMeta =>
   conv({ id: `desk-${desk}-${personSub}`, kind: "desk", title: desk, desk, personSub, personName: "Jordan M.", personRole: "athlete" });
 
-const membership = { convId: "ch-everyone", kind: "channel" as const, lastReadSeq: 2, muted: false, marker: false };
+const membership = { convId: "ch-everyone", kind: "channel" as const, lastReadSeq: 2, muted: false, marker: false, mentionSeq: 0 };
 
 describe("channels", () => {
   it("slugs sport channels from the form's sport names", () => {
@@ -119,6 +119,8 @@ describe("presentMessage", () => {
     body: "Game day content is due Sunday.",
     at: "2026-10-01T00:00:00.000Z",
     hidden: false,
+    mentions: ["u-ath"],
+    important: false,
   };
 
   it("signs staff posts as the team for athletes, with no staff name", () => {
@@ -141,6 +143,12 @@ describe("presentMessage", () => {
     expect(presentMessage(hidden, member(), conv()).body).toBe("");
     expect(presentMessage(hidden, member({ sub: "s", role: "admin" }), conv()).body).toBe(stored.body);
   });
+
+  it("drops a hidden message's mentions for everyone but staff", () => {
+    const hidden = { ...stored, hidden: true };
+    expect(presentMessage(stored, member(), conv()).mentions).toEqual(["u-ath"]);
+    expect(presentMessage(hidden, member(), conv()).mentions).toEqual([]);
+  });
 });
 
 describe("summarize", () => {
@@ -156,6 +164,12 @@ describe("summarize", () => {
     // staff who never opened a channel start at zero; desk threads count in full
     expect(summarize(conv({ seq: 7 }), member({ sub: "s", role: "staff" }), undefined).unread).toBe(0);
     expect(summarize({ ...deskConv("content"), seq: 2 }, member({ sub: "s", role: "staff" }), undefined).unread).toBe(2);
+  });
+
+  it("flags an unread @mention until it is read", () => {
+    expect(summarize(conv({ seq: 7 }), member(), { ...membership, lastReadSeq: 4, mentionSeq: 6 }).mentioned).toBe(true);
+    expect(summarize(conv({ seq: 7 }), member(), { ...membership, lastReadSeq: 6, mentionSeq: 6 }).mentioned).toBe(false);
+    expect(summarize(conv({ seq: 7 }), member(), { ...membership, lastReadSeq: 4 }).mentioned).toBe(false);
   });
 });
 

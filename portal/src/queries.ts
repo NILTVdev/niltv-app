@@ -13,6 +13,8 @@ export const qk = {
   inbox: ["inbox"] as const,
   conv: (id: string) => ["conv", id] as const,
   messages: (id: string) => ["messages", id] as const,
+  people: (id: string, q: string) => ["people", id, q] as const,
+  pushDevices: ["push-devices"] as const,
   members: ["members"] as const,
   events: ["events"] as const,
   availability: ["availability"] as const,

@@ -27,6 +27,7 @@ import {
   MuteRequest,
   MyPostsResponse,
   OpenDeskRequest,
+  PeopleResponse,
   PortalEvent,
   PortalMeResponse,
   PortalMeUpdate,
@@ -41,6 +42,10 @@ import {
   PostingActionRequest,
   PostingUpsertRequest,
   PostingsResponse,
+  PushDevice,
+  PushDevicesResponse,
+  PushRemoveRequest,
+  PushSubscribeRequest,
   ReadRequest,
   SendMessageRequest,
 } from "@niltv/types";
@@ -183,6 +188,14 @@ export const api = {
   updateMe: (input: z.input<typeof PortalMeUpdate>) =>
     request("PATCH", "/v1/me", PortalMeResponse, bodyOf(PortalMeUpdate, input)),
 
+  /* push devices (POST is refused with 409 while the push switch is off) */
+  pushDevices: () => request("GET", "/v1/push", PushDevicesResponse),
+  subscribePush: (input: z.input<typeof PushSubscribeRequest>) =>
+    request("POST", "/v1/push", PushDevice, bodyOf(PushSubscribeRequest, input)),
+  /** This browser by endpoint, or a listed device by id. */
+  removePush: (input: z.input<typeof PushRemoveRequest>) =>
+    requestOk("POST", "/v1/push/remove", bodyOf(PushRemoveRequest, input)),
+
   /* members and settings */
   members: () => request("GET", "/v1/members", MemberListResponse),
   addMember: (input: z.input<typeof MemberAddRequest>) =>
@@ -202,6 +215,9 @@ export const api = {
   updateGroup: (id: string, input: z.input<typeof GroupUpsertRequest>) =>
     request("PUT", `/v1/groups/${enc(id)}`, ConversationDetail, bodyOf(GroupUpsertRequest, input)),
   conversation: (id: string) => request("GET", `/v1/conversations/${enc(id)}`, ConversationDetail),
+  /** Who the @ list offers in a group or channel (desks: nobody). Up to 20. */
+  people: (id: string, q: string) =>
+    request("GET", `/v1/conversations/${enc(id)}/people?q=${enc(q)}`, PeopleResponse),
   /** Newest page (no cursor), older history (`before`), or the delta poll (`after`). */
   messages: (id: string, cursor: { before?: string; after?: string } = {}) => {
     const q = cursor.after ? `?after=${enc(cursor.after)}` : cursor.before ? `?before=${enc(cursor.before)}` : "";

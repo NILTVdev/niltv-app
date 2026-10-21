@@ -8,6 +8,7 @@ import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import type * as lambda from "aws-cdk-lib/aws-lambda";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import type { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -42,7 +43,7 @@ export const PORTAL_LEADING_KEYS = [
   "CONV#*",
   "CONVS#ALL",
   "DESK#*",
-  "MAILED#*",
+  "NOTIFY#DUE",
   "PEVENT#*",
   "PEVENTS#ALL",
   "AVAIL#ALL",
@@ -61,8 +62,12 @@ export const PORTAL_LEADING_KEYS = [
  *   2. In every handler: an active USER#{sub} / PORTAL row, and a role that
  *      allows the action (src/lib/portal/access.ts).
  *
- * Email goes through a queue: request handlers enqueue a notice, the
- * portal-notify Lambda sends it (retries, then a dead-letter queue).
+ * Notifications go through a queue: request handlers enqueue a notice,
+ * portal-notify pushes and queues summary emails (retries, then a
+ * dead-letter queue), and portal-summary sends the summaries and desk
+ * alerts every 15 minutes. Admin switches in Settings keep both off until
+ * testing ends. Push keys (VAPID) live in SSM; scripts/portal-vapid.ts
+ * creates them.
  */
 export class PortalStack extends Stack {
   public readonly httpApi: apigwv2.HttpApi;
@@ -149,6 +154,28 @@ export class PortalStack extends Stack {
       actions: ["cognito-idp:ListUsers"],
       resources: [userPool.userPoolArn],
     });
+    const sesPolicy = new iam.PolicyStatement({
+      actions: ["ses:SendEmail", "ses:SendRawEmail"],
+      // SESv2 authorises against the sending identity and the identity's
+      // default configuration set (foundation "niltv-transactional").
+      resources: [
+        `arn:aws:ses:${this.region}:${this.account}:identity/niltv.com`,
+        `arn:aws:ses:${this.region}:${this.account}:configuration-set/niltv-transactional`,
+      ],
+    });
+    // Web push keys: the public key is handed to browsers, the private key
+    // signs pushes and only the notifier reads it.
+    const vapidPublicParam = `/niltv/${stage}/portal-vapid-public`;
+    const vapidPrivateParam = `/niltv/${stage}/portal-vapid-private`;
+    const ssmRead = (...names: string[]): iam.PolicyStatement =>
+      new iam.PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: names.map((name) => this.formatArn({ service: "ssm", resource: "parameter", resourceName: name.slice(1) })),
+      });
+    const emailEnv: Record<string, string> = {
+      FROM_EMAIL: "portal@niltv.com",
+      ...(cfDomain ? { EMAIL_LOGO_BASE: `https://${cfDomain}` } : {}),
+    };
 
     const portalFn = (fnId: string, name: string, file: string, extraEnv: Record<string, string> = {}): NodejsFunction => {
       const fn = makeFn(this, fnId, {
@@ -167,7 +194,8 @@ export class PortalStack extends Stack {
       return fn;
     };
 
-    const meFn = portalFn("MeFn", "me", "me.ts");
+    const meFn = portalFn("MeFn", "me", "me.ts", { VAPID_PUBLIC_PARAM: vapidPublicParam });
+    meFn.addToRolePolicy(ssmRead(vapidPublicParam));
     const membersFn = portalFn("MembersFn", "members", "members.ts", { USER_POOL_ID: userPool.userPoolId });
     const conversationsFn = portalFn("ConversationsFn", "conversations", "conversations.ts");
     const scheduleFn = portalFn("ScheduleFn", "schedule", "schedule.ts");
@@ -186,25 +214,35 @@ export class PortalStack extends Stack {
       env: {
         TABLE_NAME: table.tableName,
         PORTAL_URL: portalUrl,
-        FROM_EMAIL: "portal@niltv.com",
-        ...(cfDomain ? { EMAIL_LOGO_BASE: `https://${cfDomain}` } : {}),
+        VAPID_PUBLIC_PARAM: vapidPublicParam,
+        VAPID_PRIVATE_PARAM: vapidPrivateParam,
+        ...emailEnv,
       },
     });
     notifyFn.addToRolePolicy(tablePolicy(PORTAL_LEADING_KEYS));
-    notifyFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["ses:SendEmail", "ses:SendRawEmail"],
-        // SESv2 authorises against the sending identity and the identity's
-        // default configuration set (foundation "niltv-transactional").
-        resources: [
-          `arn:aws:ses:${this.region}:${this.account}:identity/niltv.com`,
-          `arn:aws:ses:${this.region}:${this.account}:configuration-set/niltv-transactional`,
-        ],
-      }),
-    );
+    notifyFn.addToRolePolicy(sesPolicy);
+    notifyFn.addToRolePolicy(ssmRead(vapidPublicParam, vapidPrivateParam));
     notifyFn.addEventSource(
       new SqsEventSource(notifyQueue, { batchSize: 10, reportBatchItemFailures: true }),
     );
+
+    // ── Summary emails and desk alerts (every 15 minutes, one run at a time) ─
+    const summaryFn = makeFn(this, "SummaryFn", {
+      stage,
+      name: "portal-summary",
+      entry: join(__dirname, "..", "src", "handlers", "portal", "summary.ts"),
+      timeout: Duration.minutes(5),
+      env: { TABLE_NAME: table.tableName, PORTAL_URL: portalUrl, ...emailEnv },
+    });
+    (summaryFn.node.defaultChild as lambda.CfnFunction).reservedConcurrentExecutions = 1;
+    summaryFn.addToRolePolicy(tablePolicy(PORTAL_LEADING_KEYS));
+    summaryFn.addToRolePolicy(sesPolicy);
+    new events.Rule(this, "SummarySchedule", {
+      ruleName: `niltv-${stage}-portal-summary`,
+      description: "Portal summary emails and desk alerts (nothing sends while Settings has them off)",
+      schedule: events.Schedule.rate(Duration.minutes(15)),
+      targets: [new targets.LambdaFunction(summaryFn)],
+    });
 
     // ── Roster sync: accepted onboarding athletes → portal members ────────
     const apiKeyParamName = `/niltv/${stage}/dashboard-api-key`;
@@ -248,6 +286,8 @@ export class PortalStack extends Stack {
     const M = apigwv2.HttpMethod;
     const routes: [string, apigwv2.HttpMethod[], NodejsFunction][] = [
       ["/v1/me", [M.GET, M.PATCH], meFn],
+      ["/v1/push", [M.GET, M.POST], meFn],
+      ["/v1/push/remove", [M.POST], meFn],
       ["/v1/members", [M.GET, M.POST], membersFn],
       ["/v1/members/{sub}", [M.PATCH], membersFn],
       ["/v1/settings", [M.GET, M.PUT], membersFn],
@@ -257,6 +297,7 @@ export class PortalStack extends Stack {
       ["/v1/groups/{id}", [M.PUT], conversationsFn],
       ["/v1/conversations/{id}", [M.GET], conversationsFn],
       ["/v1/conversations/{id}/messages", [M.GET, M.POST], conversationsFn],
+      ["/v1/conversations/{id}/people", [M.GET], conversationsFn],
       ["/v1/conversations/{id}/read", [M.POST], conversationsFn],
       ["/v1/conversations/{id}/mute", [M.PUT], conversationsFn],
       ["/v1/conversations/{id}/messages/{messageId}/hide", [M.POST], conversationsFn],

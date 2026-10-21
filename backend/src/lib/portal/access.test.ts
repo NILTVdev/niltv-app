@@ -59,6 +59,19 @@ describe("authorize", () => {
     const out = await authorize(event("u-1"));
     expect("caller" in out && out.caller.member.role).toBe("athlete");
   });
+
+  it("records the visit with a one-field update, at most every two minutes", async () => {
+    sendMock.mockResolvedValueOnce(row({ lastSeenAt: "2020-01-01T00:00:00.000Z" }));
+    const out = await authorize(event("u-1"));
+    const update = sendMock.mock.calls[1]?.[0]?.input;
+    expect(update?.UpdateExpression).toBe("SET lastSeenAt = :at");
+    expect("caller" in out && out.caller.member.lastSeenAt).not.toBe("2020-01-01T00:00:00.000Z");
+
+    sendMock.mockReset();
+    sendMock.mockResolvedValueOnce(row({ lastSeenAt: new Date().toISOString() }));
+    await authorize(event("u-1"));
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("permission table", () => {

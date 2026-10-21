@@ -119,15 +119,83 @@ export const isStaffRole = (role: PortalRole | undefined): boolean => role === "
 
 /* ── Members ───────────────────────────────────────────────────────────────── */
 
-export const NotifyPrefs = z.object({
-  directMessages: z.boolean().default(true),
-  groupMessages: z.boolean().default(true),
-  channelMessages: z.boolean().default(false),
-  announcements: z.boolean().default(true),
-  schedule: z.boolean().default(true),
-  postings: z.boolean().default(true),
+/*
+ * Notifications follow one ladder, quietest first:
+ *
+ *   1. the badge in the portal, for everything
+ *   2. a phone or browser notification (web push), for what is addressed to you
+ *   3. one summary email, only for what is still unseen an hour later,
+ *      at most daily while you stay away, never 10 PM to 8 AM your time
+ *
+ * Each topic picks how far up the ladder it goes.
+ */
+
+/**
+ * now    push right away, and in the summary email if still unseen
+ * daily  the summary email only
+ * off    the portal badge only
+ */
+export const NotifyCadence = z.enum(["now", "daily", "off"]);
+export type NotifyCadence = z.infer<typeof NotifyCadence>;
+
+export const NotifyTopic = z.enum(["direct", "groups", "announcements", "channels", "schedule", "postings"]);
+export type NotifyTopic = z.infer<typeof NotifyTopic>;
+
+/** Channels never push: the busiest threads stay a count in the summary at most. */
+export const NOTIFY_TOPIC_CADENCES: Record<NotifyTopic, readonly NotifyCadence[]> = {
+  direct: ["now", "daily", "off"],
+  groups: ["now", "daily", "off"],
+  announcements: ["now", "daily", "off"],
+  channels: ["daily", "off"],
+  schedule: ["now", "daily", "off"],
+  postings: ["now", "daily", "off"],
+};
+
+const NotifyPrefsShape = z.object({
+  /** desk replies, @mentions of you, posting decisions */
+  direct: NotifyCadence.default("now"),
+  groups: NotifyCadence.default("now"),
+  announcements: NotifyCadence.default("now"),
+  /** Every athlete, campus and sport chats */
+  channels: NotifyCadence.default("off"),
+  /** time polls, set times, changes and cancellations */
+  schedule: NotifyCadence.default("now"),
+  /** new internal postings */
+  postings: NotifyCadence.default("daily"),
+  /** push notifications show the first line of the message */
+  previews: z.boolean().default(true),
 });
-export type NotifyPrefs = z.infer<typeof NotifyPrefs>;
+
+/** Rows saved before cadences held one on/off flag per kind of email. */
+const LEGACY_NOTIFY_KEYS: Record<string, { topic: NotifyTopic; on: NotifyCadence }> = {
+  directMessages: { topic: "direct", on: "now" },
+  groupMessages: { topic: "groups", on: "now" },
+  channelMessages: { topic: "channels", on: "daily" },
+  announcements: { topic: "announcements", on: "now" },
+  schedule: { topic: "schedule", on: "now" },
+  postings: { topic: "postings", on: "daily" },
+};
+
+export function upgradeNotifyPrefs(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, legacy] of Object.entries(LEGACY_NOTIFY_KEYS)) {
+    if (typeof row[key] === "boolean") out[legacy.topic] = row[key] ? legacy.on : "off";
+  }
+  // Values already in the new shape win over a leftover flag.
+  for (const [key, v] of Object.entries(row)) {
+    if (!(key in LEGACY_NOTIFY_KEYS) || typeof v !== "boolean") out[key] = v;
+  }
+  return out;
+}
+
+export const NotifyPrefs = z.preprocess(upgradeNotifyPrefs, NotifyPrefsShape);
+export type NotifyPrefs = z.infer<typeof NotifyPrefsShape>;
+
+/** PATCH /v1/me: change some topics, keep the rest. */
+export const NotifyPrefsUpdate = NotifyPrefsShape.partial();
+export type NotifyPrefsUpdate = z.infer<typeof NotifyPrefsUpdate>;
 
 export const StripeState = z.enum(["none", "pending", "complete", "international"]);
 export type StripeState = z.infer<typeof StripeState>;
@@ -175,16 +243,26 @@ export const PortalPerson = z.object({
 });
 export type PortalPerson = z.infer<typeof PortalPerson>;
 
+/** What reaches members outside the portal right now (admin switches in Settings). */
+export const PortalNotifications = z.object({
+  activityEmails: z.boolean(),
+  webPush: z.boolean(),
+  /** VAPID application server key for PushManager.subscribe: only when push is on and set up */
+  vapidPublicKey: z.string().optional(),
+});
+export type PortalNotifications = z.infer<typeof PortalNotifications>;
+
 export const PortalMeResponse = z.object({
   member: PortalMember,
   unreadMessages: z.number().int().nonnegative(),
+  notifications: PortalNotifications.default({ activityEmails: false, webPush: false }),
 });
 export type PortalMeResponse = z.infer<typeof PortalMeResponse>;
 
 export const PortalMeUpdate = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   timezone: z.string().max(64).optional(),
-  notify: NotifyPrefs.partial().optional(),
+  notify: NotifyPrefsUpdate.optional(),
   /** staff and admins only */
   desks: z.array(Desk).optional(),
 });
@@ -226,8 +304,66 @@ export const PortalSettings = z.object({
   autoEnableAthletes: z.boolean().default(false),
   /** send the welcome email when an athlete is enabled */
   welcomeEmail: z.boolean().default(false),
+  /**
+   * Off while testing. Summary emails for unseen activity, staff desk
+   * alerts, important announcements and last-minute schedule changes.
+   * Help, page change requests and approval interest always email staff.
+   */
+  activityEmails: z.boolean().default(false),
+  /** Off while testing. Phone and browser notifications (web push). */
+  webPush: z.boolean().default(false),
 });
 export type PortalSettings = z.infer<typeof PortalSettings>;
+
+/* ── Push devices (web push) ───────────────────────────────────────────────── */
+
+/**
+ * The push services browsers hand out endpoints for. Anything else is
+ * refused, so the notifier only ever calls these hosts.
+ */
+const PUSH_SERVICE_HOSTS = [
+  /^fcm\.googleapis\.com$/, // Chrome, Edge on Android, Samsung Internet, Opera, Brave
+  /^updates\.push\.services\.mozilla\.com$/, // Firefox
+  /^web\.push\.apple\.com$/, // Safari on Mac, iPhone and iPad (Home Screen web apps)
+  /\.notify\.windows\.com$/, // Edge on Windows
+];
+
+export function isPushServiceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.port && PUSH_SERVICE_HOSTS.some((host) => host.test(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
+export const PushSubscribeRequest = z.object({
+  endpoint: z.string().max(2048).refine(isPushServiceUrl, "Not a browser push service."),
+  keys: z.object({
+    p256dh: z.string().regex(/^[A-Za-z0-9_-]{80,100}={0,2}$/),
+    auth: z.string().regex(/^[A-Za-z0-9_-]{16,24}={0,2}$/),
+  }),
+  /** "iPhone", "Chrome on Mac": how the device reads in Account */
+  label: z.string().trim().max(60).optional(),
+});
+export type PushSubscribeRequest = z.infer<typeof PushSubscribeRequest>;
+
+/** Remove this browser (by endpoint) or a listed device (by id). */
+export const PushRemoveRequest = z
+  .object({ endpoint: z.string().max(2048).optional(), id: z.string().max(64).optional() })
+  .refine((r) => Boolean(r.endpoint || r.id), "endpoint or id");
+export type PushRemoveRequest = z.infer<typeof PushRemoveRequest>;
+
+export const PushDevice = z.object({
+  id: z.string(),
+  label: z.string(),
+  createdAt: IsoDate,
+  lastSentAt: IsoDate.optional(),
+});
+export type PushDevice = z.infer<typeof PushDevice>;
+
+export const PushDevicesResponse = z.object({ devices: z.array(PushDevice) });
+export type PushDevicesResponse = z.infer<typeof PushDevicesResponse>;
 
 /* ── Conversations ─────────────────────────────────────────────────────────── */
 
@@ -259,6 +395,8 @@ export const ConversationSummary = z.object({
   lastMessageAt: IsoDate.optional(),
   lastPreview: z.string().optional(),
   unread: z.number().int().nonnegative().default(0),
+  /** an unread message @mentions the viewer */
+  mentioned: z.boolean().default(false),
   muted: z.boolean().default(false),
 });
 export type ConversationSummary = z.infer<typeof ConversationSummary>;
@@ -285,6 +423,10 @@ export const PortalMessage = z.object({
   body: z.string(),
   at: IsoDate,
   hidden: z.boolean().default(false),
+  /** subs this message @mentions */
+  mentions: z.array(z.string()).default([]),
+  /** staff flagged an announcement as important: it emails everyone right away */
+  important: z.boolean().default(false),
 });
 export type PortalMessage = z.infer<typeof PortalMessage>;
 
@@ -295,13 +437,23 @@ export const MessagesResponse = z.object({
 });
 export type MessagesResponse = z.infer<typeof MessagesResponse>;
 
+export const MENTION_LIMIT = 20;
+
 export const SendMessageRequest = z.object({
   clientMsgId: z.string().min(8).max(64),
   body: z.string().trim().min(1).max(4000),
+  /** subs picked from the @ list; the server drops anyone who cannot read the thread */
+  mentions: z.array(z.string().min(1).max(128)).max(MENTION_LIMIT).default([]),
+  /** staff, Announcements only */
+  important: z.boolean().default(false),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const ReadRequest = z.object({ seq: z.number().int().nonnegative() });
+
+/** GET /v1/conversations/{id}/people?q= : who the @ list offers (groups and channels). */
+export const PeopleResponse = z.object({ people: z.array(PortalPerson) });
+export type PeopleResponse = z.infer<typeof PeopleResponse>;
 
 /** Staff hide or unhide one message. */
 export const HideMessageRequest = z.object({ hidden: z.boolean().default(true) });

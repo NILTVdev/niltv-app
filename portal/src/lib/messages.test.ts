@@ -12,6 +12,8 @@ const msg = (seq: number, over: Partial<PortalMessage> = {}): PortalMessage => (
   body: `message ${seq}`,
   at: "2026-10-20T16:00:00.000Z",
   hidden: false,
+  mentions: [],
+  important: false,
   ...over,
 });
 

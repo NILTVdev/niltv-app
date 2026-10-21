@@ -3,8 +3,8 @@
  * It is read on every request (src/lib/portal/access.ts), so removing access
  * or changing a role takes effect on the next call, with no token lag.
  */
-import { BatchGetCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { PortalMember, PortalSettings, type PortalPerson } from "@niltv/types";
+import { BatchGetCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { type Desk, PortalMember, PortalSettings, type PortalPerson, desksFor, isStaffRole } from "@niltv/types";
 import { GSI1, PORTAL_MEMBERS_GSI1PK, getDocClient, portalConfigKey, portalMemberGsi, portalMemberKey } from "../db";
 
 const table = (): string => process.env.TABLE_NAME ?? "";
@@ -36,6 +36,32 @@ export async function getMember(sub: string): Promise<PortalMember | undefined> 
 
 export async function putMember(member: PortalMember): Promise<void> {
   await getDocClient().send(new PutCommand({ TableName: table(), Item: memberItem(member) }));
+}
+
+/** "Seen" is refreshed at most this often: fine enough for an hour-long summary delay and a 3-minute push check. */
+export const SEEN_EVERY_MS = 2 * 60 * 1000;
+
+/**
+ * Record that the member is in the portal now. One attribute, so it never
+ * overwrites a concurrent edit to the rest of the row.
+ */
+export async function touchSeen(member: PortalMember, now: Date = new Date()): Promise<PortalMember> {
+  if (member.lastSeenAt && now.getTime() - Date.parse(member.lastSeenAt) < SEEN_EVERY_MS) return member;
+  const at = now.toISOString();
+  try {
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: portalMemberKey(member.sub),
+        UpdateExpression: "SET lastSeenAt = :at",
+        ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeValues: { ":at": at },
+      }),
+    );
+  } catch (err) {
+    console.warn("portal: last-seen write failed", err);
+  }
+  return { ...member, lastSeenAt: at };
 }
 
 /** Create only; false when the account already has a portal row. */
@@ -123,4 +149,17 @@ export async function putSettings(settings: PortalSettings): Promise<void> {
   await getDocClient().send(
     new PutCommand({ TableName: table(), Item: { ...portalConfigKey(), ...settings } }),
   );
+}
+
+/** Active staff who answer a desk and keep it in their desk list. */
+export async function deskStaff(desk: Desk): Promise<PortalMember[]> {
+  return (await listMembers()).filter(
+    (m) => m.status === "active" && isStaffRole(m.role) && m.desks.includes(desk) && desksFor(m.role).includes(desk),
+  );
+}
+
+/** Where a desk's alerts go: the addresses in Settings, else the desk's staff. */
+export async function deskRecipients(desk: Desk, settings: PortalSettings): Promise<string[]> {
+  const listed = settings.deskEmails[desk] ?? [];
+  return [...new Set(listed.length ? listed : (await deskStaff(desk)).map((m) => m.email))];
 }

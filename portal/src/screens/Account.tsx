@@ -1,31 +1,41 @@
 /**
- * Account (Profile for guests): name, time zone, email notifications, and
- * for staff the desks they answer. Campus and sport are staff-set.
+ * Account (Profile for guests): name, time zone, notifications, and for
+ * staff the desks they answer. Campus and sport are staff-set.
+ *
+ * Notifications: one cadence per topic (Right away, Daily summary, Off),
+ * and while web push is on, message previews plus this device and the
+ * list of devices that get notifications.
  */
 import {
   DESK_LABELS,
   Desk as DeskEnum,
   type Desk,
+  NOTIFY_TOPIC_CADENCES,
+  type NotifyCadence,
   type NotifyPrefs,
+  type NotifyPrefsUpdate,
+  NotifyTopic as NotifyTopicEnum,
   PortalMeUpdate,
   type PortalMeResponse,
   desksFor,
   isStaffRole,
 } from "@niltv/types";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { api, errorText } from "../api";
-import { campusName, describeIssues, NOTIFY_LABELS, ROLE_LABELS, schoolLabel } from "../lib/format";
-import { browserZone, listTimeZones, zoneAbbr } from "../lib/time";
+import { CADENCE_LABELS, campusName, describeIssues, notifyTopicsFor, ROLE_LABELS, schoolLabel } from "../lib/format";
+import { thisDeviceId } from "../lib/push";
+import { browserZone, formatShortDate, listTimeZones, zoneAbbr } from "../lib/time";
 import { qk, useOpenDesk } from "../queries";
-import { Check, PageHead, Switch } from "../ui/bits";
+import { Check, ErrorNote, Loading, PageHead, Switch } from "../ui/bits";
 import { useMe } from "../ui/me";
 import { useToast } from "../ui/Toast";
+import { usePush } from "../ui/usePush";
 
-const NOTIFY_KEYS = Object.keys(NOTIFY_LABELS) as (keyof NotifyPrefs)[];
+const NOTIFY_KEYS = [...NotifyTopicEnum.options, "previews"] as const satisfies readonly (keyof NotifyPrefs)[];
 
 export function Account() {
-  const { member, signOut } = useMe();
+  const { member, notifications, signOut } = useMe();
   const qc = useQueryClient();
   const toast = useToast();
   const openDesk = useOpenDesk();
@@ -64,11 +74,13 @@ export function Account() {
     const nextDesks = [...desks].filter((d) => myDesks.includes(d));
     const desksChanged =
       staff && (nextDesks.length !== member.desks.length || nextDesks.some((d) => !member.desks.includes(d)));
-    const notifyChanged = NOTIFY_KEYS.some((k) => notify[k] !== member.notify[k]);
+    const notifyChanged: NotifyPrefsUpdate = Object.fromEntries(
+      NOTIFY_KEYS.filter((k) => notify[k] !== member.notify[k]).map((k) => [k, notify[k]]),
+    );
     const parsed = PortalMeUpdate.safeParse({
       ...(name.trim() !== member.name ? { name: name.trim() } : {}),
       ...(timezone !== member.timezone ? { timezone } : {}),
-      ...(notifyChanged ? { notify } : {}),
+      ...(Object.keys(notifyChanged).length ? { notify: notifyChanged } : {}),
       ...(desksChanged ? { desks: nextDesks } : {}),
     });
     if (!parsed.success) return setError(describeIssues(parsed.error.issues));
@@ -82,8 +94,8 @@ export function Account() {
         title={guest ? "Profile" : "Account"}
         sub={
           staff
-            ? "Your staff profile, your email settings and the desks you answer."
-            : "Your details, your time zone and the email you get from the portal."
+            ? "Your staff profile, your notifications and the desks you answer."
+            : "Your details, your time zone and what reaches you from the portal."
         }
         access={staff ? "You and admins" : "You and staff"}
       />
@@ -155,25 +167,63 @@ export function Account() {
         </section>
 
         <section className="panel stack" aria-labelledby="acct-notify-h">
-          <h3 id="acct-notify-h">Email notifications</h3>
-          <p className="note">The portal emails {member.email}. Pick what is worth an email.</p>
-          {NOTIFY_KEYS.filter((k) => !(guest && (k === "channelMessages" || k === "announcements" || k === "postings"))).map(
-            (k) => (
+          <h3 id="acct-notify-h">Notifications</h3>
+          <OffNote activityEmails={notifications.activityEmails} webPush={notifications.webPush} />
+          <p className="note">Everything new shows as a badge here. Choose what reaches you outside the portal.</p>
+          <div className="cadences">
+            {notifyTopicsFor(member.role).map(({ topic, label, help }) => {
+              const allowed = NOTIFY_TOPIC_CADENCES[topic];
+              // A cadence the topic no longer offers shows as the nearest one it does.
+              const value = allowed.includes(notify[topic]) ? notify[topic] : (allowed[0] ?? "off");
+              return (
+                <div className="cadence" key={topic}>
+                  <div className="txt">
+                    <label htmlFor={`ac-n-${topic}`}>{label}</label>
+                    <span id={`ac-n-${topic}-help`} className="hint">
+                      {help}
+                    </span>
+                  </div>
+                  <select
+                    id={`ac-n-${topic}`}
+                    value={value}
+                    aria-describedby={`ac-n-${topic}-help`}
+                    onChange={(e) => setNotify((cur) => ({ ...cur, [topic]: e.target.value as NotifyCadence }))}
+                  >
+                    {allowed.map((c) => (
+                      <option key={c} value={c}>
+                        {CADENCE_LABELS[c]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+          <p className="hint">
+            Right away sends a phone or browser notification. Anything still unread an hour later goes in one summary
+            email. Summary emails never arrive between 10 PM and 8 AM in your time zone.
+          </p>
+          {notifications.webPush ? (
+            <>
               <Switch
-                key={k}
-                checked={notify[k]}
-                onChange={(on) => setNotify((cur) => ({ ...cur, [k]: on }))}
-                label={NOTIFY_LABELS[k].label}
-                help={NOTIFY_LABELS[k].help}
+                checked={notify.previews}
+                onChange={(on) => setNotify((cur) => ({ ...cur, previews: on }))}
+                label="Show message text in notifications"
+                help={'Off shows only who wrote, like "New message from Athlete support".'}
               />
-            ),
-          )}
+              {notifications.vapidPublicKey ? (
+                <Devices />
+              ) : (
+                <p className="hint">Phone and browser notifications are not set up yet.</p>
+              )}
+            </>
+          ) : null}
         </section>
 
         {staff ? (
           <section className="panel stack" aria-labelledby="acct-desks-h">
             <h3 id="acct-desks-h">Desks you answer</h3>
-            <p className="note">You get an email when a new message lands in these desks.</p>
+            <p className="note">New messages in these desks reach you as Desk messages under Notifications.</p>
             <div className="row">
               {DeskEnum.options.map((d) => {
                 const allowed = myDesks.includes(d);
@@ -214,6 +264,115 @@ export function Account() {
           </button>
         </div>
       </form>
+    </>
+  );
+}
+
+/** Which outside channels are still off while the portal is in testing. */
+function OffNote({ activityEmails, webPush }: { activityEmails: boolean; webPush: boolean }) {
+  const saved = "Your choices are saved for when they turn on.";
+  let text: string | undefined;
+  if (!activityEmails && !webPush) text = `Notifications are off while the portal is in testing. ${saved}`;
+  else if (!activityEmails) text = `Summary emails are off while the portal is in testing. ${saved}`;
+  else if (!webPush) text = `Phone and browser notifications are off while the portal is in testing. ${saved}`;
+  return text ? <p className="notice">{text}</p> : null;
+}
+
+/** This browser and every device that gets this account's notifications. These act at once, not on Save. */
+function Devices() {
+  const { zone } = useMe();
+  const toast = useToast();
+  const push = usePush();
+  const devices = useQuery({ queryKey: qk.pushDevices, queryFn: api.pushDevices, select: (r) => r.devices });
+  const remove = useMutation({
+    mutationFn: (id: string) => push.removeDevice(id),
+    onSuccess: () => toast("Removed. That device gets no more notifications."),
+    onError: (err) => toast(errorText(err), "bad"),
+  });
+  const mine = thisDeviceId();
+
+  const turnOn = () => {
+    push
+      .turnOn()
+      .then((result) => {
+        if (result === "on") toast("Notifications are on for this browser.");
+      })
+      .catch((err: unknown) => toast(errorText(err), "bad"));
+  };
+  const turnOff = () => {
+    void push.turnOff().then(() => toast("Notifications are off for this browser."));
+  };
+
+  let here: ReactNode;
+  if (push.support === "ios-home-screen") {
+    here = (
+      <p className="note">
+        On iPhone, add the portal to your Home Screen first: tap Share, then Add to Home Screen. Open it from there and
+        turn notifications on.
+      </p>
+    );
+  } else if (push.support === "unsupported") {
+    here = <p className="note">This browser cannot show notifications.</p>;
+  } else if (push.permission === "denied") {
+    here = <p className="note">Notifications are blocked for this site. Allow them in your browser settings, then come back.</p>;
+  } else if (push.subscribed === undefined) {
+    here = <Loading what="Checking this browser" />;
+  } else if (push.subscribed && push.permission === "granted") {
+    here = (
+      <div className="row">
+        <span className="note">Notifications are on for this browser.</span>
+        <button type="button" className="btn ghost sm" disabled={push.busy} onClick={turnOff}>
+          Turn off
+        </button>
+      </div>
+    );
+  } else {
+    here = (
+      <div className="row">
+        <button type="button" className="btn sm" disabled={push.busy} onClick={turnOn}>
+          {push.busy ? "Turning on…" : "Turn on notifications"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="field">
+        <span className="lbl">This device</span>
+        {here}
+      </div>
+      <div className="field">
+        <span className="lbl" id="acct-devices-h">
+          Your devices
+        </span>
+        {devices.isPending ? <Loading what="Loading devices" /> : null}
+        <ErrorNote error={devices.error} onRetry={() => void devices.refetch()} />
+        {devices.data?.length === 0 ? <span className="hint">No devices get notifications yet.</span> : null}
+        {devices.data?.length ? (
+          <ul className="devices" aria-labelledby="acct-devices-h">
+            {devices.data.map((d) => (
+              <li key={d.id}>
+                <span>
+                  <span className="t">{d.label}</span>
+                  {d.id === mine ? <span className="muted"> (this browser)</span> : null}
+                  <br />
+                  <span className="meta">Added {formatShortDate(d.createdAt, zone)}</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  disabled={remove.isPending}
+                  aria-label={`Remove ${d.label}`}
+                  onClick={() => remove.mutate(d.id)}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </>
   );
 }

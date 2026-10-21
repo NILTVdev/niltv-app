@@ -12,7 +12,7 @@ for now.
 | Handlers | `backend/src/handlers/portal/` |
 | Shared logic | `backend/src/lib/portal/` |
 | Web app | `portal/` (Vite + React) |
-| Scripts | `backend/scripts/portal-grant.ts`, `backend/scripts/portal-smoke.ts` |
+| Scripts | `backend/scripts/portal-grant.ts`, `backend/scripts/portal-smoke.ts`, `backend/scripts/portal-vapid.ts` |
 
 ## Who can sign in
 
@@ -56,13 +56,15 @@ All in the stage's single table. Keys are built only in `src/lib/db.ts`.
 
 | Item | Key | Notes |
 |---|---|---|
-| Member | `USER#{sub} / PORTAL` | role, status, roster fields, desks, email settings; GSI1 `PORTAL#MEMBERS` |
-| Settings | `PORTAL#CONFIG / META` | desk emails, support email, auto-enable, welcome email |
+| Member | `USER#{sub} / PORTAL` | role, status, roster fields, desks, notification settings, `lastSeenAt`; GSI1 `PORTAL#MEMBERS` |
+| Settings | `PORTAL#CONFIG / META` | desk emails, support email, auto-enable, welcome email, the two notification switches |
 | Conversation | `CONV#{id} / META` | `seq` counts messages; GSI1 `CONVS#ALL` or `DESK#{desk}` |
 | Message | `CONV#{id} / MSG#{ulid}` | `hidden` for staff moderation |
 | Retry guard | `CONV#{id} / CMID#{clientMsgId}` | a resent message lands once |
-| Membership | `USER#{sub} / CONV#{id}` | read marker, mute; GSI1 mirror `CONV#{id} / USER#{sub}` lists members |
-| Mail throttle | `MAILED#{target} / CONV#{id}` | one email per thread per 30 minutes |
+| Membership | `USER#{sub} / CONV#{id}` | read marker, mute, latest @mention; GSI1 mirror `CONV#{id} / USER#{sub}` lists members |
+| Notification state | `USER#{sub} / NOTIFY` | pending summary, backoff counters, today's push count; GSI1 `NOTIFY#DUE` while a summary is pending |
+| Push device | `USER#{sub} / PUSH#{id}` | one browser subscription (id = hash of the endpoint) |
+| Desk alert state | `PORTAL#NOTIFY / DESK#{desk}` | when the desk was last alerted, the day of the last morning list |
 | Event | `PEVENT#{id} / META`, `VOTE#{sub}`, `RSVP#{sub}` | GSI1 `PEVENTS#ALL` |
 | Availability | `USER#{sub} / AVAIL` | GSI1 `AVAIL#ALL` |
 | Posting | `POSTING#{id} / META`, `INTEREST#{sub}` | GSI1 `POSTINGS#ALL` |
@@ -90,23 +92,102 @@ plan, so the mobile app can read the same threads later.
   guarded by the `seq` it read. Unread = `META.seq - lastReadSeq`.
 - The web app polls: the open thread every 5 seconds (`?after=`), the inbox
   every 20 seconds.
+- **@mentions** work in groups and channels, never desks. The server keeps
+  only people who can read the thread. The @ list never shows staff to
+  athletes or guests, since staff post as the team.
+- **Important**: staff can flag a post in Announcements. It emails everyone
+  who keeps announcements on, right away (when activity emails are on).
+- A desk thread is **waiting** (`waitingSince` on META) from the first
+  athlete or guest message staff have not answered until a staff reply.
 
-## Email
+## Notifications
 
-Handlers put a notice on the `niltv-{stage}-portal-notify` queue;
-`portal-notify` sends through SES from portal@niltv.com. Failed notices retry
-three times, then land in `niltv-{stage}-portal-notify-dlq`.
+One ladder, quietest first:
 
-- Message emails never include the message text, wait a minute, and skip
-  anyone who already read it, muted the thread, turned that email off in
-  Account, or got an email about the thread in the last 30 minutes.
-- Desk messages from athletes and guests go to the desk's addresses in
-  Settings, or to staff who picked that desk in Account when none are set.
-- Internal postings with approval on email the staff member who posted them
-  for each interested athlete; the athlete gets an email when they decide.
-- Help goes to the support address with reply-to set to the sender.
-- Addresses on reserved test domains (`.invalid`, `.test`, `.example`) are
-  never emailed.
+1. **The badge** in the portal, for everything. The tab title and the
+   installed app's icon show the unread count.
+2. **A phone or browser notification** (web push), for what is addressed to
+   the member.
+3. **One summary email**, only for what is still unseen an hour later. At
+   most daily while they stay away, never 10 PM to 8 AM in their zone.
+
+Two switches in Settings turn on the outside channels: `activityEmails` and
+`webPush`. **Both are off until testing ends.** With both off, nothing about
+messages, postings or the schedule leaves the portal.
+
+Each member picks a cadence per topic in Account: right away (push, plus the
+summary if still unseen), daily summary, or off.
+
+| Topic | Covers | Default |
+|---|---|---|
+| `direct` | desk replies, @mentions, posting decisions (staff: desk messages) | right away |
+| `groups` | group chats | right away |
+| `announcements` | Announcements | right away |
+| `channels` | All athletes, campus and sport chats (never push) | off |
+| `schedule` | polls, set times, new times, cancellations | right away |
+| `postings` | new internal postings | daily |
+
+How it flows:
+
+- Handlers put a notice on `niltv-{stage}-portal-notify`. `portal-notify`
+  (`handlers/portal/notify.ts`) decides per recipient: push now, count it
+  toward their summary, or (rarely) email now. Failed notices retry three
+  times, then land in `niltv-{stage}-portal-notify-dlq`.
+- `portal-summary` (`handlers/portal/summary.ts`) runs every 15 minutes,
+  one run at a time. It sends summaries that have come due and the staff
+  desk alerts.
+- Every timing rule is a pure function in `lib/portal/prefs.ts`, with tests.
+
+Rules:
+
+- Message notices wait a minute. Anyone who read the message or muted the
+  thread is skipped. A mention still gets through a mute.
+- "Seen" is any API request (recorded at most every 2 minutes in
+  `authorize`). Seen in the last 3 minutes means no push. Opening the portal
+  after activity arrived cancels the summary for it.
+- Summaries: first one an hour after the activity (8 AM for daily topics).
+  Then at most every 3 hours for someone who keeps coming back, daily while
+  they stay away, weekly after three ignored in a row, and none after seven
+  until they come back. Content is worked out when it sends, so an answered
+  poll never shows up. Message lines are counts, never message text.
+- Push: one notification per thread (tag `conv-{id}`), replaced as messages
+  arrive. Non-direct pushes are capped at 6 a day and held at night. Direct
+  pushes may come at night. `previews` off shows only who wrote. Payloads are
+  encrypted for the browser.
+- Right away by email: an announcement staff flag **important**, and an
+  event cancelled or moved within 48 hours.
+- Staff desks: athlete messages push the desk's staff. Email is a desk
+  alert when a thread starts waiting (at most hourly), plus a 9 AM list of
+  threads waiting more than a day. Both use the team zone and the desk
+  addresses in Settings, else the desk's staff.
+- Always on, whatever the switches say: approval-posting interest to the
+  staff member who posted it, page change requests to Athlete support, Help
+  to the support address (reply-to the sender), and the welcome email (its
+  own switch).
+- Reserved test domains (`.invalid`, `.test`, `.example`) are never emailed.
+
+### Web push setup
+
+The web app is installable (`portal/public/manifest.webmanifest`,
+`portal/public/sw.js`). On iPhone and iPad, push works only after the
+member adds the portal to their Home Screen (iOS 16.4 and later). Installed,
+the app keeps people signed in (localStorage); browser tabs still use
+sessionStorage. The app asks for notification permission only after a tap,
+never on first load.
+
+Keys live in SSM: `/niltv/{stage}/portal-vapid-public` (String) and
+`/niltv/{stage}/portal-vapid-private` (SecureString, readable by
+`portal-notify` only). Create them once per stage:
+
+```
+cd backend
+npx tsx scripts/portal-vapid.ts --stage dev
+```
+
+Then turn on `webPush` in Settings. Subscriptions are accepted only for the
+browser push services (`isPushServiceUrl` in the contract), so the notifier
+never calls any other host. Rotating keys (`--rotate`) makes every browser
+subscribe again.
 
 ## Run it
 
@@ -144,4 +225,4 @@ PORTAL_API_URL=<PortalApiUrl output> npx tsx scripts/portal-smoke.ts
 ```
 
 Dev only. It signs up four throwaway accounts on `@niltv.invalid`, walks
-every surface and access rule (46 checks), then deletes everything it made.
+every surface and access rule (56 checks), then deletes everything it made.

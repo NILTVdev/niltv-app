@@ -20,7 +20,7 @@ import {
   InitiateAuthCommand,
   SignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { DeleteCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const table = "niltv-dev";
 process.env.TABLE_NAME = table;
@@ -43,6 +43,9 @@ interface Person {
   sub: string;
   token: string;
 }
+
+/** Every throwaway account keeps every topic off. */
+const QUIET = { direct: "off", groups: "off", announcements: "off", channels: "off", schedule: "off", postings: "off", previews: true } as const;
 
 async function call(person: Person | undefined, method: string, path: string, body?: unknown): Promise<{ status: number; json: Json }> {
   const res = await fetch(API + path, {
@@ -129,10 +132,37 @@ async function main(): Promise<void> {
     await putMember({
       sub: admin!.sub, email: admin!.email, name: "Smoke Admin", role: "admin", status: "active",
       desks: ["content", "support", "payments"], edited: [], createdAt: new Date().toISOString(),
-      notify: { directMessages: false, groupMessages: false, channelMessages: false, announcements: false, schedule: false, postings: false },
+      notify: QUIET,
     });
+    // Rewrite the row's prefs in the old on/off shape: stored rows from before cadences must still read.
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table,
+        Key: { PK: `USER#${admin!.sub}`, SK: "PORTAL" },
+        UpdateExpression: "SET notify = :legacy",
+        ExpressionAttributeValues: {
+          ":legacy": { directMessages: false, groupMessages: true, channelMessages: false, announcements: false, schedule: false, postings: false },
+        },
+      }),
+    );
     const me = await call(admin, "GET", "/v1/me");
     check("bootstrapped admin reads /v1/me", me.status === 200 && me.json["member"]?.["role"] === "admin");
+    const legacy = me.json["member"]?.["notify"] ?? {};
+    check(
+      "old on/off email flags read as cadences",
+      legacy["direct"] === "off" && legacy["groups"] === "now" && legacy["channels"] === "off" && legacy["previews"] === true,
+      JSON.stringify(legacy),
+    );
+    await call(admin, "PATCH", "/v1/me", { notify: QUIET });
+    const settingsNow = await call(admin, "GET", "/v1/settings");
+    const reach = me.json["notifications"] ?? {};
+    check(
+      "/v1/me reports the Settings notification switches",
+      typeof settingsNow.json["activityEmails"] === "boolean" &&
+        reach["activityEmails"] === settingsNow.json["activityEmails"] &&
+        reach["webPush"] === settingsNow.json["webPush"],
+      JSON.stringify(reach),
+    );
 
     // ── Adding people through the API ────────────────────────────────────
     const add = (who: Person, body: Json) => call(admin, "POST", "/v1/members", { email: who.email, ...body });
@@ -145,10 +175,21 @@ async function main(): Promise<void> {
     check("adding an email with no site account says so", noAccount.status === 404 && noAccount.json["error"] === "NO_ACCOUNT");
     check("staff adds a guest", (await call(staff, "POST", "/v1/members", { email: guest!.email, role: "guest", note: "Gaming partner" })).status === 201);
     check("staff cannot add staff", (await call(staff, "POST", "/v1/members", { email: `x-${runId}@niltv.invalid`, role: "staff" })).status === 403);
-    for (const p of [staff!, athlete!, guest!]) {
-      await call(p, "PATCH", "/v1/me", {
-        notify: { directMessages: false, groupMessages: false, channelMessages: false, announcements: false, schedule: false, postings: false },
-      });
+    for (const p of [staff!, athlete!, guest!]) await call(p, "PATCH", "/v1/me", { notify: QUIET });
+
+    // ── Push devices ─────────────────────────────────────────────────────
+    const fakeKeys = { p256dh: `B${"A".repeat(86)}`, auth: "AAAAAAAAAAAAAAAAAAAAAA" };
+    const badHost = await call(athlete, "POST", "/v1/push", { endpoint: "https://example.com/push/1", keys: fakeKeys });
+    check("push refuses an endpoint that is not a browser push service", badHost.status === 400);
+    const fcm = `https://fcm.googleapis.com/fcm/send/smoke-${runId}`;
+    const sub1 = await call(athlete, "POST", "/v1/push", { endpoint: fcm, keys: fakeKeys });
+    if (settingsNow.json["webPush"] && reach["vapidPublicKey"]) {
+      const listed = await call(athlete, "GET", "/v1/push");
+      check("a push device registers and lists", sub1.status === 201 && (listed.json["devices"] ?? []).length === 1);
+      await call(athlete, "POST", "/v1/push/remove", { endpoint: fcm });
+      check("the device unsubscribes", ((await call(athlete, "GET", "/v1/push")).json["devices"] ?? []).length === 0);
+    } else {
+      check("push subscriptions are refused while push is off", sub1.status === 409);
     }
 
     // ── Channels ─────────────────────────────────────────────────────────
@@ -165,14 +206,18 @@ async function main(): Promise<void> {
 
     const blocked = await call(athlete, "POST", "/v1/conversations/ch-announcements/messages", { clientMsgId: `smoke-${runId}-a`, body: "hi" });
     check("athlete cannot post in Announcements", blocked.status === 403 && blocked.json["error"] === "STAFF_ONLY");
-    const posted = await call(athlete, "POST", "/v1/conversations/ch-sport-womens-basketball/messages", { clientMsgId: `smoke-${runId}-b`, body: "Smoke test, ignore." });
-    check("athlete posts in their sport channel", posted.status === 201);
+    const posted = await call(athlete, "POST", "/v1/conversations/ch-sport-womens-basketball/messages", {
+      clientMsgId: `smoke-${runId}-b`, body: "Smoke test, ignore.", important: true,
+    });
+    check("athlete posts in their sport channel, and cannot flag it important", posted.status === 201 && posted.json["important"] === false);
     if (posted.json["id"]) created.messages.push(["ch-sport-womens-basketball", posted.json["id"]]);
     const again = await call(athlete, "POST", "/v1/conversations/ch-sport-womens-basketball/messages", { clientMsgId: `smoke-${runId}-b`, body: "Smoke test, ignore." });
     check("a retried send lands once", again.status === 200 && again.json["duplicate"] === true);
 
-    const ann = await call(admin, "POST", "/v1/conversations/ch-announcements/messages", { clientMsgId: `smoke-${runId}-c`, body: "Smoke test announcement, ignore." });
-    check("admin posts in Announcements", ann.status === 201);
+    const ann = await call(admin, "POST", "/v1/conversations/ch-announcements/messages", {
+      clientMsgId: `smoke-${runId}-c`, body: "Smoke test announcement, ignore.", important: true,
+    });
+    check("admin posts in Announcements, flagged important", ann.status === 201 && ann.json["important"] === true);
     if (ann.json["id"]) created.messages.push(["ch-announcements", ann.json["id"]]);
     const annView = await call(athlete, "GET", "/v1/conversations/ch-announcements/messages");
     const annMsg = (annView.json["messages"] ?? []).find((m: Json) => m["id"] === ann.json["id"]);
@@ -191,7 +236,10 @@ async function main(): Promise<void> {
     const deskId = desk.json["id"] as string;
     created.convs.add(deskId);
     check("athlete opens the Athlete support desk", desk.status === 200 && desk.json["title"] === "Athlete support");
-    await call(athlete, "POST", `/v1/conversations/${deskId}/messages`, { clientMsgId: `smoke-${runId}-d`, body: "Smoke test desk message." });
+    const deskMsg = await call(athlete, "POST", `/v1/conversations/${deskId}/messages`, {
+      clientMsgId: `smoke-${runId}-d`, body: "Smoke test desk message.", mentions: [staff!.sub],
+    });
+    check("desk messages carry no @mentions", deskMsg.status === 201 && (deskMsg.json["mentions"] ?? []).length === 0);
     const staffInbox = await call(staff, "GET", "/v1/inbox");
     const deskRow = (staffInbox.json["conversations"] ?? []).find((c: Json) => c["id"] === deskId);
     check("staff on the desk see the thread by the athlete's name, unread", deskRow?.["title"] === "Smoke Athlete" && deskRow?.["unread"] >= 1);
@@ -212,6 +260,27 @@ async function main(): Promise<void> {
     check("admin creates a group with an athlete and a guest", group.status === 201 && group.json["members"]?.length === 2);
     const guestInbox2 = await call(guest, "GET", "/v1/inbox");
     check("the guest sees the group", (guestInbox2.json["conversations"] ?? []).some((c: Json) => c["id"] === groupId));
+
+    // ── @mentions ────────────────────────────────────────────────────────
+    const guestPeople = await call(guest, "GET", `/v1/conversations/${groupId}/people?q=smoke`);
+    const guestNames = (guestPeople.json["people"] ?? []).map((p: Json) => p["sub"]);
+    check("the @ list offers group members and hides staff from non-staff", guestNames.includes(athlete!.sub) && !guestNames.includes(staff!.sub));
+    const adminPeople = await call(admin, "GET", `/v1/conversations/${groupId}/people?q=smoke`);
+    check("staff see staff in the @ list", (adminPeople.json["people"] ?? []).some((p: Json) => p["sub"] === staff!.sub));
+    const outsiderSub = `not-a-member-${runId}`;
+    const mention = await call(guest, "POST", `/v1/conversations/${groupId}/messages`, {
+      clientMsgId: `smoke-${runId}-m`, body: "@Smoke Athlete smoke test mention.", mentions: [athlete!.sub, outsiderSub, guest!.sub],
+    });
+    check(
+      "a mention keeps only people who can read the thread",
+      mention.status === 201 && JSON.stringify(mention.json["mentions"]) === JSON.stringify([athlete!.sub]),
+      JSON.stringify(mention.json["mentions"]),
+    );
+    const mentionedRow = ((await call(athlete, "GET", "/v1/inbox")).json["conversations"] ?? []).find((c: Json) => c["id"] === groupId);
+    check("the mentioned athlete's inbox flags the group", mentionedRow?.["mentioned"] === true && mentionedRow?.["unread"] >= 1);
+    await call(athlete, "POST", `/v1/conversations/${groupId}/read`, { seq: mention.json["seq"] });
+    const readRow = ((await call(athlete, "GET", "/v1/inbox")).json["conversations"] ?? []).find((c: Json) => c["id"] === groupId);
+    check("reading the thread clears the mention flag", readRow?.["mentioned"] === false);
 
     // ── Schedule ─────────────────────────────────────────────────────────
     const t1 = new Date(Date.now() + 3 * 864e5).toISOString();
@@ -283,7 +352,6 @@ async function main(): Promise<void> {
     for (const id of created.requests) if (id) await purgePartition(`PREQ#${id}`);
     for (const p of people) {
       await purgePartition(`USER#${p.sub}`);
-      await purgePartition(`MAILED#${p.sub}`);
       await cognito.send(new AdminDeleteUserCommand({ UserPoolId: USER_POOL_ID, Username: p.email })).catch(() => undefined);
     }
     // Retry guards left in the shared channels by this run.

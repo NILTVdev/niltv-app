@@ -6,7 +6,9 @@ import {
   CAMPUS_CHANNELS,
   type HelpTopic,
   type InterestStatus,
-  type NotifyPrefs,
+  type NotifyCadence,
+  type NotifyTopic,
+  NotifyTopic as NotifyTopicEnum,
   type PortalMemberStatus,
   type PortalPermission,
   type PortalRequestStatus,
@@ -86,14 +88,50 @@ export const HELP_TOPICS: Record<HelpTopic, string> = {
   other: "Something else",
 };
 
-export const NOTIFY_LABELS: Record<keyof NotifyPrefs, { label: string; help: string }> = {
-  directMessages: { label: "Desk messages", help: "A new message in one of your desk threads." },
-  groupMessages: { label: "Group messages", help: "A new message in a group you are in." },
-  channelMessages: { label: "Channel messages", help: "Every new post in your campus, sport and athlete channels." },
-  announcements: { label: "Announcements", help: "Posts from the team in Announcements." },
-  schedule: { label: "Schedule", help: "New events, time polls, locked times and cancellations." },
-  postings: { label: "Internal Postings", help: "New postings and decisions on your interest." },
+export const CADENCE_LABELS: Record<NotifyCadence, string> = {
+  now: "Right away",
+  daily: "Daily summary",
+  off: "Off",
 };
+
+export const NOTIFY_LABELS: Record<NotifyTopic, { label: string; help: string }> = {
+  direct: { label: "Messages to you", help: "Desk replies, @mentions and posting decisions." },
+  groups: { label: "Group chats", help: "New messages in your groups." },
+  announcements: { label: "Announcements", help: "Posts from the NIL TV team." },
+  channels: { label: "Campus and sport chats", help: "Every athlete, campus and sport channels. These never send a phone notification." },
+  schedule: { label: "Schedule", help: "Time polls, set times, changes and cancellations." },
+  postings: { label: "Internal postings", help: "New postings you can raise your hand for." },
+};
+
+/** The notification topics a role picks a cadence for, in order, with that role's wording. */
+export function notifyTopicsFor(role: PortalRole): { topic: NotifyTopic; label: string; help: string }[] {
+  const row = (topic: NotifyTopic, over: Partial<{ label: string; help: string }> = {}) => ({
+    topic,
+    ...NOTIFY_LABELS[topic],
+    ...over,
+  });
+  switch (role) {
+    case "athlete":
+      return NotifyTopicEnum.options.map((t) => row(t));
+    case "guest":
+      // Guests have no postings, so no posting decisions either.
+      return [row("direct", { help: "Desk replies and @mentions." }), row("groups"), row("schedule")];
+    case "staff":
+    case "admin":
+      return [
+        row("direct", {
+          label: "Desk messages and @mentions",
+          help: "New messages in the desks you answer, and @mentions of you.",
+        }),
+        row("groups"),
+        row("schedule"),
+      ];
+  }
+}
+
+/** The tab title with the unread count in front: "(3) Messages | NIL TV Portal". */
+export const unreadTitle = (title: string, unread: number): string =>
+  unread > 0 ? `(${unread > 99 ? "99+" : unread}) ${title}` : title;
 
 /** Plain-word rows for the access matrix on Team & access. */
 export const PERMISSION_LABELS: Record<PortalPermission, string> = {

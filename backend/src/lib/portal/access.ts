@@ -13,7 +13,7 @@
 import { ApiError, type PortalMember, type PortalPermission, portalCan } from "@niltv/types";
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { json, unauthorized } from "../http";
-import { getMember } from "./members";
+import { getMember, touchSeen } from "./members";
 
 export type Result = APIGatewayProxyStructuredResultV2;
 
@@ -45,7 +45,9 @@ export async function authorize(
   if (!member || member.status !== "active") {
     return { response: denied("NOT_MEMBER", "This account does not have portal access yet.") };
   }
-  return { caller: { sub, member } };
+  // Any request means the portal is open: that cancels pending summaries
+  // and holds back pushes (lib/portal/prefs.ts).
+  return { caller: { sub, member: await touchSeen(member) } };
 }
 
 export const can = (caller: Caller, permission: PortalPermission): boolean => portalCan(caller.member.role, permission);

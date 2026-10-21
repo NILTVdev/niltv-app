@@ -15,15 +15,21 @@ export const THREAD_POLL_MS = 5_000;
 /** Every Nth poll re-reads the newest page so hide/unhide on recent messages lands. */
 const FULL_REFRESH_EVERY = 12;
 
-export interface PendingMessage {
-  clientMsgId: string;
+/** What the composer hands over: the text, who it @mentions, and the Important flag. */
+export interface Draft {
   body: string;
+  mentions: string[];
+  important: boolean;
+}
+
+export interface PendingMessage extends Draft {
+  clientMsgId: string;
   at: string;
   state: "sending" | "failed";
   error?: string;
 }
 
-type InboxCache = { conversations: { id: string; unread: number }[] } | undefined;
+type InboxCache = { conversations: { id: string; unread: number; mentioned: boolean }[] } | undefined;
 
 export function useThread(convId: string) {
   const qc = useQueryClient();
@@ -103,15 +109,17 @@ export function useThread(convId: string) {
     }
   }, [qc, convId, loadingOlder]);
 
+  /** Send a draft; a retry passes the failed message back with its clientMsgId. */
   const send = useCallback(
-    async (body: string, clientMsgId: string = newClientMsgId()) => {
+    async (draft: Draft, clientMsgId: string = newClientMsgId()) => {
       const at = new Date().toISOString();
+      const { body, mentions, important } = draft;
       setPending((list) => [
         ...list.filter((p) => p.clientMsgId !== clientMsgId),
-        { clientMsgId, body, at, state: "sending" },
+        { clientMsgId, body, mentions, important, at, state: "sending" },
       ]);
       try {
-        const result = await api.sendMessage(convId, { clientMsgId, body });
+        const result = await api.sendMessage(convId, { clientMsgId, body, mentions, important });
         if (!result.duplicate) merge([result.message]);
         else await poll();
         setPending((list) => list.filter((p) => p.clientMsgId !== clientMsgId));
@@ -150,7 +158,7 @@ export function useThread(convId: string) {
       .markRead(convId, seq)
       .then(() => {
         qc.setQueryData(qk.inbox, (old: InboxCache) =>
-          old ? { ...old, conversations: old.conversations.map((c) => (c.id === convId ? { ...c, unread: 0 } : c)) } : old,
+          old ? { ...old, conversations: old.conversations.map((c) => (c.id === convId ? { ...c, unread: 0, mentioned: false } : c)) } : old,
         );
         void qc.invalidateQueries({ queryKey: qk.me });
       })

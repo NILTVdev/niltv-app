@@ -38,6 +38,7 @@ import {
   type PortalMessage,
   type PortalPerson,
   type PortalRole,
+  MENTION_LIMIT,
   desksFor,
   isStaffRole,
 } from "@niltv/types";
@@ -78,6 +79,8 @@ export interface ConvMeta {
   seq: number;
   lastMessageAt?: string;
   lastPreview?: string;
+  /** desk threads: the first message from the athlete or guest that staff have not answered yet */
+  waitingSince?: string;
   createdAt: string;
   createdBySub?: string;
 }
@@ -91,6 +94,8 @@ export interface Membership {
   joinedAt?: string;
   /** staff read marker: not a membership, never mirrored to GSI1 */
   marker: boolean;
+  /** seq of the latest message that @mentions this person */
+  mentionSeq: number;
 }
 
 export interface StoredMessage {
@@ -103,6 +108,8 @@ export interface StoredMessage {
   body: string;
   at: string;
   hidden: boolean;
+  mentions: string[];
+  important: boolean;
 }
 
 const num = (v: unknown, d = 0): number => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -125,6 +132,7 @@ export function parseConv(item: Record<string, unknown> | undefined): ConvMeta |
     seq: num(item["seq"]),
     ...(str(item["lastMessageAt"]) ? { lastMessageAt: item["lastMessageAt"] as string } : {}),
     ...(str(item["lastPreview"]) ? { lastPreview: item["lastPreview"] as string } : {}),
+    ...(str(item["waitingSince"]) ? { waitingSince: item["waitingSince"] as string } : {}),
     createdAt: str(item["createdAt"]) ?? new Date(0).toISOString(),
     ...(str(item["createdBySub"]) ? { createdBySub: item["createdBySub"] as string } : {}),
   };
@@ -141,6 +149,7 @@ export function parseMembership(item: Record<string, unknown>): Membership | und
     muted: item["muted"] === true,
     ...(str(item["joinedAt"]) ? { joinedAt: item["joinedAt"] as string } : {}),
     marker: item["marker"] === true,
+    mentionSeq: num(item["mentionSeq"]),
   };
 }
 
@@ -156,6 +165,10 @@ function parseMessage(item: Record<string, unknown>): StoredMessage | undefined 
     body: item["body"],
     at: str(item["at"]) ?? new Date(0).toISOString(),
     hidden: item["hidden"] === true,
+    mentions: Array.isArray(item["mentions"])
+      ? (item["mentions"] as unknown[]).filter((v): v is string => typeof v === "string")
+      : [],
+    important: item["important"] === true,
   };
 }
 
@@ -515,7 +528,7 @@ const SEND_ATTEMPTS = 5;
 export async function sendMessage(
   author: PortalMember,
   convIdValue: string,
-  input: { clientMsgId: string; body: string },
+  input: { clientMsgId: string; body: string; mentions?: readonly string[]; important?: boolean },
   now: () => Date = () => new Date(),
 ): Promise<{ message?: StoredMessage; duplicate: boolean }> {
   for (let attempt = 0; attempt < SEND_ATTEMPTS; attempt++) {
@@ -532,9 +545,20 @@ export async function sendMessage(
       body: input.body,
       at,
       hidden: false,
+      mentions: [...(input.mentions ?? [])],
+      important: input.important === true,
     };
     const preview = input.body.replace(/\s+/g, " ").slice(0, 140);
-    const deskSk = meta.kind === "desk" ? ", GSI1SK = :at" : "";
+    // Desk threads sort by activity, and wait on staff from the first
+    // unanswered message until staff reply.
+    const deskSk =
+      meta.kind !== "desk"
+        ? ""
+        : isStaffRole(author.role)
+          ? ", GSI1SK = :at REMOVE waitingSince"
+          : ", GSI1SK = :at, waitingSince = if_not_exists(waitingSince, :at)";
+    const { mentions, important, ...always } = message;
+    const stored = { ...always, ...(mentions.length ? { mentions } : {}), ...(important ? { important } : {}) };
     try {
       await getDocClient().send(
         new TransactWriteCommand({
@@ -549,7 +573,7 @@ export async function sendMessage(
             {
               Put: {
                 TableName: table(),
-                Item: { ...convMessageKey(meta.id, message.id), ...message },
+                Item: { ...convMessageKey(meta.id, message.id), ...stored },
                 ConditionExpression: "attribute_not_exists(PK)",
               },
             },
@@ -647,6 +671,8 @@ export function presentMessage(message: StoredMessage, viewer: PortalMember, met
     body: message.hidden && !staffViewer ? "" : message.body,
     at: message.at,
     hidden: message.hidden,
+    mentions: message.hidden && !staffViewer ? [] : message.mentions,
+    important: message.important,
   };
 }
 
@@ -717,6 +743,76 @@ export async function setMuted(member: PortalMember, meta: ConvMeta, muted: bool
   );
 }
 
+/* ── @mentions ─────────────────────────────────────────────────────────────── */
+
+/** Membership rows of many people in one conversation (missing = not a member). */
+export async function getMemberships(subs: readonly string[], convIdValue: string): Promise<Map<string, Membership>> {
+  const out = new Map<string, Membership>();
+  const unique = [...new Set(subs)];
+  for (let i = 0; i < unique.length; i += 100) {
+    let keys = unique.slice(i, i + 100).map((sub) => ({ ...convMemberKey(sub, convIdValue) }) as Record<string, unknown>);
+    for (let attempt = 0; keys.length > 0 && attempt < 5; attempt++) {
+      const res = await getDocClient().send(new BatchGetCommand({ RequestItems: { [table()]: { Keys: keys } } }));
+      for (const item of res.Responses?.[table()] ?? []) {
+        const membership = parseMembership(item);
+        if (membership) out.set(String(item["PK"]).slice("USER#".length), membership);
+      }
+      keys = (res.UnprocessedKeys?.[table()]?.Keys ?? []) as Record<string, unknown>[];
+    }
+  }
+  return out;
+}
+
+/**
+ * The mentions that can land: active people who can read this group or
+ * channel. Never the author, never in a desk thread.
+ */
+export async function mentionable(
+  meta: ConvMeta,
+  authorSub: string,
+  subs: readonly string[],
+  people: Map<string, PortalMember>,
+): Promise<PortalMember[]> {
+  if (meta.kind === "desk") return [];
+  const wanted = [...new Set(subs)].filter((sub) => sub !== authorSub).slice(0, MENTION_LIMIT);
+  if (wanted.length === 0) return [];
+  const memberships = await getMemberships(wanted, meta.id);
+  return wanted
+    .map((sub) => people.get(sub))
+    .filter(
+      (person): person is PortalMember =>
+        person?.status === "active" && convAccess(person, meta, memberships.get(person.sub)).read,
+    );
+}
+
+/**
+ * Flag a mention on each person's membership row so their inbox shows it.
+ * Staff may have no row in a channel yet: theirs is created as a read
+ * marker that leaves exactly this message unread.
+ */
+export async function noteMentions(meta: ConvMeta, seq: number, people: readonly PortalMember[]): Promise<void> {
+  for (const person of people) {
+    const staff = isStaffRole(person.role);
+    try {
+      await getDocClient().send(
+        new UpdateCommand({
+          TableName: table(),
+          Key: convMemberKey(person.sub, meta.id),
+          UpdateExpression: staff
+            ? "SET mentionSeq = :seq, convId = if_not_exists(convId, :id), kind = if_not_exists(kind, :kind), marker = if_not_exists(marker, :true), muted = if_not_exists(muted, :false), lastReadSeq = if_not_exists(lastReadSeq, :before)"
+            : "SET mentionSeq = :seq",
+          ...(staff ? {} : { ConditionExpression: "attribute_exists(PK)" }),
+          ExpressionAttributeValues: staff
+            ? { ":seq": seq, ":id": meta.id, ":kind": meta.kind, ":true": true, ":false": false, ":before": seq - 1 }
+            : { ":seq": seq },
+        }),
+      );
+    } catch (err) {
+      if (!isCcf(err)) throw err;
+    }
+  }
+}
+
 /* ── Inbox ─────────────────────────────────────────────────────────────────── */
 
 async function batchGetConvs(ids: readonly string[]): Promise<ConvMeta[]> {
@@ -759,6 +855,13 @@ async function queryGsiConvs(pk: string, newestFirst: boolean, cap: number): Pro
   return out.slice(0, cap);
 }
 
+/** A desk's threads still waiting on a staff reply, oldest wait first. */
+export async function waitingDeskThreads(desk: Desk): Promise<(ConvMeta & { waitingSince: string })[]> {
+  return (await queryGsiConvs(deskGsi1Pk(desk), true, 1000))
+    .filter((meta): meta is ConvMeta & { waitingSince: string } => meta.waitingSince !== undefined)
+    .sort((a, b) => a.waitingSince.localeCompare(b.waitingSince));
+}
+
 const ROLE_LABELS: Record<PortalRole, string> = { athlete: "Athlete", guest: "Guest", staff: "Staff", admin: "Admin" };
 
 export function summarize(meta: ConvMeta, viewer: PortalMember, membership: Membership | undefined): ConversationSummary {
@@ -794,6 +897,7 @@ export function summarize(meta: ConvMeta, viewer: PortalMember, membership: Memb
     ...(meta.lastMessageAt ? { lastMessageAt: meta.lastMessageAt } : {}),
     ...(meta.lastPreview ? { lastPreview: meta.lastPreview } : {}),
     unread: Math.max(0, meta.seq - baseline),
+    mentioned: (membership?.mentionSeq ?? 0) > baseline,
     muted: membership?.muted ?? false,
   };
 }

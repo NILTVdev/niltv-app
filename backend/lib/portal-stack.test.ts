@@ -72,8 +72,29 @@ describe("PortalStack", () => {
   });
 
   it("runs the onboarding sync every 30 minutes on prod only, unless context turns it on", () => {
-    template.resourceCountIs("AWS::Events::Rule", 0);
-    synth("prod").hasResourceProperties("AWS::Events::Rule", { ScheduleExpression: "rate(30 minutes)" });
-    synth("dev", { "niltv:portalRosterSync:dev": "on" }).resourceCountIs("AWS::Events::Rule", 1);
+    const syncRules = (t: Template): number =>
+      Object.keys(t.findResources("AWS::Events::Rule", { Properties: { ScheduleExpression: "rate(30 minutes)" } })).length;
+    expect(syncRules(template)).toBe(0);
+    expect(syncRules(synth("prod"))).toBe(1);
+    expect(syncRules(synth("dev", { "niltv:portalRosterSync:dev": "on" }))).toBe(1);
+  });
+
+  it("sends summaries every 15 minutes on every stage, one run at a time", () => {
+    template.hasResourceProperties("AWS::Events::Rule", {
+      Name: "niltv-test-portal-summary",
+      ScheduleExpression: "rate(15 minutes)",
+    });
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      FunctionName: Match.stringLikeRegexp("portal-summary"),
+      ReservedConcurrentExecutions: 1,
+    });
+  });
+
+  it("lets only the notifier read the private push key", () => {
+    const readers = Object.values(template.findResources("AWS::IAM::Policy")).filter((policy) =>
+      JSON.stringify(policy["Properties"]["PolicyDocument"]).includes("portal-vapid-private"),
+    );
+    expect(readers).toHaveLength(1);
+    expect(JSON.stringify(readers[0]!["Properties"]["Roles"])).toMatch(/NotifyFn/);
   });
 });

@@ -60,7 +60,7 @@ function Splash({ text = "Loading" }: { text?: string }) {
 }
 
 function AuthGate() {
-  /** undefined = restoring from sessionStorage, null = signed out */
+  /** undefined = restoring the saved session, null = signed out */
   const [email, setEmail] = useState<string | null | undefined>(undefined);
   const qc = useQueryClient();
 
@@ -91,7 +91,12 @@ function MemberGate({ email, signOut: doSignOut }: { email: string; signOut: () 
   if (isApiError(me.error, "NOT_MEMBER")) return <NoAccess email={email} onSignOut={doSignOut} />;
   if (me.data) {
     return (
-      <MeProvider member={me.data.member} unread={me.data.unreadMessages} signOut={doSignOut}>
+      <MeProvider
+        member={me.data.member}
+        unread={me.data.unreadMessages}
+        notifications={me.data.notifications}
+        signOut={doSignOut}
+      >
         <Portal />
       </MeProvider>
     );

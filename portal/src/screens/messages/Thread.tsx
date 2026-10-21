@@ -1,4 +1,7 @@
-/** One open conversation: header, info panel, messages, composer. */
+/**
+ * One open conversation: header, info panel, messages, composer. Messages
+ * that @mention you get a gold edge; flagged announcements say Important.
+ */
 import {
   type ConversationDetail,
   type ConversationSummary,
@@ -7,7 +10,7 @@ import {
   isStaffRole,
 } from "@niltv/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, type KeyboardEvent, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { api, errorText, isApiError } from "../../api";
 import { plural, ROLE_LABELS } from "../../lib/format";
 import { pathFor } from "../../lib/router";
@@ -18,6 +21,8 @@ import { Icon } from "../../ui/Icon";
 import { Link } from "../../ui/Link";
 import { useMe } from "../../ui/me";
 import { useToast } from "../../ui/Toast";
+import { Composer } from "./Composer";
+import { PushPrompt } from "./PushPrompt";
 import { type PendingMessage, useThread } from "./useThread";
 
 type Conv = ConversationSummary | ConversationDetail;
@@ -86,6 +91,9 @@ export function Thread({
   if (staff && conv.kind === "group") hint = "Posts as NIL TV Team.";
   if (staff && conv.kind === "desk" && conv.desk) hint = `Replies as ${DESK_LABELS[conv.desk]}.`;
   const placeholder = conv.kind === "desk" ? `Message ${conv.title}` : `Message #${conv.title}`;
+  // The notification prompt: staff on opening a desk; athletes and guests once they have written to it.
+  const wrote = thread.messages.some((m) => m.mine);
+  const prompt = conv.kind === "desk" && canPost && (staff || wrote) ? <PushPrompt staff={staff} /> : null;
 
   return (
     <>
@@ -170,10 +178,14 @@ export function Thread({
       />
       <Composer
         key={convId}
+        convId={convId}
         placeholder={canPost ? placeholder : "Only staff post here"}
         hint={hint}
         lockedNote={canPost ? undefined : `Only staff post in ${conv.title}.`}
-        onSend={(body) => void thread.send(body)}
+        mentions={channelish}
+        importantBox={staff && conv.kind === "channel" && conv.scope?.type === "announcements"}
+        top={prompt}
+        onSend={(draft) => void thread.send(draft)}
       />
     </>
   );
@@ -190,7 +202,7 @@ function MessageList({
   onToggleHide: (m: PortalMessage) => void;
   hidePending: boolean;
 }) {
-  const { zone } = useMe();
+  const { member, zone } = useMe();
   const ref = useRef<HTMLDivElement>(null);
   const snap = useRef<{ first?: string; last?: string; nearBottom: boolean; fromBottom: number }>({
     nearBottom: true,
@@ -244,6 +256,7 @@ function MessageList({
           key={m.id}
           m={m}
           zone={zone}
+          mySub={member.sub}
           staffViewer={staffViewer}
           onToggleHide={onToggleHide}
           hidePending={hidePending}
@@ -260,25 +273,30 @@ function MessageList({
 function MessageRow({
   m,
   zone,
+  mySub,
   staffViewer,
   onToggleHide,
   hidePending,
 }: {
   m: PortalMessage;
   zone: string;
+  mySub: string;
   staffViewer: boolean;
   onToggleHide: (m: PortalMessage) => void;
   hidePending: boolean;
 }) {
   const staffAuthor = isStaffRole(m.authorRole);
+  const mentionsMe = !m.mine && m.mentions.includes(mySub) && !(m.hidden && !staffViewer);
   return (
-    <div className={`msg${m.hidden ? " is-hidden" : ""}`}>
+    <div className={`msg${m.hidden ? " is-hidden" : ""}${mentionsMe ? " mention" : ""}`}>
       <Avatar name={m.authorName} role={m.authorRole} />
       <div className="body">
         <div className="who">
           <span>{m.authorName}</span>
           {staffAuthor ? <span className="tag">Staff</span> : m.authorRole === "guest" ? <span className="tag guest">Guest</span> : null}
           {staffViewer && m.staffName ? <span className="by">by {m.staffName}</span> : null}
+          {m.important ? <span className="tag important">Important</span> : null}
+          {mentionsMe ? <span className="tag mention">Mentions you</span> : null}
           <time className="when" dateTime={m.at} title={formatDateTime(m.at, zone)}>
             {formatMessageTime(m.at, zone)}
           </time>
@@ -316,7 +334,7 @@ function PendingRow({ p, thread }: { p: PendingMessage; thread: ReturnType<typeo
         ) : (
           <div className="state failed" role="alert">
             Not sent. {p.error}
-            <button type="button" className="linkbtn" onClick={() => void thread.send(p.body, p.clientMsgId)}>
+            <button type="button" className="linkbtn" onClick={() => void thread.send(p, p.clientMsgId)}>
               Retry
             </button>
             <button type="button" className="linkbtn" onClick={() => thread.discard(p.clientMsgId)}>
@@ -325,78 +343,6 @@ function PendingRow({ p, thread }: { p: PendingMessage; thread: ReturnType<typeo
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-const MAX_BODY = 4000;
-
-function Composer({
-  placeholder,
-  hint,
-  lockedNote,
-  onSend,
-}: {
-  placeholder: string;
-  hint?: string;
-  /** set: the composer is disabled and this says why */
-  lockedNote?: string;
-  onSend: (body: string) => void;
-}) {
-  const [text, setText] = useState("");
-  const body = text.trim();
-  const tooLong = body.length > MAX_BODY;
-  const locked = lockedNote !== undefined;
-
-  const submit = () => {
-    if (locked || !body || tooLong) return;
-    onSend(body);
-    setText("");
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      submit();
-    }
-  };
-
-  return (
-    <div className="composer">
-      <form
-        onSubmit={(e: FormEvent) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <label htmlFor="composer-input" className="sr-only">
-          Message
-        </label>
-        <textarea
-          id="composer-input"
-          rows={Math.min(6, Math.max(1, text.split("\n").length))}
-          value={text}
-          placeholder={placeholder}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          aria-describedby="composer-hint"
-          autoComplete="off"
-          disabled={locked}
-        />
-        <button className="btn" type="submit" disabled={locked || !body || tooLong}>
-          Send
-        </button>
-      </form>
-      <span id="composer-hint" className="note">
-        {locked ? (
-          lockedNote
-        ) : (
-          <>
-            {tooLong ? `Too long by ${body.length - MAX_BODY} characters. ` : ""}
-            {hint ? `${hint} ` : ""}Enter sends. Shift+Enter adds a line.
-          </>
-        )}
-      </span>
     </div>
   );
 }

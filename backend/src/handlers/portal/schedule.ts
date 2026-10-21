@@ -288,6 +288,12 @@ export const handler = portalHandler({
       updatedAt: new Date().toISOString(),
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: eventItem(event) }));
+    // A set event that moved tells its invitees (right away when it is close).
+    const before = current.status === "set" ? current.options.find((o) => o.id === current.lockedOptionId) : undefined;
+    const after = event.status === "set" ? event.options.find((o) => o.id === event.lockedOptionId) : undefined;
+    if (before && after && before.startsAt !== after.startsAt) {
+      await enqueue({ type: "event.changed", eventId: event.id, previousStartsAt: before.startsAt });
+    }
     return ok(present(event, undefined));
   },
 

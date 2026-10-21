@@ -1,78 +1,138 @@
 /**
  * portal-notify (SQS consumer): turns portal notices (lib/portal/notify.ts)
- * into emails. Who hears about what:
+ * into phone and browser notifications, entries in each member's summary
+ * email, and the few emails that go out right away. Timing rules live in
+ * lib/portal/prefs.ts; summary emails and desk alerts go out from
+ * portal-summary (handlers/portal/summary.ts).
  *
- *   desk message from an athlete or guest   the desk's addresses (Settings),
- *                                           else staff who answer that desk
- *   desk message from staff                 the athlete or guest
- *   group / channel message                 members who keep that email on
- *   new posting                             athletes who keep posting emails on
- *   interest in an approval posting         the staff member who posted it
- *   approve / decline                       the athlete
- *   new event, time locked, cancelled       the invitees
- *   page change request                     the Athlete support desk
- *   help form                               the support address, reply-to the sender
+ *   activity                          topic           right away
+ *   desk message from athlete/guest   staff direct    push the desk's staff (email = hourly desk alert)
+ *   desk reply from staff             direct          push
+ *   group message                     groups          push
+ *   @mention                          direct          push, even in a muted thread
+ *   announcement                      announcements   push; "important" also emails now
+ *   other channel post                channels        nothing (summary only)
+ *   new posting                       postings        push when they chose right away
+ *   approve / decline                 direct          push
+ *   new event, time set               schedule        push
+ *   cancelled, new time               schedule        push; within 48 hours also emails now
  *
- * Message emails skip anyone who already read the message, has the thread
- * muted, or got an email about the same thread in the last 30 minutes.
+ * Each of these also counts toward the member's summary email unless the
+ * topic is off for them. Push and email sit behind admin switches
+ * (Settings: webPush, activityEmails), off until testing ends.
+ *
+ * Always on, whatever those switches say (staff work queues):
+ *   interest in an approval posting   the staff member who posted it
+ *   page change request               the Athlete support desk
+ *   help form                         the support address, reply-to the sender
+ *   welcome                           its own switch (Settings: welcomeEmail)
  */
-import { BatchGetCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import {
   DESK_LABELS,
   EVENT_KIND_LABELS,
-  type NotifyPrefs,
+  type NotifyTopic,
   type PortalEvent,
   type PortalMember,
   PortalRole,
-  desksFor,
+  type PortalSettings,
   isStaffRole,
 } from "@niltv/types";
 import type { SQSBatchItemFailure, SQSHandler } from "aws-lambda";
 import { z } from "zod";
-import {
-  convMailedKey,
-  convMemberKey,
-  convMessageKey,
-  getDocClient,
-  portalEventKey,
-  portalRequestKey,
-  postingKey,
-} from "../../lib/db";
+import { convMessageKey, getDocClient, portalEventKey, portalRequestKey, postingKey } from "../../lib/db";
+import { claimPushSlot, queueSummary } from "../../lib/portal/activity";
 import { resolveAudience } from "../../lib/portal/audience";
-import { type ConvMeta, getConv, memberSubs, parseMembership } from "../../lib/portal/conversations";
+import {
+  type ConvMeta,
+  type Membership,
+  getConv,
+  getMemberships,
+  inbox,
+  memberSubs,
+  summarize,
+  teamLabel,
+} from "../../lib/portal/conversations";
 import { type PortalEmail, formatWhen, sendEmail } from "../../lib/portal/emails";
-import { getMember, getMembers, getSettings, listMembers } from "../../lib/portal/members";
+import { deskRecipients, deskStaff, getMember, getMembers, getSettings, listMembers } from "../../lib/portal/members";
 import type { PortalNotice } from "../../lib/portal/notify";
+import {
+  LAST_MINUTE_MS,
+  type SummaryNote,
+  cadenceFor,
+  localDay,
+  messageTopic,
+  shouldPush,
+  validZone,
+} from "../../lib/portal/prefs";
+import { type PushPayload, listDevices, pushTo } from "../../lib/portal/push";
 
 const table = (): string => process.env.TABLE_NAME ?? "";
 
-export const MAIL_WINDOW_MS = 30 * 60 * 1000;
-
-/** Claim the email slot for (target, thread); false when one went out inside the window. */
-export async function claimMailSlot(target: string, convId: string, now: Date = new Date()): Promise<boolean> {
-  try {
-    await getDocClient().send(
-      new PutCommand({
-        TableName: table(),
-        Item: { ...convMailedKey(target, convId), at: now.toISOString() },
-        ConditionExpression: "attribute_not_exists(PK) OR #at < :cutoff",
-        ExpressionAttributeNames: { "#at": "at" },
-        ExpressionAttributeValues: { ":cutoff": new Date(now.getTime() - MAIL_WINDOW_MS).toISOString() },
-      }),
-    );
-    return true;
-  } catch (err) {
-    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return false;
-    throw err;
-  }
-}
+/** Recipients up to this many get the app badge count in the push (it costs an inbox read each). */
+const BADGE_RECIPIENT_LIMIT = 25;
+/** Members handled at once for one notice. */
+const FANOUT = 8;
 
 async function getRow(key: { PK: string; SK: string }): Promise<Record<string, unknown> | undefined> {
   const out = await getDocClient().send(new GetCommand({ TableName: table(), Key: key }));
   return out.Item as Record<string, unknown> | undefined;
 }
 
-const wants = (m: PortalMember, pref: keyof NotifyPrefs): boolean => m.status === "active" && m.notify[pref];
+/** Run `fn` for every item, a few at a time. One member failing never stops the rest. */
+async function forEachMember<T>(items: readonly T[], fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const item = items[next++]!;
+      try {
+        await fn(item);
+      } catch (err) {
+        console.error("portal-notify: one recipient failed", err);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FANOUT, items.length) }, worker));
+}
+
+const clip = (text: string, max: number): string => {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+};
+
+/* ── The two outside channels ──────────────────────────────────────────────── */
+
+interface Reach {
+  settings: PortalSettings;
+  now: Date;
+}
+
+/** Push to one member when their cadence, quiet hours, a recent visit and the daily cap allow it. */
+async function maybePush(member: PortalMember, topic: NotifyTopic, payload: Omit<PushPayload, "at">, reach: Reach): Promise<void> {
+  if (!reach.settings.webPush) return;
+  const zone = validZone(member.timezone);
+  const cadence = cadenceFor(member, topic);
+  if (!shouldPush({ cadence, topic, now: reach.now, zone, lastSeenAt: member.lastSeenAt })) return;
+  const devices = await listDevices(member.sub);
+  if (devices.length === 0) return;
+  if (topic !== "direct" && !(await claimPushSlot(member.sub, localDay(reach.now, zone)))) return;
+  await pushTo(member.sub, { ...payload, at: reach.now.toISOString() }, devices);
+}
+
+/** Count the activity toward the member's summary email, unless the topic is off for them. */
+async function maybeQueue(member: PortalMember, topic: NotifyTopic, at: Date, reach: Reach, note?: SummaryNote): Promise<void> {
+  if (!reach.settings.activityEmails) return;
+  const cadence = cadenceFor(member, topic);
+  if (cadence === "off") return;
+  await queueSummary(member, { at, cadence, ...(note ? { note } : {}) });
+}
+
+/** Unread total for the app icon, when it is cheap enough to work out. */
+async function badgeFor(member: PortalMember, cheap: boolean): Promise<number | undefined> {
+  if (!cheap) return undefined;
+  const threads = await inbox(member);
+  return threads.filter((t) => !t.muted).reduce((sum, t) => sum + t.unread, 0);
+}
 
 /* ── Messages ──────────────────────────────────────────────────────────────── */
 
@@ -81,100 +141,102 @@ const StoredMessageRow = z.object({
   authorName: z.string(),
   authorRole: PortalRole,
   seq: z.number(),
+  body: z.string(),
+  at: z.string(),
   hidden: z.boolean().default(false),
+  mentions: z.array(z.string()).default([]),
+  important: z.boolean().default(false),
 });
+type StoredMessageRow = z.infer<typeof StoredMessageRow>;
 
-/** Staff who answer a desk, used when Settings names no address for it. */
-async function deskStaffEmails(desk: keyof typeof DESK_LABELS): Promise<string[]> {
-  return (await listMembers())
-    .filter((m) => m.status === "active" && isStaffRole(m.role) && m.desks.includes(desk) && desksFor(m.role).includes(desk))
-    .map((m) => m.email);
+function messagePush(
+  member: PortalMember,
+  meta: ConvMeta,
+  membership: Membership | undefined,
+  msg: StoredMessageRow,
+  mentioned: boolean,
+): Omit<PushPayload, "at"> {
+  const view = summarize(meta, member, membership);
+  const author = isStaffRole(msg.authorRole) && !isStaffRole(member.role) ? teamLabel(meta) : msg.authorName;
+  const unread = Math.max(1, view.unread);
+  const mention = mentioned && meta.kind !== "desk";
+  const body = member.notify.previews
+    ? `${author}${mention ? " mentioned you" : ""}: ${clip(msg.body, 140)}`
+    : mention
+      ? `${author} mentioned you`
+      : unread > 1
+        ? `${unread} new messages`
+        : `New message from ${author}`;
+  return { title: view.title, body, url: `/messages/${encodeURIComponent(meta.id)}`, tag: `conv-${meta.id}` };
 }
 
-async function messageNotice(convId: string, messageId: string): Promise<void> {
+const importantEmail = (meta: ConvMeta): PortalEmail => ({
+  subject: "Important announcement from NIL TV",
+  heading: "Important announcement",
+  lead: "NIL TV posted an important announcement in the portal.",
+  button: { label: "Read it", path: `/messages/${encodeURIComponent(meta.id)}` },
+  tail: "You get this because NIL TV marked this announcement important. Choose what reaches you in Account.",
+});
+
+async function messageNotice(convId: string, messageId: string, reach: Reach): Promise<void> {
+  if (!reach.settings.activityEmails && !reach.settings.webPush) return;
   const meta = await getConv(convId);
   const parsed = StoredMessageRow.safeParse((await getRow(convMessageKey(convId, messageId))) ?? {});
   if (!meta || !parsed.success || parsed.data.hidden) return;
   const msg = parsed.data;
-  const threadPath = `/messages/${encodeURIComponent(meta.id)}`;
+  const at = new Date(msg.at);
 
-  if (meta.kind === "desk" && meta.desk) {
-    const desk = meta.desk;
-    if (!isStaffRole(msg.authorRole)) {
-      // Into the desk: email the desk's inbox addresses once per window.
-      if (!(await claimMailSlot(`desk-${desk}`, meta.id))) return;
-      const settings = await getSettings();
-      const to = settings.deskEmails[desk]?.length ? settings.deskEmails[desk]! : await deskStaffEmails(desk);
-      for (const address of new Set(to)) {
-        await sendEmail(address, {
-          subject: `${msg.authorName} wrote to ${DESK_LABELS[desk]}`,
-          heading: "New desk message",
-          lead: `${msg.authorName} sent a message to the ${DESK_LABELS[desk]} desk.`,
-          button: { label: "Open the thread", path: threadPath },
-          tail: `You get this because you answer the ${DESK_LABELS[desk]} desk in the NIL TV Portal.`,
-        });
-      }
-      return;
-    }
-    // Out of the desk: email the athlete or guest.
-    if (meta.personSub) {
-      await emailMembersAboutMessage(meta, msg.seq, [meta.personSub], "directMessages", {
-        subject: `New message from the NIL TV ${DESK_LABELS[desk]} desk`,
-        heading: "New message",
-        lead: `The ${DESK_LABELS[desk]} desk sent you a message in the NIL TV Portal.`,
-        button: { label: "Read it", path: threadPath },
-      });
-    }
-    return;
-  }
-
-  const recipients = (await memberSubs(meta.id)).filter((sub) => sub !== msg.authorSub);
-  if (meta.kind === "group") {
-    await emailMembersAboutMessage(meta, msg.seq, recipients, "groupMessages", {
-      subject: `New message in ${meta.title}`,
-      heading: "New group message",
-      lead: `There is a new message in ${meta.title}.`,
-      button: { label: "Open the group", path: threadPath },
+  if (meta.kind === "desk" && meta.desk && !isStaffRole(msg.authorRole)) {
+    // Into a desk: push the staff who answer it. Their email is the hourly desk alert.
+    const staff = await deskStaff(meta.desk);
+    const markers = await getMemberships(staff.map((m) => m.sub), meta.id);
+    await forEachMember(staff, async (m) => {
+      if ((markers.get(m.sub)?.lastReadSeq ?? 0) >= msg.seq) return;
+      await maybePush(
+        m,
+        "direct",
+        {
+          title: msg.authorName,
+          body: m.notify.previews ? clip(msg.body, 140) : `New message to ${DESK_LABELS[meta.desk!]}`,
+          url: `/messages/${encodeURIComponent(meta.id)}`,
+          tag: `conv-${meta.id}`,
+          ...(reach.settings.webPush
+            ? await badgeFor(m, staff.length <= BADGE_RECIPIENT_LIMIT).then((badge) => (badge === undefined ? {} : { badge }))
+            : {}),
+        },
+        reach,
+      );
     });
     return;
   }
-  const announcement = meta.scope?.type === "announcements";
-  await emailMembersAboutMessage(meta, msg.seq, recipients, announcement ? "announcements" : "channelMessages", {
-    subject: announcement ? "New announcement from NIL TV" : `New post in ${meta.title}`,
-    heading: announcement ? "New announcement" : "New channel post",
-    lead: announcement ? "NIL TV posted a new announcement in the portal." : `There is a new post in ${meta.title}.`,
-    button: { label: announcement ? "Read it" : "Open the channel", path: threadPath },
+
+  const audience = meta.kind === "desk" ? (meta.personSub ? [meta.personSub] : []) : await memberSubs(meta.id);
+  const subs = [...new Set([...audience, ...msg.mentions])].filter((sub) => sub !== msg.authorSub);
+  if (subs.length === 0) return;
+  const [members, states] = await Promise.all([getMembers(subs), getMemberships(subs, meta.id)]);
+  const mentions = new Set(msg.mentions);
+  const important = msg.important && meta.scope?.type === "announcements" && isStaffRole(msg.authorRole);
+  const cheapBadge = subs.length <= BADGE_RECIPIENT_LIMIT;
+
+  await forEachMember(subs, async (sub) => {
+    const member = members.get(sub);
+    if (!member || member.status !== "active") return;
+    const state = states.get(sub);
+    const mentioned = mentions.has(sub);
+    // A mention gets through a muted thread; nothing else does.
+    if ((state?.muted && !mentioned) || (state && state.lastReadSeq >= msg.seq)) return;
+    const topic = messageTopic(meta, mentioned);
+    if (important && reach.settings.activityEmails && cadenceFor(member, topic) !== "off") {
+      await sendEmail(member.email, importantEmail(meta));
+    } else {
+      await maybeQueue(member, topic, at, reach);
+    }
+    const badge = reach.settings.webPush ? await badgeFor(member, cheapBadge) : undefined;
+    await maybePush(member, topic, { ...messagePush(member, meta, state, msg, mentioned), ...(badge === undefined ? {} : { badge }) }, reach);
   });
 }
 
-async function emailMembersAboutMessage(
-  meta: ConvMeta,
-  seq: number,
-  subs: readonly string[],
-  pref: keyof NotifyPrefs,
-  email: PortalEmail,
-): Promise<void> {
-  if (subs.length === 0) return;
-  const members = await getMembers(subs);
-  const states = new Map<string, ReturnType<typeof parseMembership>>();
-  for (let i = 0; i < subs.length; i += 100) {
-    const keys = subs.slice(i, i + 100).map((sub) => ({ ...convMemberKey(sub, meta.id) }));
-    const res = await getDocClient().send(new BatchGetCommand({ RequestItems: { [table()]: { Keys: keys } } }));
-    for (const item of res.Responses?.[table()] ?? []) {
-      states.set(String(item["PK"]).slice("USER#".length), parseMembership(item));
-    }
-  }
-  for (const sub of subs) {
-    const member = members.get(sub);
-    if (!member || !wants(member, pref)) continue;
-    const state = states.get(sub);
-    if (state?.muted || (state && state.lastReadSeq >= seq)) continue;
-    if (!(await claimMailSlot(sub, meta.id))) continue;
-    await sendEmail(member.email, email);
-  }
-}
-
-/* ── Postings, events, requests, help, welcome ─────────────────────────────── */
+/* ── Postings ──────────────────────────────────────────────────────────────── */
 
 const PostingRow = z.object({
   id: z.string(),
@@ -184,30 +246,28 @@ const PostingRow = z.object({
   createdBySub: z.string(),
 });
 
-async function postingNotice(notice: Extract<PortalNotice, { type: `posting.${string}` }>): Promise<void> {
+async function postingNotice(notice: Extract<PortalNotice, { type: `posting.${string}` }>, reach: Reach): Promise<void> {
   const posting = PostingRow.safeParse((await getRow(postingKey(notice.postingId))) ?? {});
   if (!posting.success) return;
   const p = posting.data;
   const path = `/postings/${encodeURIComponent(p.id)}`;
+  const tag = `posting-${p.id}`;
 
   if (notice.type === "posting.new") {
     if (p.status !== "open") return;
-    const athletes = (await listMembers()).filter((m) => m.role === "athlete" && wants(m, "postings"));
-    for (const athlete of athletes) {
-      await sendEmail(athlete.email, {
-        subject: `New internal posting: ${p.title}`,
-        heading: "New posting",
-        lead: p.title,
-        paragraphs: p.about ? [p.about] : [],
-        button: { label: "See the posting", path },
-      });
-    }
+    if (!reach.settings.activityEmails && !reach.settings.webPush) return;
+    const athletes = (await listMembers()).filter((m) => m.role === "athlete" && m.status === "active");
+    await forEachMember(athletes, async (m) => {
+      await maybeQueue(m, "postings", reach.now, reach);
+      await maybePush(m, "postings", { title: "New internal posting", body: p.title, url: path, tag }, reach);
+    });
     return;
   }
 
   const person = await getMember(notice.personSub);
   if (!person) return;
   if (notice.type === "posting.interest") {
+    // Staff work queue: always on.
     const poster = await getMember(p.createdBySub);
     const to =
       poster && poster.status === "active"
@@ -229,16 +289,17 @@ async function postingNotice(notice: Extract<PortalNotice, { type: `posting.${st
   const status = interest?.["status"];
   if (status !== "approved" && status !== "declined") return;
   if (person.status !== "active") return;
-  await sendEmail(person.email, {
-    subject: status === "approved" ? `You're approved for ${p.title}` : `An update on ${p.title}`,
-    heading: status === "approved" ? "You're approved" : "Posting update",
-    lead:
-      status === "approved"
-        ? `NIL TV approved your interest in ${p.title}. Staff will follow up with next steps.`
-        : `NIL TV went another way on ${p.title} this time. Thanks for raising your hand.`,
-    button: { label: "See the posting", path },
+  const approved = status === "approved";
+  await maybeQueue(person, "direct", reach.now, reach, {
+    topic: "direct",
+    text: approved ? `You're approved for ${p.title}` : `An update on ${p.title}`,
+    path,
+    at: reach.now.toISOString(),
   });
+  await maybePush(person, "direct", { title: approved ? "You're approved" : "Posting update", body: p.title, url: path, tag }, reach);
 }
+
+/* ── Schedule ──────────────────────────────────────────────────────────────── */
 
 const EventRow = z.object({
   id: z.string(),
@@ -251,43 +312,72 @@ const EventRow = z.object({
   location: z.string().optional(),
 });
 
-async function eventNotice(notice: Extract<PortalNotice, { type: `event.${string}` }>): Promise<void> {
+/** Starts within LAST_MINUTE_MS from now (and has not long passed). */
+const isLastMinute = (iso: string | undefined, now: Date): boolean => {
+  if (!iso) return false;
+  const delta = Date.parse(iso) - now.getTime();
+  return delta < LAST_MINUTE_MS && delta > -6 * 60 * 60 * 1000;
+};
+
+async function eventNotice(notice: Extract<PortalNotice, { type: `event.${string}` }>, reach: Reach): Promise<void> {
+  if (!reach.settings.activityEmails && !reach.settings.webPush) return;
   const parsed = EventRow.safeParse((await getRow(portalEventKey(notice.eventId))) ?? {});
   if (!parsed.success) return;
   const e = parsed.data;
-  const invitees = (await resolveAudience(e.audience as PortalEvent["audience"])).filter((m) => wants(m, "schedule"));
+  const invitees = (await resolveAudience(e.audience as PortalEvent["audience"])).filter((m) => m.status === "active");
   const locked = e.options.find((o) => o.id === e.lockedOptionId);
   const kind = EVENT_KIND_LABELS[e.kind];
   const path = `/schedule/${encodeURIComponent(e.id)}`;
+  const tag = `event-${e.id}`;
+  const previous = notice.type === "event.changed" ? notice.previousStartsAt : undefined;
+  const urgent =
+    (notice.type === "event.cancelled" && e.status !== "poll" && isLastMinute(locked?.startsAt, reach.now)) ||
+    (notice.type === "event.changed" && (isLastMinute(locked?.startsAt, reach.now) || isLastMinute(previous, reach.now)));
 
-  for (const m of invitees) {
+  await forEachMember(invitees, async (m) => {
     const when = locked ? formatWhen(locked.startsAt, m.timezone) : undefined;
-    let email: PortalEmail;
+    let push: Omit<PushPayload, "at">;
+    let note: SummaryNote | undefined;
+    let email: PortalEmail | undefined;
     if (notice.type === "event.cancelled") {
+      push = { title: "Cancelled", body: e.title, url: "/schedule", tag };
+      note = { topic: "schedule", text: `Cancelled: ${e.title}`, path: "/schedule", at: reach.now.toISOString() };
       email = {
         subject: `Cancelled: ${e.title}`,
         heading: "Cancelled",
         lead: `${e.title} is cancelled.${when ? ` It was set for ${when}.` : ""}`,
         button: { label: "Open the schedule", path: "/schedule" },
       };
-    } else if (e.status === "poll") {
+    } else if (notice.type === "event.changed") {
+      push = { title: "New time", body: `${e.title}${when ? `, ${when}` : ""}`, url: path, tag };
+      note = { topic: "schedule", text: `New time: ${e.title}${when ? `, ${when}` : ""}`, path, at: reach.now.toISOString() };
       email = {
-        subject: `Pick your times: ${e.title}`,
-        heading: "When works for you?",
-        lead: `NIL TV is planning a ${kind.toLowerCase()}: ${e.title}. Pick every time that works for you.`,
-        button: { label: "Pick times", path },
+        subject: `New time: ${e.title}`,
+        heading: "New time",
+        lead: `${e.title} moved${when ? ` to ${when}` : ""}.${e.location ? ` Where: ${e.location}.` : ""}`,
+        button: { label: "See the details", path },
       };
+    } else if (e.status === "poll") {
+      push = { title: "Pick your times", body: e.title, url: path, tag };
     } else {
-      email = {
-        subject: notice.type === "event.locked" ? `Time set: ${e.title}` : `${kind}: ${e.title}`,
-        heading: notice.type === "event.locked" ? "Time is set" : "You're invited",
-        lead: `${e.title}${when ? ` is ${when}` : ""}.${e.location ? ` Where: ${e.location}.` : ""}`,
-        button: { label: "RSVP", path },
+      push = {
+        title: notice.type === "event.locked" ? "Time set" : kind,
+        body: `${e.title}${when ? `, ${when}` : ""}`,
+        url: path,
+        tag,
       };
     }
-    await sendEmail(m.email, email);
-  }
+    if (urgent && email && reach.settings.activityEmails && cadenceFor(m, "schedule") !== "off") {
+      await sendEmail(m.email, email);
+    } else {
+      // Polls and unanswered events are worked out fresh when the summary goes out.
+      await maybeQueue(m, "schedule", reach.now, reach, note);
+    }
+    await maybePush(m, "schedule", push, reach);
+  });
 }
+
+/* ── Staff work queues and welcome (always on) ─────────────────────────────── */
 
 const RequestRow = z.object({ id: z.string(), personName: z.string(), body: z.string() });
 
@@ -295,7 +385,7 @@ async function requestNotice(requestId: string): Promise<void> {
   const parsed = RequestRow.safeParse((await getRow(portalRequestKey(requestId))) ?? {});
   if (!parsed.success) return;
   const settings = await getSettings();
-  const to = settings.deskEmails.support?.length ? settings.deskEmails.support : await deskStaffEmails("support");
+  const to = await deskRecipients("support", settings);
   const targets = to.length > 0 ? to : [settings.supportEmail];
   for (const address of new Set(targets)) {
     await sendEmail(address, {
@@ -353,18 +443,19 @@ async function welcomeNotice(sub: string): Promise<void> {
   });
 }
 
-export async function handleNotice(notice: PortalNotice): Promise<void> {
+export async function handleNotice(notice: PortalNotice, now: Date = new Date()): Promise<void> {
   switch (notice.type) {
     case "message":
-      return messageNotice(notice.convId, notice.messageId);
+      return messageNotice(notice.convId, notice.messageId, { settings: await getSettings(), now });
     case "posting.new":
     case "posting.interest":
     case "posting.decision":
-      return postingNotice(notice);
+      return postingNotice(notice, { settings: await getSettings(), now });
     case "event.new":
     case "event.locked":
+    case "event.changed":
     case "event.cancelled":
-      return eventNotice(notice);
+      return eventNotice(notice, { settings: await getSettings(), now });
     case "request.new":
       return requestNotice(notice.requestId);
     case "help":

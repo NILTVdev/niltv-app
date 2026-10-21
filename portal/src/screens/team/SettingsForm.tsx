@@ -1,11 +1,16 @@
-/** Admin settings: desk emails, support address, athlete auto-enable, welcome email. */
+/**
+ * Admin settings: desk emails, support address, athlete auto-enable,
+ * welcome email, and the two switches that let notifications out of the
+ * portal (activity emails, web push). Both stay off while testing.
+ */
 import { DESK_LABELS, Desk as DeskEnum, type Desk, PortalSettings } from "@niltv/types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, errorText } from "../../api";
 import { describeIssues, splitEmails } from "../../lib/format";
 import { qk } from "../../queries";
 import { ErrorNote, Loading, Switch } from "../../ui/bits";
+import { useMe } from "../../ui/me";
 import { useToast } from "../../ui/Toast";
 
 const looksLikeEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
@@ -13,11 +18,15 @@ const looksLikeEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test
 export function SettingsForm() {
   const qc = useQueryClient();
   const toast = useToast();
+  const { notifications } = useMe();
   const settings = useQuery({ queryKey: qk.settings, queryFn: api.settings });
+  const meFetching = useIsFetching({ queryKey: qk.me }) > 0;
   const [deskEmails, setDeskEmails] = useState<Record<Desk, string>>({ content: "", support: "", payments: "" });
   const [supportEmail, setSupportEmail] = useState("");
   const [autoEnable, setAutoEnable] = useState(false);
   const [welcome, setWelcome] = useState(false);
+  const [activityEmails, setActivityEmails] = useState(false);
+  const [webPush, setWebPush] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +41,8 @@ export function SettingsForm() {
     setSupportEmail(s.supportEmail);
     setAutoEnable(s.autoEnableAthletes);
     setWelcome(s.welcomeEmail);
+    setActivityEmails(s.activityEmails);
+    setWebPush(s.webPush);
     setLoaded(true);
   }, [settings.data, loaded]);
 
@@ -39,6 +50,8 @@ export function SettingsForm() {
     mutationFn: (input: ReturnType<typeof PortalSettings.parse>) => api.saveSettings(input),
     onSuccess: (saved) => {
       qc.setQueryData(qk.settings, saved);
+      // GET /v1/me carries the switches (and the push key) to every screen.
+      void qc.invalidateQueries({ queryKey: qk.me });
       toast("Settings saved.");
     },
     onError: (err) => setError(errorText(err)),
@@ -60,10 +73,15 @@ export function SettingsForm() {
       supportEmail: supportEmail.trim().toLowerCase(),
       autoEnableAthletes: autoEnable,
       welcomeEmail: welcome,
+      activityEmails,
+      webPush,
     });
     if (!parsed.success) return setError(describeIssues(parsed.error.issues));
     save.mutate(parsed.data);
   };
+
+  // Push saved on, but this stage has no VAPID key: nobody can turn it on yet.
+  const pushKeysMissing = settings.data?.webPush === true && !notifications.vapidPublicKey && !meFetching;
 
   if (settings.isPending) return <Loading what="Loading settings" />;
   if (settings.error) return <ErrorNote error={settings.error} onRetry={() => void settings.refetch()} />;
@@ -99,6 +117,23 @@ export function SettingsForm() {
           help="Leave this off until testing is done. While it is off, accepted athletes wait on the Athletes page until an admin enables them."
         />
         <Switch checked={welcome} onChange={setWelcome} label="Send a welcome email when someone gets access" />
+        <Switch
+          checked={activityEmails}
+          onChange={setActivityEmails}
+          label="Activity emails"
+          help="Summary emails for unseen activity, desk alerts for staff, important announcements and last-minute schedule changes. Help, page change requests and approval interest always email staff."
+        />
+        <Switch
+          checked={webPush}
+          onChange={setWebPush}
+          label="Phone and browser notifications"
+          help="Web push for people who turn it on in Account."
+        />
+        {pushKeysMissing ? (
+          <p className="warnmsg" role="status">
+            Push keys are not set up for this stage yet. Run <code>backend/scripts/portal-vapid.ts</code> first.
+          </p>
+        ) : null}
         {error ? (
           <p className="err" role="alert">
             {error}

@@ -2,14 +2,18 @@
  * The signed-in portal: reads the path, refuses screens the role may not
  * open (same permission table as the server), and renders the screen in
  * the shell. Screens load on demand so staff-only code stays out of the
- * athlete's first load.
+ * athlete's first load. The unread count rides in the tab title and on
+ * the installed app's icon.
  */
 import { type ComponentType, lazy, Suspense, useEffect } from "react";
+import { unreadTitle } from "./lib/format";
 import { canOpen, navItem, type Screen, startScreen } from "./lib/nav";
+import { showAppBadge } from "./lib/push";
 import { go, parsePath, usePathname } from "./lib/router";
 import { Empty, Loading } from "./ui/bits";
 import { useMe } from "./ui/me";
 import { Shell } from "./ui/Shell";
+import { usePushSetup } from "./ui/usePush";
 
 export interface ScreenProps {
   /** the id segment of a deep link (/messages/{id}) */
@@ -39,7 +43,7 @@ const SCREENS: Record<Screen, ComponentType<ScreenProps>> = {
 };
 
 export function Portal() {
-  const { member } = useMe();
+  const { member, unread } = useMe();
   const role = member.role;
   const route = parsePath(usePathname());
   const start = startScreen(role);
@@ -54,8 +58,13 @@ export function Portal() {
 
   const label = navItem(role, current)?.label ?? "Portal";
   useEffect(() => {
-    document.title = `${label} | NIL TV Portal`;
-  }, [label]);
+    document.title = unreadTitle(`${label} | NIL TV Portal`, unread);
+  }, [label, unread]);
+
+  useEffect(() => showAppBadge(unread), [unread]);
+  // Signed out: no count left on the icon.
+  useEffect(() => () => showAppBadge(0), []);
+  usePushSetup();
 
   const View = SCREENS[current];
   return (
