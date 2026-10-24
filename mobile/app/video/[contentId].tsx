@@ -539,6 +539,7 @@ function FeedPage({
           <RailButton
             icon="chatbubble-outline"
             label="Comments"
+            caption="0"
             onPress={() => {
               track("comments_open", { contentId: card.id });
               setCommentsOpen(true);
@@ -548,6 +549,7 @@ function FeedPage({
             icon="repeat"
             label={reposted ? "Undo repost" : "Repost"}
             selected={reposted}
+            caption={reposted ? "1" : "0"}
             tint={reposted ? tokens.color.gold : "#ffffff"}
             onPress={toggleRepost}
           />
