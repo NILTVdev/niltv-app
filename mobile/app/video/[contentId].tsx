@@ -27,6 +27,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Pressable,
@@ -321,6 +322,19 @@ function FeedPage({
       if (isFollowing) unfollow.mutate(creatorId);
       else follow.mutate(creatorId);
     });
+  // Frontend-only for now: repost/save are local toggles until the API lands.
+  const [reposted, setReposted] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const toggleRepost = () =>
+    requireAuth(() => {
+      hapticImpact();
+      setReposted((r) => !r);
+    });
+  const toggleSave = () =>
+    requireAuth(() => {
+      hapticImpact();
+      setSaved((v) => !v);
+    });
   const share = () => {
     // Placeholder share link — universal links (https://app.niltv.com/…) come later (design §3.2).
     void Share.share({ message: `${card.title}: https://app.niltv.com/video/${card.id}` });
@@ -530,7 +544,26 @@ function FeedPage({
               setCommentsOpen(true);
             }}
           />
-          <RailButton icon="share-outline" label="Share" onPress={share} />
+          <RailButton
+            icon="repeat"
+            label={reposted ? "Undo repost" : "Repost"}
+            selected={reposted}
+            tint={reposted ? tokens.color.gold : "#ffffff"}
+            onPress={toggleRepost}
+          />
+          <RailButton icon="paper-plane-outline" label="Share" onPress={share} />
+          <RailButton
+            icon={saved ? "bookmark" : "bookmark-outline"}
+            label={saved ? "Unsave" : "Save"}
+            selected={saved}
+            tint={saved ? tokens.color.gold : "#ffffff"}
+            onPress={toggleSave}
+          />
+          <RailButton
+            icon="ellipsis-horizontal"
+            label="More"
+            onPress={() => Alert.alert("More options", "Coming soon.")}
+          />
         </View>
       </LinearGradient>
       <CommentsSheet contentId={card.id} visible={commentsOpen} onClose={() => setCommentsOpen(false)} />
