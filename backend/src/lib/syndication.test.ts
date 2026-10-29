@@ -183,6 +183,19 @@ describe("title and description hygiene", () => {
     expect(cleanTitle("Preseason vibes 😓😴 #soccer #preseason #duke", fallback)).toBe("Preseason vibes");
   });
 
+  it("does not end the first sentence at an abbreviation or an initial", () => {
+    expect(cleanTitle("How To Do A Full Toss Full-Up ft. Macaylee Nelson\n\nWelcome to How To", fallback)).toBe("How To Do A Full Toss Full-Up ft. Macaylee Nelson");
+    expect(cleanTitle("Duke vs. UNC on the road. Game day vlog", fallback)).toBe("Duke vs. UNC on the road");
+    expect(cleanTitle("Home Plate Ep. 1 with Kirk. More next week", fallback)).toBe("Home Plate Ep. 1 with Kirk");
+    expect(cleanTitle("Coach J. Smith talks recovery. Watch now", fallback)).toBe("Coach J. Smith talks recovery");
+  });
+
+  it("keeps a handle that is part of the sentence, without the @", () => {
+    expect(cleanTitle("late night studying fueled by @eatkokada ⚽️🥨 #ad", fallback)).toBe("late night studying fueled by eatkokada");
+    expect(cleanTitle("Leg day with @kirk_s7 and @zane.baltz", fallback)).toBe("Leg day with kirk_s7 and zane.baltz");
+    expect(cleanTitle("@niltv Game day vibes @truebluetv", fallback)).toBe("Game day vibes");
+  });
+
   it("falls back when fewer than two words survive", () => {
     expect(cleanTitle("@nilstar", fallback)).toBe(fallback);
     expect(cleanTitle("🗣️we out here", fallback)).toBe("we out here");

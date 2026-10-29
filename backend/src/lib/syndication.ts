@@ -242,6 +242,29 @@ const LEADING_JUNK = /^[\s\-–—|:;,·•.]+/u;
 
 const collapse = (value: string): string => value.replace(/\s+/g, " ").trim();
 
+// A handle that is part of the sentence ("fueled by @eatkokada", "ft. @kirk_s7")
+// keeps its name without the @; dropping it would leave "fueled by".
+const HANDLE_IN_SENTENCE = /(?:^|\s)(by|with|w\/|ft\.?|feat\.?|featuring|starring|and|&|x|vs\.?|for|from|at|to|of|via)\s*$/iu;
+const stripHandles = (line: string): string =>
+  line.replace(/(^|\s)@([\w.]+)/g, (_m, space: string, name: string, offset: number, all: string) =>
+    HANDLE_IN_SENTENCE.test(all.slice(0, offset)) ? `${space}${name.replace(/\.+$/, "")}` : space);
+
+// Periods that end an abbreviation or an initial, not a sentence.
+const ABBREVIATIONS = new Set(["ft", "feat", "vs", "v", "ep", "eps", "no", "nos", "st", "mt", "dr", "jr", "sr", "mr", "mrs", "ms", "vol", "pt", "pts", "approx", "etc", "e.g", "i.e", "u.s", "u.s.a"]);
+
+/** The first real sentence of `text` (through its . ! or ?), or undefined. */
+function firstSentence(text: string): string | undefined {
+  const end = /[.!?](?=\s|$)/gu;
+  for (let m = end.exec(text); m; m = end.exec(text)) {
+    if (m[0] === ".") {
+      const word = (text.slice(0, m.index).match(/([\p{L}.]+)$/u)?.[1] ?? "").toLowerCase();
+      if (ABBREVIATIONS.has(word) || /^\p{L}$/u.test(word)) continue;
+    }
+    return text.slice(0, m.index + 1);
+  }
+  return undefined;
+}
+
 /** Words in a cleaned line: space-separated tokens carrying a letter or digit. */
 export const titleWords = (text: string): string[] => text.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w));
 
@@ -255,16 +278,17 @@ export function titleCandidate(raw: string, maxLength = 120): string {
   // credits, hashtags and calls to action (verified against 650 real rows).
   const firstLine = raw
     .split(/\r?\n/)
-    .map((line) => line.replace(HASHTAG, " ").replace(HANDLE, " ").replace(EMOJI, "").trim())
+    .map((line) => stripHandles(line.replace(HASHTAG, " ")).replace(EMOJI, "").trim())
     .find((line) => /[\p{L}\p{N}]/u.test(line));
-  let text = collapse((firstLine ?? raw).replace(HTML_TAG, " ").replace(URL, " ").replace(HANDLE, " ").replace(HASHTAG, " ").replace(EMOJI, ""));
+  let text = collapse(stripHandles((firstLine ?? raw).replace(HTML_TAG, " ").replace(URL, " ")).replace(HANDLE, " ").replace(HASHTAG, " ").replace(EMOJI, ""));
   // Captions use " | " as a hard separator between the line and the credits.
   text = (text.split(/\s\|\s/u)[0] ?? text).trim();
-  // First sentence: cut at ". " / "! " / "? " or a newline, but not at a
-  // trailing ellipsis, and never down to a single word ("Consistency! Be
-  // consistent even when…" keeps the whole line rather than one word).
-  const sentence = text.match(/^(.+?[.!?])(\s|$)/u);
-  if (sentence && sentence[1] && !sentence[1].endsWith("…") && sentence[1].length >= 12 && titleWords(sentence[1]).length >= 2) text = sentence[1];
+  // First sentence: cut at ". " / "! " / "? " or a newline, but not at an
+  // abbreviation ("ft.", "vs.", "Ep.") or an initial, not at a trailing
+  // ellipsis, and never down to a single word ("Consistency! Be consistent
+  // even when…" keeps the whole line rather than one word).
+  const sentence = firstSentence(text);
+  if (sentence && !sentence.endsWith("…") && sentence.length >= 12 && titleWords(sentence).length >= 2) text = sentence;
   text = text.replace(TRAILING_JUNK, "").replace(LEADING_JUNK, "");
   if (text.length > maxLength) {
     const cut = text.slice(0, maxLength);
