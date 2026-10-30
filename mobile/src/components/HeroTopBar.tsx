@@ -1,10 +1,11 @@
 /**
- * The app's top bar (logo left, mailbox + ★ right) floated transparent over
- * the full-bleed hero.
+ * The app's top bar (logo left, mailbox + ★ + profile right) floated
+ * transparent over the full-bleed hero.
  * Absolutely positioned inside the hero wrapper so it scrolls away with the
  * art; the hero's top scrim band carries its legibility. No bar fill, ever.
  */
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { Platform, StyleSheet, View, type TextStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,6 +38,17 @@ export function HeroTopBar({ onMail, onStar }: { onMail: () => void; onStar: () 
           scaleTo={0.88}
         >
           <Ionicons name="star-outline" size={22} color="#ffffff" style={styles.icon} />
+        </PressableScale>
+        {/* Profile replaced the fifth tab. Same target from every screen, so
+            the bar owns it rather than each caller. */}
+        <PressableScale
+          onPress={() => router.push("/profile")}
+          accessibilityRole="button"
+          accessibilityLabel="Profile"
+          hitSlop={8}
+          scaleTo={0.88}
+        >
+          <Ionicons name="person-circle-outline" size={24} color="#ffffff" style={styles.icon} />
         </PressableScale>
       </View>
     </View>

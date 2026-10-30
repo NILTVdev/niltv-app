@@ -18,6 +18,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
+import { PrivacyLink } from "@/components/PrivacyLink";
+import { goBack } from "@/lib/navigation";
 import { requestAndRegister } from "@/push";
 import { track, useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
@@ -284,10 +286,17 @@ export default function ProfileScreen() {
   const status = useAuthStore((s) => s.status);
   useScreenView("profile");
 
+  // Pushed from the top bar's profile button (no Profile tab), so it carries
+  // its own back chevron and the bottom inset the tab bar used to cover.
   return (
-    <SafeAreaView edges={["top"]} style={[styles.screen, { backgroundColor: t.bg }]}>
+    <SafeAreaView edges={["top", "bottom"]} style={[styles.screen, { backgroundColor: t.bg }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.heading, styles.caps, { color: t.text }]}>Profile</Text>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={8}>
+            <Ionicons name="chevron-back" size={26} color={t.text} />
+          </Pressable>
+          <Text style={[styles.heading, styles.caps, { color: t.text }]}>Profile</Text>
+        </View>
 
         {status === "restoring" ? (
           <View style={styles.restoring}>
@@ -299,6 +308,8 @@ export default function ProfileScreen() {
           <GuestProfile />
         )}
 
+        {/* Signed in or not: App Review looks for the policy inside the app. */}
+        <PrivacyLink />
         <Text style={[styles.version, { color: t.subtext }]}>
           {`NILTV ${Constants.expoConfig?.version}`}
         </Text>
@@ -316,10 +327,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.spacing.xl,
     paddingBottom: tokens.spacing.xl,
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.spacing.sm,
+    paddingTop: tokens.spacing.md,
+  },
   heading: {
     fontFamily: tokens.font.extrabold,
     fontSize: 26,
-    paddingTop: tokens.spacing.md,
   },
   restoring: {
     flex: 1,
