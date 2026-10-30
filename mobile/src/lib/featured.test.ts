@@ -27,7 +27,15 @@ describe("featuredSlides", () => {
     // Same keys in both buckets: swapping the cdn swaps every url.
     const prod = featuredSlides("https://prod.example.test");
     expect(prod[0]?.loopUrl).toBe("https://prod.example.test/video/hz-sweat-it-out/hero-loop.mp4");
-    expect(prod[1]?.posterUrl).toBe("https://prod.example.test/video/hz-big-noon-kickoff/poster.jpg");
+    expect(prod[1]?.posterUrl).toBe("https://prod.example.test/video/hz-big-noon-kickoff/hero-poster.jpg");
+  });
+
+  it("hero stills are the 16:9 hero-poster.jpg, never the 9:16 rail poster.jpg", () => {
+    for (const s of featuredSlides(CDN)) {
+      expect(s.posterUrl).toMatch(/\/hero-poster\.jpg$/);
+    }
+    // The auditions folder is outside the catalog; its tab gates on poster.jpg.
+    expect(nilStarAuditionsBillboard(CDN).posterUrl).toMatch(/\/hz-nilstar-auditions\/poster\.jpg$/);
   });
 
   it("hz episodes are 16:9 muted loops whose Watch opens the full cut in the theater", () => {
@@ -41,7 +49,7 @@ describe("featuredSlides", () => {
     expect(sweat?.watch).toEqual({
       kind: "theater",
       src: `${CDN}/video/hz-sweat-it-out/master-fs.mp4`,
-      poster: `${CDN}/video/hz-sweat-it-out/poster.jpg`,
+      poster: `${CDN}/video/hz-sweat-it-out/hero-poster.jpg`,
       title: "Sweat It Out with Bull City Pepper Co.",
       kicker: "Sweat It Out",
     });
