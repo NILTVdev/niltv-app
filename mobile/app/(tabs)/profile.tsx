@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
+import { PrivacyLink } from "@/components/PrivacyLink";
 import { requestAndRegister } from "@/push";
 import { track, useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
@@ -299,6 +300,8 @@ export default function ProfileScreen() {
           <GuestProfile />
         )}
 
+        {/* Signed in or not: App Review looks for the policy inside the app. */}
+        <PrivacyLink />
         <Text style={[styles.version, { color: t.subtext }]}>
           {`NILTV ${Constants.expoConfig?.version}`}
         </Text>

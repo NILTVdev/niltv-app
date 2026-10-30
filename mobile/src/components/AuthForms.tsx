@@ -22,6 +22,7 @@ import {
 } from "@/auth/cognito";
 import { useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
+import { PrivacyLink } from "@/components/PrivacyLink";
 import { Sheet } from "@/components/Sheet";
 import { goBack } from "@/lib/navigation";
 import { track } from "@/telemetry";
@@ -869,6 +870,7 @@ export function AuthForms() {
               {dobError ? <Text style={styles.error}>{dobError}</Text> : null}
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <GoldButton label="Sign Up Free" onPress={submitSignUp} busy={busy} />
+              <PrivacyLink />
             </>
           ) : null}
 
