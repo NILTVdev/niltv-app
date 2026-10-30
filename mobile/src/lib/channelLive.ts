@@ -61,3 +61,19 @@ export function rosterOrder<T extends { id: string }>(channels: readonly T[]): T
   };
   return [...channels].sort((a, b) => rank(a) - rank(b));
 }
+
+/**
+ * The ★ notification picker's channels: live ones only, since a Coming Soon
+ * or off-grid channel has nothing to notify about. The network channels
+ * (Brand's NETWORK_SOURCES, passed in to keep this file free of
+ * react-native) lead in their given order, then the campus roster in site
+ * order.
+ */
+export function notifyChannels<T extends Pick<Channel, "id" | "clipCount">>(
+  channels: readonly T[],
+  network: readonly string[],
+): T[] {
+  const live = channels.filter((c) => !isComingSoon(c) && !CHANNELS_GRID_HIDDEN.has(c.id));
+  const lead = network.flatMap((id) => live.filter((c) => c.id === id));
+  return [...lead, ...rosterOrder(live.filter((c) => !network.includes(c.id)))];
+}
