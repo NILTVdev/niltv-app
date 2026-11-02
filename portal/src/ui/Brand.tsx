@@ -6,13 +6,13 @@
  */
 import { config } from "../config";
 
-/** Brand kit 00_Logos/niltv-logo-gold-transparent.png, trimmed and sized for the web. */
+/** Brand kit 00_Logos/niltv-logo-on-black.png, keyed off black, trimmed and sized for the web. */
 const LOGO = "/brand/niltv-logo.webp";
 
 export function Mark({ tagline = false }: { tagline?: boolean }) {
   return (
     <div className="mark">
-      <img className="logo" src={LOGO} alt="NIL TV" width={573} height={192} />
+      <img className="logo" src={LOGO} alt="NIL TV" width={596} height={192} />
       {tagline ? <p className="tagline">Real Name. Real Game. Real TV.</p> : null}
       <div className="sub">
         <small>Portal</small>

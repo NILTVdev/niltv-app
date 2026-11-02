@@ -54,8 +54,10 @@ KIT, and its `NILTV_Brand_Guidelines.pdf`). The rules the CSS follows are at the
 top of `src/styles.css`. In short:
 
 - The logo is always the image (`public/brand/niltv-logo.webp`, from the kit's
-  `00_Logos/niltv-logo-gold-transparent.png`), never typed, at least 40px tall.
-  `src/ui/Brand.tsx` is the one place it renders.
+  `00_Logos/niltv-logo-on-black.png`), never typed, at least 40px tall.
+  `src/ui/Brand.tsx` is the one place it renders. The on-black render is keyed
+  off black (alpha is the brightest channel), so it keeps its brightness on the
+  portal's near-black surfaces without showing a box.
 - Black `#060608`, gold `#D3B368` with black text on it, white and muted
   `#A1A1AA` text. The metallic gradient is only on the logo and the sign-in
   slash. Live red `#C42420` is for LIVE and NEW tags only.
@@ -90,7 +92,6 @@ anything out of the portal; both are off while testing.
   they open one. "Not now" holds for 30 days (localStorage).
 - iPhone and iPad only get push once the portal is on the Home Screen. The
   manifest (`display: standalone`) and icons in `public/` make that work.
-  The icons are generated from `mobile/assets/images/icon.png`.
 
 ## Content Hub
 
