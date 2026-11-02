@@ -47,6 +47,24 @@ browser restart). Opened as the installed app from the Home Screen, it lives in
 - `public/sw.js` and `public/manifest.webmanifest` must be served as files at
   the root (the SPA rewrite skips `.js` and `.webmanifest`).
 
+## Brand
+
+Styled to the NIL TV brand kit (Google Drive, CONTENT MASTER > NIL TV BRAND
+KIT, and its `NILTV_Brand_Guidelines.pdf`). The rules the CSS follows are at the
+top of `src/styles.css`. In short:
+
+- The logo is always the image (`public/brand/niltv-logo.webp`, from the kit's
+  `00_Logos/niltv-logo-gold-transparent.png`), never typed, at least 40px tall.
+  `src/ui/Brand.tsx` is the one place it renders.
+- Black `#060608`, gold `#D3B368` with black text on it, white and muted
+  `#A1A1AA` text. The metallic gradient is only on the logo and the sign-in
+  slash. Live red `#C42420` is for LIVE and NEW tags only.
+- Barlow Condensed in caps for headlines, Montserrat in caps with wide
+  spacing for tags and labels, Inter for body copy and buttons.
+- Tags lean 12°; buttons are pills; cards are rounded.
+- The favicon and app icons are the kit logo, made at the sizes in
+  `public/` (logo on transparent for the favicon, on black for app icons).
+
 ## Polling
 
 The inbox refreshes every 20 s and `GET /v1/me` every 60 s; TanStack Query

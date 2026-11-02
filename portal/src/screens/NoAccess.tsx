@@ -1,5 +1,6 @@
 /** Signed in to niltv.com, but no portal access (403 NOT_MEMBER). */
 import { useEffect } from "react";
+import { Mark } from "../ui/Brand";
 
 export function NoAccess({ email, onSignOut }: { email: string; onSignOut: () => void }) {
   useEffect(() => {
@@ -8,12 +9,7 @@ export function NoAccess({ email, onSignOut }: { email: string; onSignOut: () =>
   return (
     <div className="centered">
       <div className="auth">
-        <div className="mark">
-          <span>
-            <b>NIL</b> TV
-          </span>
-          <small>Portal</small>
-        </div>
+        <Mark />
         <h1>No portal access yet</h1>
         <div className="panel">
           <p>

@@ -3,11 +3,11 @@
  * a bottom tab bar and a More sheet for the rest of the menu.
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { config } from "../config";
 import { campusName } from "../lib/format";
 import { type NavItem, type Screen, moreItems, navFor } from "../lib/nav";
 import { pathFor } from "../lib/router";
 import { Avatar } from "./bits";
+import { Mark } from "./Brand";
 import { Icon, type IconName } from "./Icon";
 import { Link } from "./Link";
 import { useMe } from "./me";
@@ -30,18 +30,6 @@ const ICON: Record<Screen, IconName> = {
   payouts: "payouts",
   access: "access",
 };
-
-function Mark() {
-  return (
-    <div className="mark">
-      <span>
-        <b>NIL</b> TV
-      </span>
-      <small>Portal</small>
-      {config.stage !== "prod" ? <span className="stage">{config.stage}</span> : null}
-    </div>
-  );
-}
 
 export function Shell({ screen, children }: { screen: Screen; children: ReactNode }) {
   const { member, unread } = useMe();

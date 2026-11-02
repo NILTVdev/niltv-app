@@ -3,9 +3,9 @@ import { bestSlots, heatRatio, heatShade, slotKey } from "./heat";
 
 describe("heatmap shading", () => {
   it("ramps opacity with the share of responders", () => {
-    expect(heatShade(0, 24).background).toBe("rgba(217,178,91,0.08)");
-    expect(heatShade(12, 24).background).toBe("rgba(217,178,91,0.51)");
-    expect(heatShade(24, 24).background).toBe("rgba(217,178,91,0.93)");
+    expect(heatShade(0, 24).background).toBe("rgba(211,179,104,0.08)");
+    expect(heatShade(12, 24).background).toBe("rgba(211,179,104,0.51)");
+    expect(heatShade(24, 24).background).toBe("rgba(211,179,104,0.93)");
   });
 
   it("switches to dark text once the cell is dark", () => {
@@ -15,7 +15,7 @@ describe("heatmap shading", () => {
 
   it("is safe with nobody responded and clamps over-counts", () => {
     expect(heatRatio(3, 0)).toBe(0);
-    expect(heatShade(3, 0).background).toBe("rgba(217,178,91,0.08)");
+    expect(heatShade(3, 0).background).toBe("rgba(211,179,104,0.08)");
     expect(heatRatio(30, 24)).toBe(1);
   });
 

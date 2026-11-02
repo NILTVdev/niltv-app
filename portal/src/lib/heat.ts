@@ -20,7 +20,7 @@ export const WEEKDAY_LABELS: Record<Weekday, string> = {
   sun: "Sun",
 };
 
-const GOLD = "217,178,91";
+const GOLD = "211,179,104"; // NIL TV Gold #D3B368
 
 /** Share of `total` (0..1), safe for a zero total. */
 export const heatRatio = (count: number, total: number): number =>

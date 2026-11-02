@@ -1,7 +1,7 @@
 /** Email + password (Cognito SRP), and the forgot-password code flow. */
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { confirmPassword, forgotPassword, signIn } from "../auth";
-import { config } from "../config";
+import { Mark } from "../ui/Brand";
 
 type Mode = "signin" | "forgot" | "reset";
 
@@ -73,13 +73,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
   return (
     <div className="centered">
       <div className="auth">
-        <div className="mark">
-          <span>
-            <b>NIL</b> TV
-          </span>
-          <small>Portal</small>
-          {config.stage !== "prod" ? <span className="stage">{config.stage}</span> : null}
-        </div>
+        <Mark tagline />
+        <span className="slash" aria-hidden="true" />
         <h1 ref={headingRef} tabIndex={-1}>
           {titles[mode]}
         </h1>
