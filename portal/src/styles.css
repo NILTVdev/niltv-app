@@ -7,8 +7,8 @@
  * them for white, so everything inside it follows.
  *
  * Nothing scrolls sideways. Tabs wrap, and a table too narrow for its columns
- * becomes one card per row. Only the sidebar on a short window and the message
- * panes scroll, and only up and down.
+ * becomes one card per row. Only the sidebar on a short window, the message
+ * panes and the people picker scroll, and only up and down.
  *
  * Styled to the NIL TV brand kit (NILTV_Brand_Guidelines.pdf):
  *   - black ground, flat gold, white headlines; text on gold is always black
@@ -634,6 +634,16 @@ div.mini { cursor: default; }
   .chat .convo { display: none; }
   .chat.show-convo .threads { display: none; }
   .chat.show-convo .convo { display: grid; }
+  /* An open thread fills the screen between the bars, so the composer is in view with no scrolling.
+     156 is the top bar (65), main's top padding (18), the tab bar (61) and a 12px gap. */
+  main:has(> .chat.show-convo) { padding-bottom: calc(73px + env(safe-area-inset-bottom, 0px)); }
+  main:has(> .chat.show-convo) > :is(.head, .row) { display: none; }
+  .chat.show-convo {
+    min-height: 0;
+    height: calc(100vh - 156px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    height: calc(100dvh - 156px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+  .convo-head p { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   .threads { border-right: 0; }
   .back { display: grid; }
   .split { grid-template-columns: 1fr; }

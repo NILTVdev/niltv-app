@@ -80,7 +80,9 @@ stay black with gold text.
 
 Nothing scrolls sideways. Tabs wrap. A table narrower than 720px turns into one
 card per row: give every `td` except the name and the actions a `data-label`.
-Only the sidebar on a short window and the message panes scroll, up and down.
+Only the sidebar on a short window, the message panes and the people picker
+scroll, up and down. On a phone an open thread fills the screen between the bars,
+so the composer is in view with no scrolling.
 
 ## Polling
 
