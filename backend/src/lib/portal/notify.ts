@@ -19,7 +19,9 @@ export type PortalNotice =
   | { type: "event.cancelled"; eventId: string }
   | { type: "request.new"; requestId: string }
   | { type: "help"; sub: string; topic: HelpTopic; message: string }
-  | { type: "welcome"; sub: string };
+  | { type: "welcome"; sub: string }
+  /** an accepted athlete with no account: ask them to create one */
+  | { type: "invite"; applicationId: number };
 
 let sqs: SQSClient | undefined;
 const getSqs = (): SQSClient => (sqs ??= new SQSClient({}));

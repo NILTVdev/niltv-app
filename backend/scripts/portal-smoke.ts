@@ -16,11 +16,12 @@
 import {
   AdminConfirmSignUpCommand,
   AdminDeleteUserCommand,
+  AdminUpdateUserAttributesCommand,
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
   SignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { DeleteCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const table = "niltv-dev";
 process.env.TABLE_NAME = table;
@@ -66,7 +67,7 @@ async function call(person: Person | undefined, method: string, path: string, bo
   return { status: res.status, json };
 }
 
-async function mint(key: string, runId: string): Promise<Person> {
+async function mint(key: string, runId: string, verified = true): Promise<Person> {
   const email = `portal-${key}-${runId}@niltv.invalid`;
   const password = `Portal-${runId}-Aa1!`;
   const signup = await cognito.send(
@@ -82,6 +83,16 @@ async function mint(key: string, runId: string): Promise<Person> {
     }),
   );
   await cognito.send(new AdminConfirmSignUpCommand({ UserPoolId: USER_POOL_ID, Username: email }));
+  // The portal only links verified addresses, and .invalid mail cannot verify itself.
+  if (verified) {
+    await cognito.send(
+      new AdminUpdateUserAttributesCommand({
+        UserPoolId: USER_POOL_ID,
+        Username: email,
+        UserAttributes: [{ Name: "email_verified", Value: "true" }],
+      }),
+    );
+  }
   const auth = await cognito.send(
     new InitiateAuthCommand({
       ClientId: TEST_CLIENT_ID,
@@ -113,9 +124,10 @@ async function main(): Promise<void> {
   if (!API) throw new Error("set PORTAL_API_URL to the dev PortalApiUrl output");
   if (!API.includes("execute-api") && !API.includes("dev")) throw new Error("dev only");
   const { putMember } = await import("../src/lib/portal/members");
-  const { getDocClient } = await import("../src/lib/db");
+  const { getDocClient, pendingAthleteKey } = await import("../src/lib/db");
 
   const runId = Date.now().toString(36);
+  const pendingId = 900_000_000 + (Date.now() % 1_000_000);
   const people: Person[] = [];
   const created = { convs: new Set<string>(), events: [] as string[], postings: [] as string[], requests: [] as string[], messages: [] as [string, string][] };
 
@@ -175,6 +187,36 @@ async function main(): Promise<void> {
     check("adding an email with no site account says so", noAccount.status === 404 && noAccount.json["error"] === "NO_ACCOUNT");
     check("staff adds a guest", (await call(staff, "POST", "/v1/members", { email: guest!.email, role: "guest", note: "Gaming partner" })).status === 201);
     check("staff cannot add staff", (await call(staff, "POST", "/v1/members", { email: `x-${runId}@niltv.invalid`, role: "staff" })).status === 403);
+    const unproven = await mint("unproven", runId, false);
+    people.push(unproven);
+    const hijack = await call(admin, "POST", "/v1/members", { email: unproven.email, role: "staff" });
+    check("an account that never verified its email gets no access", hijack.status === 404 && hijack.json["error"] === "NO_ACCOUNT");
+
+    // ── Accepted athletes with no account ────────────────────────────────
+    await getDocClient().send(
+      new PutCommand({
+        TableName: table,
+        Item: {
+          ...pendingAthleteKey(pendingId),
+          applicationId: pendingId,
+          email: `pending-${runId}@niltv.invalid`,
+          name: "Smoke Pending",
+          firstSeenAt: new Date().toISOString(),
+        },
+      }),
+    );
+    const pendingList = await call(staff, "GET", "/v1/athletes/pending");
+    check(
+      "staff see accepted athletes with no account",
+      pendingList.status === 200 && (pendingList.json["pending"] ?? []).some((p: Json) => p["applicationId"] === pendingId),
+    );
+    check("athletes cannot see that list", (await call(athlete, "GET", "/v1/athletes/pending")).status === 403);
+    const invitePath = `/v1/athletes/pending/${pendingId}/invite`;
+    check("staff cannot send an invite", (await call(staff, "POST", invitePath)).status === 403);
+    const invited = await call(admin, "POST", invitePath);
+    check("an admin sends an invite", invited.status === 200 && typeof invited.json["invitedAt"] === "string");
+    check("a second invite the same day is refused", (await call(admin, "POST", invitePath)).status === 409);
+    check("an invite for nobody is not found", (await call(admin, "POST", "/v1/athletes/pending/1/invite")).status === 404);
     for (const p of [staff!, athlete!, guest!]) await call(p, "PATCH", "/v1/me", { notify: QUIET });
 
     // ── Push devices ─────────────────────────────────────────────────────
@@ -343,6 +385,7 @@ async function main(): Promise<void> {
   } finally {
     // ── Cleanup ──────────────────────────────────────────────────────────
     const db = getDocClient();
+    await db.send(new DeleteCommand({ TableName: table, Key: pendingAthleteKey(pendingId) }));
     for (const [convId, msgId] of created.messages) {
       await db.send(new DeleteCommand({ TableName: table, Key: { PK: `CONV#${convId}`, SK: `MSG#${msgId}` } }));
     }

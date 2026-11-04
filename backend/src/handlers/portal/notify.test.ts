@@ -19,6 +19,7 @@ const m = vi.hoisted(() => ({
   pushTo: vi.fn(),
   sendEmail: vi.fn(),
   resolveAudience: vi.fn(),
+  getPending: vi.fn(),
 }));
 
 vi.mock("../../lib/db", async (importOriginal) => ({
@@ -47,6 +48,7 @@ vi.mock("../../lib/portal/emails", async (importOriginal) => ({
   sendEmail: m.sendEmail,
 }));
 vi.mock("../../lib/portal/audience", () => ({ resolveAudience: m.resolveAudience }));
+vi.mock("../../lib/portal/pending", () => ({ getPending: m.getPending }));
 
 import { handleNotice } from "./notify";
 
@@ -242,6 +244,38 @@ describe("schedule notices", () => {
     await handleNotice({ type: "event.cancelled", eventId: "ev-1" }, NOW);
     expect(m.sendEmail).not.toHaveBeenCalled();
     expect(m.queueSummary.mock.calls[0]![1].note).toMatchObject({ topic: "schedule", text: "Cancelled: Media day" });
+  });
+});
+
+describe("account invites", () => {
+  const row = { applicationId: 7, email: "jordan+nil@example.edu", name: "Jordan Miles", firstSeenAt: "2026-11-01T00:00:00.000Z" };
+
+  it("names the exact address and links to the create-account step with it filled in", async () => {
+    m.getPending.mockResolvedValue(row);
+    m.sendEmail.mockResolvedValue(true);
+    await handleNotice({ type: "invite", applicationId: 7 }, NOW);
+    const [to, email] = m.sendEmail.mock.calls[0]!;
+    expect(to).toBe("jordan+nil@example.edu");
+    expect(email.paragraphs.join(" ")).toContain("jordan+nil@example.edu");
+    expect(email.button.path).toBe("/create-account?email=jordan%2Bnil%40example.edu");
+  });
+
+  it("sends nothing once the person has an account", async () => {
+    m.getPending.mockResolvedValue(undefined);
+    await handleNotice({ type: "invite", applicationId: 7 }, NOW);
+    expect(m.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("throws on a failed send, so the queue retries and the dead-letter queue keeps it", async () => {
+    m.getPending.mockResolvedValue(row);
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "invite", applicationId: 7 }, NOW)).rejects.toThrow("invite email failed");
+  });
+
+  it("does not retry a skipped test address", async () => {
+    m.getPending.mockResolvedValue({ ...row, email: "smoke@niltv.invalid" });
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "invite", applicationId: 7 }, NOW)).resolves.toBeUndefined();
   });
 });
 

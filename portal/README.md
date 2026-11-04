@@ -29,9 +29,10 @@ Port 5190 is fixed (`strictPort`): it is the localhost origin the dev stack's CO
 
 ## Access
 
-Any niltv.com account can sign in. The API decides who gets in: an account
-without an active portal row gets 403 `NOT_MEMBER` and sees the no-access
-screen. The menu and the route guard read `PORTAL_PERMISSIONS` through
+Any niltv.com account can sign in, and `/create-account` makes one here with
+the same fields as the site's form (`?email=` fills in the address, which is how
+the invite links to it). The API decides who gets in: an account without an
+active portal row gets 403 `NOT_MEMBER` and sees the no-access screen. The menu and the route guard read `PORTAL_PERMISSIONS` through
 `portalCan`, the same table the server checks. A 401 signs the tab out.
 In a browser tab the session lives in `sessionStorage` (survives a reload, not a
 browser restart). Opened as the installed app from the Home Screen, it lives in
@@ -67,17 +68,13 @@ top of `src/styles.css`. In short:
 - The favicon and app icons are the kit logo, made at the sizes in
   `public/` (logo on transparent for the favicon, on black for app icons).
 
-## Looks
+## Look
 
-Two looks are on trial, set by `data-look` on `<html>` (`src/lib/look.ts`).
-`light` is the default: black sidebar, top bar and tab bar, with a white main
-area. `dark` is black throughout. Sign-in stays black in both. Add `?look=dark`
-or `?look=light` to any URL to switch; the browser remembers.
-
-The light look only redefines the color tokens inside `<main>`, at the top of
-`src/styles.css`. On white, gold used as text is the kit's Gold Text on White
-`#7A5219`. Flat gold stays for buttons, fills and accents. Tag plates that are
-black on the dark look stay black on white.
+The sidebar, top bar and tab bar are black, the main area is white, and sign-in
+is black. `<main>` redefines the color tokens at the top of `src/styles.css`, so
+everything inside it follows. On white, gold used as text is the kit's Gold Text
+on White `#7A5219`. Flat gold stays for buttons, fills and accents. Tag plates
+stay black with gold text.
 
 ## Layout
 

@@ -15,7 +15,7 @@ export function Payments() {
       <PageHead
         title="Payments"
         sub="NIL TV pays through Stripe. Your bank details and tax forms live in your Stripe account, not here."
-        access="Only you and admins"
+        access="You and staff"
       />
       <div className="split">
         <section className="panel stack" aria-labelledby="stripe-h">

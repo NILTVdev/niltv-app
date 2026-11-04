@@ -20,6 +20,24 @@ export function PageHead({ title, sub, access }: { title: string; sub?: ReactNod
   );
 }
 
+export const PRIVACY_URL = "https://niltv.com/legal/privacy/";
+export const TERMS_URL = "https://niltv.com/legal/terms/";
+
+/** The small print under sign-in and no-access. */
+export const LegalLinks = () => (
+  <p className="legal">
+    Trouble signing in? <a href="mailto:support@niltv.com">support@niltv.com</a>
+    <br />
+    <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+      Privacy Policy
+    </a>{" "}
+    ·{" "}
+    <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+      Terms of Use
+    </a>
+  </p>
+);
+
 export const Pill = ({ tone, children }: { tone: Tone; children: ReactNode }) => (
   <span className={`pill ${tone}`}>{children}</span>
 );

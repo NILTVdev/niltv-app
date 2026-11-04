@@ -16,6 +16,7 @@ export const qk = {
   people: (id: string, q: string) => ["people", id, q] as const,
   pushDevices: ["push-devices"] as const,
   members: ["members"] as const,
+  pending: ["pending"] as const,
   events: ["events"] as const,
   availability: ["availability"] as const,
   heatmap: (type: string, value: string | undefined) => ["heatmap", type, value ?? ""] as const,
@@ -39,6 +40,10 @@ export function useInbox(poll = false) {
 
 export function useMembers(enabled = true) {
   return useQuery({ queryKey: qk.members, queryFn: api.members, select: (r) => r.members, enabled });
+}
+
+export function usePendingAthletes() {
+  return useQuery({ queryKey: qk.pending, queryFn: api.pendingAthletes, select: (r) => r.pending });
 }
 
 export function useEvents(enabled = true) {

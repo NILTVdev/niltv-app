@@ -290,6 +290,8 @@ export class PortalStack extends Stack {
       ["/v1/push/remove", [M.POST], meFn],
       ["/v1/members", [M.GET, M.POST], membersFn],
       ["/v1/members/{sub}", [M.PATCH], membersFn],
+      ["/v1/athletes/pending", [M.GET], membersFn],
+      ["/v1/athletes/pending/{id}/invite", [M.POST], membersFn],
       ["/v1/settings", [M.GET, M.PUT], membersFn],
       ["/v1/inbox", [M.GET], conversationsFn],
       ["/v1/desks", [M.POST], conversationsFn],

@@ -176,6 +176,8 @@ export class FoundationStack extends Stack {
       selfSignUpEnabled: true,
       signInAliases: { email: true },
       autoVerify: { email: true },
+      // An email change only takes effect once the new address is verified.
+      keepOriginal: { email: true },
       standardAttributes: {
         // Optional (the V1→V2 reason): Apple/Google send no birthdate. Email
         // sign-up still collects it (client + pre-signup enforce); SSO users

@@ -8,11 +8,15 @@
  * expired session through the refresh token.
  *
  * Portal accounts are ordinary niltv.com accounts; the portal API decides
- * who gets in (403 NOT_MEMBER), not Cognito.
+ * who gets in (403 NOT_MEMBER), not Cognito. Accounts are created here too,
+ * with the same fields as the site's form, so an invited athlete never has
+ * to leave the portal. Emails are lowercased, as the app does: Cognito
+ * matches them exactly, and every account here is stored in lowercase.
  */
 import {
   AuthenticationDetails,
   CognitoUser,
+  CognitoUserAttribute,
   CognitoUserPool,
   type CognitoUserSession,
 } from "amazon-cognito-identity-js";
@@ -50,6 +54,8 @@ function getPool(): CognitoUserPool {
 const userFor = (email: string): CognitoUser =>
   new CognitoUser({ Username: email, Pool: getPool(), Storage: sessionStore() });
 
+const clean = (email: string): string => email.trim().toLowerCase();
+
 export class NotSignedInError extends Error {
   constructor() {
     super("Not signed in.");
@@ -57,9 +63,20 @@ export class NotSignedInError extends Error {
   }
 }
 
+/** The password was right, but the email code was never entered. The screen offers that step. */
+export class NotConfirmedError extends Error {
+  constructor() {
+    super("This account is not confirmed yet.");
+    this.name = "NotConfirmedError";
+  }
+}
+
+const codeOf = (err: unknown): string | undefined =>
+  (err as { code?: string; name?: string } | undefined)?.code ?? (err as { name?: string } | undefined)?.name;
+
 /** Cognito error codes in plain words. */
 function friendly(err: unknown): Error {
-  const code = (err as { code?: string; name?: string } | undefined)?.code ?? (err as { name?: string } | undefined)?.name;
+  const code = codeOf(err);
   const raw =
     err instanceof Error ? err.message : String((err as { message?: string } | undefined)?.message ?? err ?? "");
   switch (code) {
@@ -68,7 +85,11 @@ function friendly(err: unknown): Error {
     case "UserNotFoundException":
       return new Error("That email and password do not match.");
     case "UserNotConfirmedException":
-      return new Error("This account is not confirmed yet. Finish signing up on niltv.com first.");
+      return new NotConfirmedError();
+    case "UsernameExistsException":
+      return new Error("That email already has an account. Sign in instead.");
+    case "UserLambdaValidationException":
+      return new Error(raw.includes("AGE_MINIMUM") ? "You are too young for a NIL TV account." : "Check your birthdate and try again.");
     case "CodeMismatchException":
       return new Error("That code is not right. Check the email and try again.");
     case "ExpiredCodeException":
@@ -88,13 +109,12 @@ function emailOf(session: CognitoUserSession, fallback: string): string {
   return typeof email === "string" && email ? email : fallback;
 }
 
-/** SRP sign-in. Resolves to the signed-in email. */
-export function signIn(email: string, password: string): Promise<string> {
+function authenticate(email: string, password: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const user = userFor(email);
     user.authenticateUser(new AuthenticationDetails({ Username: email, Password: password }), {
       onSuccess: (session) => resolve(emailOf(session, email)),
-      onFailure: (err: unknown) => reject(friendly(err)),
+      onFailure: reject,
       newPasswordRequired: () => {
         reject(new Error("This account needs a new password. Use Forgot password to set one."));
       },
@@ -102,10 +122,51 @@ export function signIn(email: string, password: string): Promise<string> {
   });
 }
 
+/** SRP sign-in. Resolves to the signed-in email. */
+export async function signIn(email: string, password: string): Promise<string> {
+  const typed = email.trim();
+  const lower = typed.toLowerCase();
+  try {
+    return await authenticate(lower, password);
+  } catch (err) {
+    // niltv.com keeps an email as typed, so an older account can have capitals.
+    const retry = typed !== lower && ["NotAuthorizedException", "UserNotFoundException"].includes(codeOf(err) ?? "");
+    if (!retry) throw friendly(err);
+  }
+  return authenticate(typed, password).catch((err: unknown) => {
+    throw friendly(err);
+  });
+}
+
+/** Create a niltv.com account. Cognito emails a code that confirmSignUp takes. */
+export function signUp(input: { email: string; password: string; name: string; birthdate: string }): Promise<void> {
+  const email = clean(input.email);
+  const attributes = [
+    new CognitoUserAttribute({ Name: "email", Value: email }),
+    new CognitoUserAttribute({ Name: "name", Value: input.name.trim() }),
+    new CognitoUserAttribute({ Name: "birthdate", Value: input.birthdate }),
+  ];
+  return new Promise((resolve, reject) => {
+    getPool().signUp(email, input.password, attributes, [], (err) => (err ? reject(friendly(err)) : resolve()));
+  });
+}
+
+export function confirmSignUp(email: string, code: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    userFor(clean(email)).confirmRegistration(code.trim(), false, (err) => (err ? reject(friendly(err)) : resolve()));
+  });
+}
+
+export function resendCode(email: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    userFor(clean(email)).resendConfirmationCode((err) => (err ? reject(friendly(err)) : resolve()));
+  });
+}
+
 /** Email a reset code. */
 export function forgotPassword(email: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    userFor(email).forgotPassword({
+    userFor(clean(email)).forgotPassword({
       onSuccess: () => resolve(),
       onFailure: (err: unknown) => reject(friendly(err)),
       inputVerificationCode: () => resolve(),
@@ -116,7 +177,7 @@ export function forgotPassword(email: string): Promise<void> {
 /** Set a new password with the emailed code. */
 export function confirmPassword(email: string, code: string, newPassword: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    userFor(email).confirmPassword(code, newPassword, {
+    userFor(clean(email)).confirmPassword(code, newPassword, {
       onSuccess: () => resolve(),
       onFailure: (err: unknown) => reject(friendly(err)),
     });

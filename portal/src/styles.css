@@ -2,10 +2,9 @@
  * NIL TV Portal. Ported from the approved mockup: left sidebar + main column
  * on desktop; on phones a top bar plus a bottom tab bar.
  *
- * Two looks, set by data-look on <html> (src/lib/look.ts). "light" keeps the
- * sidebar, top bar and tab bar black and turns the main area white. "dark" is
- * black throughout. Sign-in stays black in both. The tokens below are the dark
- * values; the light look redefines them inside <main> only.
+ * The sidebar, top bar and tab bar are black, the main area is white, and
+ * sign-in is black. The tokens below are the black values; <main> redefines
+ * them for white, so everything inside it follows.
  *
  * Nothing scrolls sideways. Tabs wrap, and a table too narrow for its columns
  * becomes one card per row. Only the sidebar on a short window and the message
@@ -28,7 +27,7 @@
 :root {
   --black: #060608; /* NIL TV Black in both looks: tag plates, the sidebar */
   --bg: #060608; /* NIL TV Black */
-  --side: #0e0e11; /* Surface */
+  --side: #060608; /* the black column */
   --surface: #0e0e11; /* Surface */
   --surface-hi: #18181d; /* Surface Raised */
   --text: #ffffff; /* White */
@@ -66,12 +65,11 @@
   color-scheme: dark;
 }
 /* The white main area. Everything outside <main> keeps the tokens above. */
-:root[data-look="light"] { --side: var(--black); }
-:root[data-look="light"] body:has(.shell) { background: #ffffff; }
+body:has(.shell) { background: #ffffff; }
 @media (min-width: 861px) {
-  :root[data-look="light"] .shell { background: linear-gradient(to right, var(--black) 240px, #ffffff 240px); }
+  .shell { background: linear-gradient(to right, var(--black) 240px, #ffffff 240px); }
 }
-:root[data-look="light"] main {
+main {
   --bg: #ffffff;
   --side: #f7f7f8;
   --surface: #ffffff;
@@ -569,6 +567,7 @@ div.mini { cursor: default; }
 .auth h1 { font: 800 2.4rem/0.95 var(--display); text-transform: uppercase; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
 .auth p { margin: 0; }
 .auth p:not(.err, .okmsg) { color: var(--dim); }
+.auth .legal { font-size: 12px; line-height: 1.7; text-align: center; }
 .auth .panel { display: flex; flex-direction: column; gap: 14px; }
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */

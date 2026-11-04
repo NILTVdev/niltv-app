@@ -78,7 +78,7 @@ export const PORTAL_PERMISSIONS = {
   managePostings: ["staff", "admin"],
   /** see postings and mark interest */
   viewPostings: ["athlete", "staff", "admin"],
-  /** athlete list with contact details and onboarding state */
+  /** athlete list with contact details, onboarding state and Stripe status */
   viewRoster: ["staff", "admin"],
   /** add and remove guests */
   manageGuests: ["staff", "admin"],
@@ -88,7 +88,7 @@ export const PORTAL_PERMISSIONS = {
   requestPageChange: ["athlete"],
   /** work the page change request queue */
   manageRequests: ["staff", "admin"],
-  /** Stripe status for every athlete */
+  /** the Payouts screen */
   viewPayouts: ["admin"],
   /** the athlete Payments, My posts and Refer screens */
   athleteTools: ["athlete"],
@@ -270,6 +270,27 @@ export type PortalMeUpdate = z.infer<typeof PortalMeUpdate>;
 
 export const MemberListResponse = z.object({ members: z.array(PortalMember) });
 export type MemberListResponse = z.infer<typeof MemberListResponse>;
+
+/**
+ * An accepted athlete with no confirmed niltv.com account yet. Not a member:
+ * they cannot sign in, so staff see them on Athletes as No account yet.
+ */
+export const PendingAthlete = z.object({
+  /** dashboard applications.id */
+  applicationId: z.number().int(),
+  email: z.string(),
+  name: z.string(),
+  campus: z.string().optional(),
+  school: z.string().optional(),
+  sport: z.string().optional(),
+  firstSeenAt: IsoDate,
+  /** when the last invite to create an account went out */
+  invitedAt: IsoDate.optional(),
+});
+export type PendingAthlete = z.infer<typeof PendingAthlete>;
+
+export const PendingAthletesResponse = z.object({ pending: z.array(PendingAthlete) });
+export type PendingAthletesResponse = z.infer<typeof PendingAthletesResponse>;
 
 /** Add someone who already has a niltv.com account. */
 export const MemberAddRequest = z.object({

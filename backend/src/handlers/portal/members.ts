@@ -5,6 +5,8 @@
  *   POST  /v1/members          give an existing niltv.com account access
  *                              (guests: staff + admin; any other role: admin)
  *   PATCH /v1/members/{sub}    edit a member (see canEdit for who may change what)
+ *   GET   /v1/athletes/pending accepted athletes with no account yet (staff + admin)
+ *   POST  /v1/athletes/pending/{id}/invite   send the invite now (admin; once a day each)
  *   GET   /v1/settings         admin settings
  *   PUT   /v1/settings
  *
@@ -15,6 +17,7 @@ import {
   MemberAddRequest,
   MemberListResponse,
   MemberUpdateRequest,
+  PendingAthletesResponse,
   type PortalMember,
   PortalMember as PortalMemberSchema,
   PortalSettings,
@@ -25,7 +28,9 @@ import { type Caller, can, conflictResult, denied } from "../../lib/portal/acces
 import { findAccountByEmail, nameFromEmail } from "../../lib/portal/accounts";
 import { leaveAllGroups, syncChannelMemberships } from "../../lib/portal/conversations";
 import { createMember, getMember, getSettings, listMembers, putMember, putSettings } from "../../lib/portal/members";
+import { portalUrl } from "../../lib/portal/emails";
 import { enqueue } from "../../lib/portal/notify";
+import { claimInvite, getPending, listPending } from "../../lib/portal/pending";
 import { badRequest, notFound, ok, portalHandler } from "../../lib/portal/router";
 
 type MemberUpdate = ReturnType<typeof MemberUpdateRequest.parse>;
@@ -64,7 +69,7 @@ export const handler = portalHandler({
         404,
         ApiError.parse({
           error: "NO_ACCOUNT",
-          message: "No niltv.com account uses that email. Ask them to create one at niltv.com, then add them here.",
+          message: `No confirmed niltv.com account uses that email. Ask them to create one at ${portalUrl("/create-account")}, then add them here.`,
         }),
       );
     }
@@ -129,6 +134,23 @@ export const handler = portalHandler({
     if (next.status === "disabled" && target.status !== "disabled") await leaveAllGroups(next.sub);
     const enabled = target.status !== "active" && next.status === "active";
     if (enabled && (await getSettings()).welcomeEmail) await enqueue({ type: "welcome", sub: next.sub });
+    return ok(next);
+  },
+
+  "GET /v1/athletes/pending": async ({ caller }) => {
+    if (!can(caller, "viewRoster")) return denied();
+    return ok(PendingAthletesResponse.parse({ pending: await listPending() }));
+  },
+
+  "POST /v1/athletes/pending/{id}/invite": async ({ caller, param }) => {
+    if (!can(caller, "manageAccess")) return denied();
+    const id = Number(param("id"));
+    if (!Number.isInteger(id)) return notFound();
+    const row = await getPending(id);
+    if (!row) return notFound();
+    const next = await claimInvite(id, new Date(), { again: true });
+    if (!next) return conflictResult("CONFLICT", `An invite already went to ${row.email} in the last 24 hours.`);
+    await enqueue({ type: "invite", applicationId: id });
     return ok(next);
   },
 

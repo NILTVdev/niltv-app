@@ -3,11 +3,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { PortalApiError } from "./api";
 import { App } from "./App";
-import { applyLook } from "./lib/look";
 import { ToastProvider } from "./ui/Toast";
 import "./styles.css";
-
-applyLook();
 
 const queryClient = new QueryClient({
   defaultOptions: {

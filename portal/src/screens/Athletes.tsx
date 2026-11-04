@@ -1,24 +1,33 @@
 /**
  * Athletes (staff): the roster with search and filters. Staff fix campus
  * and sport; admins enable accepted athletes (ready → active) and disable.
+ * Accepted athletes with no account are not members yet, so they sit behind
+ * their own status filter, where an admin can send the invite by hand.
  */
-import { type PortalMember, type PortalMemberStatus, PORTAL_SPORTS } from "@niltv/types";
+import { type PendingAthlete, type PortalMember, type PortalMemberStatus, PORTAL_SPORTS } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, errorText } from "../api";
 import { CAMPUS_OPTIONS, campusName, MEMBER_STATUS, plural, STRIPE_STATUS } from "../lib/format";
-import { formatSeen } from "../lib/time";
-import { patchMember, qk, useMembers, useOpenDesk } from "../queries";
+import { formatSeen, formatShortDate } from "../lib/time";
+import { patchMember, qk, useMembers, useOpenDesk, usePendingAthletes } from "../queries";
 import { Empty, ErrorNote, Loading, PageHead, Pill } from "../ui/bits";
 import { useMe } from "../ui/me";
 import { useToast } from "../ui/Toast";
+
+const NO_ACCOUNT = "no-account";
+type StatusFilter = PortalMemberStatus | "" | typeof NO_ACCOUNT;
+
+/** Matches the server's limit: an invite can go again once a day. */
+const INVITE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export function Athletes() {
   const { can } = useMe();
   const admin = can("manageAccess");
   const members = useMembers();
+  const pending = usePendingAthletes();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<PortalMemberStatus | "">("");
+  const [status, setStatus] = useState<StatusFilter>("");
   const [campus, setCampus] = useState("");
   const [sport, setSport] = useState("");
 
@@ -33,6 +42,17 @@ export function Athletes() {
       .filter((m) => !sport || (sport === "none" ? !m.sport : m.sport === sport))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [athletes, q, status, campus, sport]);
+
+  const noAccount = pending.data ?? [];
+  const showNoAccount = status === NO_ACCOUNT;
+  const shownPending = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (pending.data ?? [])
+      .filter((p) => !needle || `${p.name} ${p.email}`.toLowerCase().includes(needle))
+      .filter((p) => !campus || (campus === "none" ? !p.campus : p.campus === campus))
+      .filter((p) => !sport || (sport === "none" ? !p.sport : p.sport === sport))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [pending.data, q, campus, sport]);
 
   return (
     <>
@@ -52,6 +72,17 @@ export function Athletes() {
           </button>
         </div>
       ) : null}
+      {noAccount.length > 0 ? (
+        <div className="callout" role="status">
+          <span>
+            <b>{plural(noAccount.length, "accepted athlete")}</b> {noAccount.length === 1 ? "has" : "have"} no niltv.com
+            account yet, so {noAccount.length === 1 ? "is" : "are"} not in the portal.
+          </span>
+          <button type="button" className="btn sm" onClick={() => setStatus(NO_ACCOUNT)}>
+            Show them
+          </button>
+        </div>
+      ) : null}
       <div className="two" role="search" aria-label="Filter athletes">
         <div className="field">
           <label htmlFor="at-q">Search</label>
@@ -59,11 +90,12 @@ export function Athletes() {
         </div>
         <div className="field">
           <label htmlFor="at-status">Status</label>
-          <select id="at-status" value={status} onChange={(e) => setStatus(e.target.value as PortalMemberStatus | "")}>
+          <select id="at-status" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
             <option value="">Any status</option>
             <option value="active">Active</option>
             <option value="ready">Waiting</option>
             <option value="disabled">No access</option>
+            <option value={NO_ACCOUNT}>No account yet</option>
           </select>
         </div>
         <div className="field">
@@ -93,13 +125,16 @@ export function Athletes() {
       </div>
       {members.isPending ? <Loading /> : null}
       <ErrorNote error={members.error} onRetry={() => void members.refetch()} />
-      {members.data ? (
+      {showNoAccount ? (
+        <NoAccountList rows={shownPending} total={noAccount.length} admin={admin} loading={pending.isPending} error={pending.error} onRetry={() => void pending.refetch()} />
+      ) : null}
+      {members.data && !showNoAccount ? (
         <p className="meta" role="status">
           Showing {shown.length} of {plural(athletes.length, "athlete")}.
         </p>
       ) : null}
-      {members.data && shown.length === 0 ? <Empty>No athletes match.</Empty> : null}
-      {shown.length ? (
+      {members.data && !showNoAccount && shown.length === 0 ? <Empty>No athletes match.</Empty> : null}
+      {shown.length && !showNoAccount ? (
         <div className="tablewrap">
           <table className="roster">
             <thead>
@@ -124,6 +159,103 @@ export function Athletes() {
         </div>
       ) : null}
     </>
+  );
+}
+
+function NoAccountList({
+  rows,
+  total,
+  admin,
+  loading,
+  error,
+  onRetry,
+}: {
+  rows: PendingAthlete[];
+  total: number;
+  admin: boolean;
+  loading: boolean;
+  error: unknown;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      {loading ? <Loading /> : null}
+      <ErrorNote error={error} onRetry={onRetry} />
+      <p className="meta" role="status">
+        Showing {rows.length} of {plural(total, "athlete")} with no account. They join this list once accepted and leave it
+        within 30 minutes of creating an account with that email.
+      </p>
+      {!loading && rows.length === 0 ? <Empty>No athletes match.</Empty> : null}
+      {rows.length ? (
+        <div className="tablewrap">
+          <table className="roster">
+            <thead>
+              <tr>
+                <th scope="col">Athlete</th>
+                <th scope="col">Campus</th>
+                <th scope="col">Sport</th>
+                <th scope="col">Invite</th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => (
+                <NoAccountRow key={p.applicationId} p={p} admin={admin} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      <p className="hint">Each athlete gets one invite on their own once welcome and invite emails are on in Settings.</p>
+    </>
+  );
+}
+
+function NoAccountRow({ p, admin }: { p: PendingAthlete; admin: boolean }) {
+  const { zone } = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const invite = useMutation({
+    mutationFn: () => api.inviteAthlete(p.applicationId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.pending });
+      toast(`Invite sent to ${p.email}.`);
+    },
+  });
+  const sentLately = p.invitedAt !== undefined && Date.now() - Date.parse(p.invitedAt) < INVITE_COOLDOWN_MS;
+
+  return (
+    <tr>
+      <td>
+        <div className="t">{p.name}</div>
+        <div className="c">{p.email}</div>
+      </td>
+      <td data-label="Campus">{campusName(p.campus) || <span className="muted">None</span>}</td>
+      <td data-label="Sport">{p.sport ?? <span className="muted">None</span>}</td>
+      <td data-label="Invite">
+        {p.invitedAt ? `Sent ${formatShortDate(p.invitedAt, zone)}` : <span className="muted">Not sent</span>}
+      </td>
+      <td>
+        {admin ? (
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={invite.isPending || sentLately}
+            aria-label={`${p.invitedAt ? "Send another invite to" : "Send an invite to"} ${p.name}`}
+            onClick={() => invite.mutate()}
+          >
+            {p.invitedAt ? "Send again" : "Send invite"}
+          </button>
+        ) : null}
+        {invite.error ? (
+          <p className="err" role="alert" style={{ marginTop: 6 }}>
+            {errorText(invite.error)}
+          </p>
+        ) : null}
+      </td>
+    </tr>
   );
 }
 

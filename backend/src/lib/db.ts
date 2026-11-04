@@ -381,6 +381,14 @@ export const portalMemberGsi = (name: string, sub: string): { GSI1PK: string; GS
 /** PORTAL#CONFIG / META — admin settings (desk emails, auto-enable). */
 export const portalConfigKey = (): TableKey => ({ PK: "PORTAL#CONFIG", SK: "META" });
 
+/** PORTAL#PENDING / APP#{applicationId} — an accepted athlete with no niltv.com account yet. */
+export const PENDING_ATHLETES_PK = "PORTAL#PENDING";
+
+export const pendingAthleteKey = (applicationId: number): TableKey => ({
+  PK: PENDING_ATHLETES_PK,
+  SK: `APP#${applicationId}`,
+});
+
 /** CONV#{id} / META — a conversation (channel, group or desk thread). */
 export const convKey = (convId: string): TableKey => ({ PK: `CONV#${convId}`, SK: "META" });
 

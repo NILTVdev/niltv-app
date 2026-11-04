@@ -143,12 +143,12 @@ export const PERMISSION_LABELS: Record<PortalPermission, string> = {
   viewAvailability: "See availability across the roster",
   managePostings: "Create postings and decide on interest",
   viewPostings: "See postings and mark interest",
-  viewRoster: "See the athlete list and onboarding state",
+  viewRoster: "See the athlete list, onboarding and Stripe status",
   manageGuests: "Add and remove guests",
   manageAccess: "Change roles, enable athletes, add staff, edit settings",
   requestPageChange: "Request a change to their own athlete page",
   manageRequests: "Work the page change request queue",
-  viewPayouts: "See Stripe status for every athlete",
+  viewPayouts: "Open the Payouts screen",
   athleteTools: "My posts, Payments and Refer friends",
 };
 

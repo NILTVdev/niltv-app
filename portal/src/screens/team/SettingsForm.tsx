@@ -118,7 +118,12 @@ export function SettingsForm() {
           label="Turn on accounts for accepted athletes automatically"
           help="Leave this off until testing is done. While it is off, accepted athletes wait on the Athletes page until an admin enables them."
         />
-        <Switch checked={welcome} onChange={setWelcome} label="Send a welcome email when someone gets access" />
+        <Switch
+          checked={welcome}
+          onChange={setWelcome}
+          label="Send welcome and invite emails"
+          help="A welcome when someone gets access, and one invite to each accepted athlete with no account yet."
+        />
         <Switch
           checked={activityEmails}
           onChange={setActivityEmails}

@@ -23,9 +23,16 @@ row. Roles are `athlete`, `guest`, `staff` and `admin`.
 - **Athletes** come from dashboard onboarding. On prod, every 30 minutes
   `portal-roster-sync` reads accepted applications (agreement signed and
   Stripe complete, or international) and matches each to the niltv.com
-  account with the same email. While `autoEnableAthletes` is off they wait as
-  `ready` and an admin enables them in Athletes. Turn it on in Team & access
-  once testing is done.
+  account with the same email, then the application's college email. While
+  `autoEnableAthletes` is off they wait as `ready` and an admin enables them
+  in Athletes. Turn it on in Team & access once testing is done. The next run
+  releases everyone already waiting. It never touches a disabled athlete.
+- **Accepted athletes with no account** go on a pending list instead. Staff see
+  them on Athletes under the No account yet status. Once `welcomeEmail` is on,
+  the sync sends each one a single invite. An admin can also send one by hand,
+  at most once a day per person. The invite links to `/create-account` in the
+  portal with the address filled in. The person makes the account there, enters
+  the emailed code, and the next sync connects them and clears the row.
 - **Guests** are added by staff, by email, and must already have a niltv.com
   account. They see only the groups and events they are added to.
 - **Staff and admins** are added by an admin in Team & access. The first
@@ -35,6 +42,12 @@ row. Roles are `athlete`, `guest`, `staff` and `admin`.
   cd backend
   npx tsx scripts/portal-grant.ts --stage dev --email someone@niltv.com --role admin --desks content,support,payments
   ```
+
+Only a confirmed account with a verified email counts when the portal looks one
+up by address (`lib/portal/accounts.ts`). Anyone can type any address into a new
+account, so an unproven address never picks up someone else's access. The pool
+also holds an email change until the new address is verified (`keepOriginal`),
+which needs `niltv-{stage}-foundation` deployed.
 
 ## Authorization
 
@@ -57,7 +70,8 @@ All in the stage's single table. Keys are built only in `src/lib/db.ts`.
 | Item | Key | Notes |
 |---|---|---|
 | Member | `USER#{sub} / PORTAL` | role, status, roster fields, desks, notification settings, `lastSeenAt`; GSI1 `PORTAL#MEMBERS` |
-| Settings | `PORTAL#CONFIG / META` | desk emails, support email, auto-enable, welcome email, the two notification switches |
+| Settings | `PORTAL#CONFIG / META` | desk emails, support email, auto-enable, welcome and invite emails, the two notification switches |
+| Pending athlete | `PORTAL#PENDING / APP#{applicationId}` | an accepted athlete with no confirmed account: name, email, campus, sport, `firstSeenAt`, `invitedAt` |
 | Conversation | `CONV#{id} / META` | `seq` counts messages; GSI1 `CONVS#ALL` or `DESK#{desk}` |
 | Message | `CONV#{id} / MSG#{ulid}` | `hidden` for staff moderation |
 | Retry guard | `CONV#{id} / CMID#{clientMsgId}` | a resent message lands once |

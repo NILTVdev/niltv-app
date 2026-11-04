@@ -27,6 +27,8 @@ import {
   MuteRequest,
   MyPostsResponse,
   OpenDeskRequest,
+  PendingAthlete,
+  PendingAthletesResponse,
   PeopleResponse,
   PortalEvent,
   PortalMeResponse,
@@ -202,6 +204,9 @@ export const api = {
     request("POST", "/v1/members", PortalMember, bodyOf(MemberAddRequest, input)),
   updateMember: (sub: string, input: z.input<typeof MemberUpdateRequest>) =>
     request("PATCH", `/v1/members/${enc(sub)}`, PortalMember, bodyOf(MemberUpdateRequest, input)),
+  pendingAthletes: () => request("GET", "/v1/athletes/pending", PendingAthletesResponse),
+  inviteAthlete: (applicationId: number) =>
+    request("POST", `/v1/athletes/pending/${applicationId}/invite`, PendingAthlete),
   settings: () => request("GET", "/v1/settings", PortalSettings),
   saveSettings: (input: z.input<typeof PortalSettings>) =>
     request("PUT", "/v1/settings", PortalSettings, bodyOf(PortalSettings, input)),
