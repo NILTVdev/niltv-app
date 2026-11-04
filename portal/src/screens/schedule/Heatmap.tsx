@@ -100,41 +100,39 @@ export function Heatmap() {
             </b>{" "}
             responded. Darker means more people are free. Hover or tap a cell for names.
           </p>
-          <div className="gridwrap">
-            <div className="avail" role="group" aria-label="Availability heatmap">
-              <span />
-              {WEEKDAYS.map((d) => (
-                <span key={d} className="h" aria-hidden="true">
-                  {WEEKDAY_LABELS[d]}
+          <div className="avail" role="group" aria-label="Availability heatmap">
+            <span />
+            {WEEKDAYS.map((d) => (
+              <span key={d} className="h" aria-hidden="true">
+                {WEEKDAY_LABELS[d]}
+              </span>
+            ))}
+            {DAY_BLOCKS.map((b) => (
+              <div key={b} style={{ display: "contents" }}>
+                <span className="rl" aria-hidden="true">
+                  {DAY_BLOCK_LABELS[b]}
                 </span>
-              ))}
-              {DAY_BLOCKS.map((b) => (
-                <div key={b} style={{ display: "contents" }}>
-                  <span className="rl" aria-hidden="true">
-                    {DAY_BLOCK_LABELS[b]}
-                  </span>
-                  {WEEKDAYS.map((d) => {
-                    const key = slotKey(d, b);
-                    const cell = cells.get(key);
-                    const count = cell?.count ?? 0;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`cell${selected === key ? " sel" : ""}`}
-                        style={heatShade(count, responded)}
-                        title={cell?.names.length ? cell.names.join(", ") : "Nobody"}
-                        aria-label={`${slotLabel(key)}: ${plural(count, "person", "people")} free`}
-                        aria-pressed={selected === key}
-                        onClick={() => setSelected(selected === key ? null : key)}
-                      >
-                        {count}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+                {WEEKDAYS.map((d) => {
+                  const key = slotKey(d, b);
+                  const cell = cells.get(key);
+                  const count = cell?.count ?? 0;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`cell${selected === key ? " sel" : ""}`}
+                      style={heatShade(count, responded)}
+                      title={cell?.names.length ? cell.names.join(", ") : "Nobody"}
+                      aria-label={`${slotLabel(key)}: ${plural(count, "person", "people")} free`}
+                      aria-pressed={selected === key}
+                      onClick={() => setSelected(selected === key ? null : key)}
+                    >
+                      {count}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           <div aria-live="polite">
             {selected ? (

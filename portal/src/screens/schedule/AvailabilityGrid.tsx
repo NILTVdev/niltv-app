@@ -50,35 +50,33 @@ export function AvailabilityGrid() {
         Set your usual week once. Staff use everyone&apos;s availability to plan streams, games and shoots. Change it any
         time.
       </p>
-      <div className="gridwrap">
-        <div className="avail" role="group" aria-label="Your usual week">
-          <span />
-          {WEEKDAYS.map((d) => (
-            <span key={d} className="h" aria-hidden="true">
-              {WEEKDAY_LABELS[d]}
+      <div className="avail" role="group" aria-label="Your usual week">
+        <span />
+        {WEEKDAYS.map((d) => (
+          <span key={d} className="h" aria-hidden="true">
+            {WEEKDAY_LABELS[d]}
+          </span>
+        ))}
+        {DAY_BLOCKS.map((b) => (
+          <div key={b} style={{ display: "contents" }}>
+            <span className="rl" aria-hidden="true">
+              {DAY_BLOCK_LABELS[b]}
             </span>
-          ))}
-          {DAY_BLOCKS.map((b) => (
-            <div key={b} style={{ display: "contents" }}>
-              <span className="rl" aria-hidden="true">
-                {DAY_BLOCK_LABELS[b]}
-              </span>
-              {WEEKDAYS.map((d) => {
-                const key = slotKey(d, b);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className="cell"
-                    aria-pressed={current.has(key)}
-                    aria-label={`${WEEKDAY_LABELS[d]} ${DAY_BLOCK_LABELS[b].toLowerCase()}`}
-                    onClick={() => toggle(key)}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
+            {WEEKDAYS.map((d) => {
+              const key = slotKey(d, b);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="cell"
+                  aria-pressed={current.has(key)}
+                  aria-label={`${WEEKDAY_LABELS[d]} ${DAY_BLOCK_LABELS[b].toLowerCase()}`}
+                  onClick={() => toggle(key)}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
       <p className="meta">
         {BLOCK_HELP} Times are in your zone ({zoneAbbr(new Date(), zone)}).

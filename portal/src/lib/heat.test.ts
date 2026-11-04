@@ -9,8 +9,8 @@ describe("heatmap shading", () => {
   });
 
   it("switches to dark text once the cell is dark", () => {
-    expect(heatShade(10, 24).color).toBe("var(--text)");
-    expect(heatShade(12, 24).color).toBe("var(--on-gold)");
+    expect(heatShade(14, 24).color).toBe("var(--text)");
+    expect(heatShade(15, 24).color).toBe("var(--on-gold)");
   });
 
   it("is safe with nobody responded and clamps over-counts", () => {

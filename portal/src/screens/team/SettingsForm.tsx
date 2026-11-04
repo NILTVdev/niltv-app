@@ -96,10 +96,12 @@ export function SettingsForm() {
           {DeskEnum.options.map((d) => (
             <div className="field" key={d}>
               <label htmlFor={`set-desk-${d}`}>{DESK_LABELS[d]}</label>
-              <input
+              <textarea
                 id={`set-desk-${d}`}
+                className="fit"
+                rows={1}
                 value={deskEmails[d]}
-                placeholder="name@niltv.com, other@niltv.com"
+                placeholder="name@niltv.com"
                 onChange={(e) => setDeskEmails((cur) => ({ ...cur, [d]: e.target.value }))}
               />
             </div>

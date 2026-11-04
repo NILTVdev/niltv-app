@@ -107,21 +107,20 @@ export function Account() {
           <div className="field">
             <label htmlFor="ac-name">Name</label>
             <input id="ac-name" value={name} maxLength={80} required autoComplete="name" onChange={(e) => setName(e.target.value)} />
+            <span className="hint">Shown in messages and to staff.</span>
           </div>
           <div className="field">
-            <label htmlFor="ac-email">Email</label>
-            <input id="ac-email" value={member.email} readOnly aria-describedby="ac-email-help" />
-            <span id="ac-email-help" className="hint">
-              Your niltv.com sign-in. Change it on niltv.com.
-            </span>
+            <span className="lbl">Email</span>
+            <div className="readbox">{member.email}</div>
+            <span className="hint">Your niltv.com sign-in. Change it on niltv.com.</span>
           </div>
           {member.role === "athlete" ? (
-            <div className="field full">
+            <div className="field">
               <span className="lbl">Campus, sport and school</span>
-              <span>
+              <div className="readbox">
                 {[campusName(member.campus), member.sport, schoolLabel(member.school)].filter(Boolean).join(" · ") ||
                   "Not set yet"}
-              </span>
+              </div>
               <span className="row">
                 <span className="hint">Set by staff from your signup.</span>
                 <button
@@ -136,20 +135,18 @@ export function Account() {
               {openDesk.error ? <span className="err">{errorText(openDesk.error)}</span> : null}
             </div>
           ) : null}
-          {guest && member.note ? (
-            <div className="field full">
+          {guest ? (
+            <div className="field">
               <span className="lbl">What you are helping with</span>
-              <span>
-                {member.note} <span className="muted">(set by staff)</span>
-              </span>
+              <div className="readbox">{member.note || "Not set yet"}</div>
+              <span className="hint">Set by staff.</span>
             </div>
           ) : null}
           {staff ? (
             <div className="field">
               <span className="lbl">Role</span>
-              <span>
-                {ROLE_LABELS[member.role]} <span className="muted">(changed by an admin)</span>
-              </span>
+              <div className="readbox">{ROLE_LABELS[member.role]}</div>
+              <span className="hint">Changed by an admin.</span>
             </div>
           ) : null}
           <div className="field">
@@ -158,11 +155,13 @@ export function Account() {
               {zones.map((z) => (
                 <option key={z} value={z}>
                   {z.replace(/_/g, " ")}
-                  {z === browser ? " (this device)" : ""}
                 </option>
               ))}
             </select>
-            <span className="hint">Every time in the portal shows in this zone ({zoneAbbr(new Date(), timezone)}).</span>
+            <span className="hint">
+              Every time in the portal shows in this zone ({zoneAbbr(new Date(), timezone)}). This device is on{" "}
+              {browser.replace(/_/g, " ")}.
+            </span>
           </div>
         </section>
 
@@ -224,7 +223,7 @@ export function Account() {
           <section className="panel stack" aria-labelledby="acct-desks-h">
             <h3 id="acct-desks-h">Desks you answer</h3>
             <p className="note">New messages in these desks reach you as Desk messages under Notifications.</p>
-            <div className="row">
+            <div className="desks">
               {DeskEnum.options.map((d) => {
                 const allowed = myDesks.includes(d);
                 return (

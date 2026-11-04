@@ -11,7 +11,7 @@ import type { Tone } from "../lib/format";
 type ClaimState = "requested" | "claimed" | "submitted" | "delivered" | "declined";
 
 const CLAIM: Record<ClaimState, { label: string; tone: Tone }> = {
-  requested: { label: "Waiting for approval", tone: "neutral" },
+  requested: { label: "Needs approval", tone: "neutral" },
   claimed: { label: "Claimed", tone: "warn" },
   submitted: { label: "In review", tone: "info" },
   delivered: { label: "Delivered", tone: "ok" },
@@ -245,8 +245,8 @@ function StaffHub() {
                     {a.format} · {a.target} · Posted {a.posted}
                   </div>
                 </td>
-                <td>{a.approval ? <Pill tone="warn">On</Pill> : <Pill tone="neutral">Off</Pill>}</td>
-                <td>
+                <td data-label="Approval">{a.approval ? <Pill tone="warn">On</Pill> : <Pill tone="neutral">Off</Pill>}</td>
+                <td data-label="Claims">
                   {a.claims.length ? (
                     <div className="who-list">
                       {a.claims.map((c) => (
@@ -286,11 +286,13 @@ function StaffHub() {
             {pending.map(({ a, c }) => (
               <tr key={`${a.id}-${c.who}`}>
                 <td className="t">{c.who}</td>
-                <td>
-                  {a.title}
-                  <div className="c">{a.target}</div>
+                <td data-label="Ask">
+                  <div>
+                    {a.title}
+                    <div className="c">{a.target}</div>
+                  </div>
                 </td>
-                <td>{a.format}</td>
+                <td data-label="Format">{a.format}</td>
                 <td>
                   <div className="row">
                     <button type="button" className="btn sm" disabled>

@@ -67,6 +67,24 @@ top of `src/styles.css`. In short:
 - The favicon and app icons are the kit logo, made at the sizes in
   `public/` (logo on transparent for the favicon, on black for app icons).
 
+## Looks
+
+Two looks are on trial, set by `data-look` on `<html>` (`src/lib/look.ts`).
+`light` is the default: black sidebar, top bar and tab bar, with a white main
+area. `dark` is black throughout. Sign-in stays black in both. Add `?look=dark`
+or `?look=light` to any URL to switch; the browser remembers.
+
+The light look only redefines the color tokens inside `<main>`, at the top of
+`src/styles.css`. On white, gold used as text is the kit's Gold Text on White
+`#7A5219`. Flat gold stays for buttons, fills and accents. Tag plates that are
+black on the dark look stay black on white.
+
+## Layout
+
+Nothing scrolls sideways. Tabs wrap. A table narrower than 720px turns into one
+card per row: give every `td` except the name and the actions a `data-label`.
+Only the sidebar on a short window and the message panes scroll, up and down.
+
 ## Polling
 
 The inbox refreshes every 20 s and `GET /v1/me` every 60 s; TanStack Query

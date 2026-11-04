@@ -61,7 +61,7 @@ export function Messages({ id }: ScreenProps) {
         : "Athlete and guest messages land in shared desk threads. Staff post in any channel and can hide messages.";
   const access =
     member.role === "athlete"
-      ? "Your desks and the channels you belong to"
+      ? "Your desks and channels"
       : member.role === "guest"
         ? "Only the groups you are in"
         : "Staff and admins";
@@ -98,10 +98,7 @@ export function Messages({ id }: ScreenProps) {
       >
         {icon}
         <span className="txt">
-          <span className="nm">
-            {c.kind !== "desk" ? "# " : ""}
-            {c.title}
-          </span>
+          <span className="nm">{c.title}</span>
           <span className="sub">
             {staff && c.kind === "desk" && c.desk ? `${DESK_LABELS[c.desk]} · ` : ""}
             {line}

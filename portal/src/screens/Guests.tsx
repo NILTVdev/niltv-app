@@ -47,7 +47,7 @@ export function Guests() {
       {members.data && guests.length === 0 ? <Empty>No guests yet.</Empty> : null}
       {guests.length ? (
         <div className="tablewrap">
-          <table>
+          <table className="roster">
             <thead>
               <tr>
                 <th scope="col">Guest</th>
@@ -94,11 +94,13 @@ function GuestRow({ g }: { g: PortalMember }) {
           {g.email} · added {formatShortDate(g.createdAt, zone)}
         </div>
       </td>
-      <td>{g.note ?? <span className="muted">Not set</span>}</td>
-      <td>
+      <td data-label="Helping with">{g.note ?? <span className="muted">Not set</span>}</td>
+      <td data-label="Status">
         <Pill tone={s.tone}>{g.status === "disabled" ? "Removed" : s.label}</Pill>
       </td>
-      <td className="num">{formatSeen(g.lastSeenAt, zone)}</td>
+      <td className="num" data-label="Last seen">
+        {formatSeen(g.lastSeenAt, zone)}
+      </td>
       <td>
         <div className="row">
           {g.status === "active" ? (

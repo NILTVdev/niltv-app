@@ -67,7 +67,7 @@ export function GroupForm({ editId, onDone }: { editId?: string; onDone: () => v
       <form onSubmit={submit} aria-labelledby="group-form-h">
         <h3 id="group-form-h">{editId ? "Edit group" : "New group"}</h3>
         <ErrorNote error={existing.error} />
-        <div className="two">
+        <div className="stack">
           <div className="field">
             <label htmlFor="gf-title">Title</label>
             <input id="gf-title" value={title} maxLength={60} required onChange={(e) => setTitle(e.target.value)} />

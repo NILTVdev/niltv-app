@@ -101,7 +101,7 @@ export function Athletes() {
       {members.data && shown.length === 0 ? <Empty>No athletes match.</Empty> : null}
       {shown.length ? (
         <div className="tablewrap">
-          <table>
+          <table className="roster">
             <thead>
               <tr>
                 <th scope="col">Athlete</th>
@@ -156,58 +156,95 @@ function AthleteRow({ m, admin }: { m: PortalMember; admin: boolean }) {
   const stripe = m.stripe ? STRIPE_STATUS[m.stripe] : undefined;
 
   return (
-    <tr>
-      <td>
-        <div className="t">{m.name}</div>
-        <div className="c">
-          {m.email}
-          {m.instagram ? ` · @${m.instagram.replace(/^@/, "")}` : ""}
-        </div>
-      </td>
+    <>
+      <tr>
+        <td>
+          <div className="t">{m.name}</div>
+          <div className="c">
+            {m.email}
+            {m.instagram ? ` · @${m.instagram.replace(/^@/, "")}` : ""}
+          </div>
+        </td>
+        <td data-label="Campus">{campusName(m.campus) || <span className="muted">None</span>}</td>
+        <td data-label="Sport">{m.sport ?? <span className="muted">None</span>}</td>
+        <td data-label="Status">
+          <Pill tone={status.tone}>{status.label}</Pill>
+        </td>
+        <td data-label="Stripe">
+          {stripe ? <Pill tone={stripe.tone}>{stripe.label}</Pill> : <span className="muted">Unknown</span>}
+        </td>
+        <td className="num" data-label="Last seen">
+          {formatSeen(m.lastSeenAt, zone)}
+        </td>
+        <td>
+          <div className="row">
+            {editing ? null : (
+              <button type="button" className="btn ghost sm" onClick={() => setEditing(true)} aria-label={`Edit campus and sport for ${m.name}`}>
+                Edit
+              </button>
+            )}
+            {admin && m.status !== "active" ? (
+              <button
+                type="button"
+                className="btn sm"
+                disabled={update.isPending}
+                onClick={() => update.mutate({ status: "active" })}
+                aria-label={`Enable ${m.name}`}
+              >
+                Enable
+              </button>
+            ) : null}
+            {m.status === "active" ? (
+              <button
+                type="button"
+                className="btn ghost sm"
+                disabled={openDesk.isPending}
+                aria-label={`Message ${m.name} from Athlete support`}
+                onClick={() => openDesk.mutate({ desk: "support", personSub: m.sub })}
+              >
+                Message
+              </button>
+            ) : null}
+          </div>
+          {update.error || openDesk.error ? (
+            <p className="err" role="alert" style={{ marginTop: 6 }}>
+              {errorText(update.error ?? openDesk.error)}
+            </p>
+          ) : null}
+        </td>
+      </tr>
       {editing ? (
-        <>
-          <td>
-            <label className="sr-only" htmlFor={`ec-${m.sub}`}>
-              Campus for {m.name}
-            </label>
-            <select id={`ec-${m.sub}`} value={campus} onChange={(e) => setCampus(e.target.value)}>
-              <option value="">None</option>
-              {CAMPUS_OPTIONS.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </td>
-          <td>
-            <label className="sr-only" htmlFor={`es-${m.sub}`}>
-              Sport for {m.name}
-            </label>
-            <select id={`es-${m.sub}`} value={sport} onChange={(e) => setSport(e.target.value)}>
-              <option value="">None</option>
-              {PORTAL_SPORTS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </td>
-        </>
-      ) : (
-        <>
-          <td>{campusName(m.campus) || <span className="muted">None</span>}</td>
-          <td>{m.sport ?? <span className="muted">None</span>}</td>
-        </>
-      )}
-      <td>
-        <Pill tone={status.tone}>{status.label}</Pill>
-      </td>
-      <td>{stripe ? <Pill tone={stripe.tone}>{stripe.label}</Pill> : <span className="muted">Unknown</span>}</td>
-      <td className="num">{formatSeen(m.lastSeenAt, zone)}</td>
-      <td>
-        <div className="row">
-          {editing ? (
-            <>
+        <tr className="editrow">
+          <td colSpan={7}>
+            <div className="two">
+              <div className="field">
+                <label htmlFor={`ec-${m.sub}`}>
+                  Campus<span className="sr-only"> for {m.name}</span>
+                </label>
+                <select id={`ec-${m.sub}`} value={campus} onChange={(e) => setCampus(e.target.value)}>
+                  <option value="">None</option>
+                  {CAMPUS_OPTIONS.map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor={`es-${m.sub}`}>
+                  Sport<span className="sr-only"> for {m.name}</span>
+                </label>
+                <select id={`es-${m.sub}`} value={sport} onChange={(e) => setSport(e.target.value)}>
+                  <option value="">None</option>
+                  {PORTAL_SPORTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="row">
               <button
                 type="button"
                 className="btn sm"
@@ -236,56 +273,25 @@ function AthleteRow({ m, admin }: { m: PortalMember; admin: boolean }) {
               >
                 Cancel
               </button>
-            </>
-          ) : (
-            <button type="button" className="btn ghost sm" onClick={() => setEditing(true)} aria-label={`Edit campus and sport for ${m.name}`}>
-              Edit
-            </button>
-          )}
-          {admin && m.status !== "active" ? (
-            <button
-              type="button"
-              className="btn sm"
-              disabled={update.isPending}
-              onClick={() => update.mutate({ status: "active" })}
-              aria-label={`Enable ${m.name}`}
-            >
-              Enable
-            </button>
-          ) : null}
-          {admin && m.status === "active" ? (
-            <button
-              type="button"
-              className="btn danger sm"
-              disabled={update.isPending}
-              aria-label={`Disable ${m.name}`}
-              onClick={() => {
-                if (window.confirm(`Turn off portal access for ${m.name}? They leave every channel and group.`)) {
-                  update.mutate({ status: "disabled" });
-                }
-              }}
-            >
-              Disable
-            </button>
-          ) : null}
-          {m.status === "active" ? (
-            <button
-              type="button"
-              className="btn ghost sm"
-              disabled={openDesk.isPending}
-              aria-label={`Message ${m.name} from Athlete support`}
-              onClick={() => openDesk.mutate({ desk: "support", personSub: m.sub })}
-            >
-              Message
-            </button>
-          ) : null}
-        </div>
-        {update.error || openDesk.error ? (
-          <p className="err" role="alert" style={{ marginTop: 6 }}>
-            {errorText(update.error ?? openDesk.error)}
-          </p>
-        ) : null}
-      </td>
-    </tr>
+              {admin && m.status === "active" ? (
+                <button
+                  type="button"
+                  className="btn danger sm"
+                  disabled={update.isPending}
+                  aria-label={`Disable ${m.name}`}
+                  onClick={() => {
+                    if (window.confirm(`Turn off portal access for ${m.name}? They leave every channel and group.`)) {
+                      update.mutate({ status: "disabled" });
+                    }
+                  }}
+                >
+                  Disable
+                </button>
+              ) : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }

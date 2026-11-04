@@ -25,6 +25,9 @@ import { Composer } from "./Composer";
 import { PushPrompt } from "./PushPrompt";
 import { type PendingMessage, useThread } from "./useThread";
 
+/** Member chips in the Info panel, so a big group does not push the messages away. */
+const MEMBERS_SHOWN = 8;
+
 type Conv = ConversationSummary | ConversationDetail;
 
 export function Thread({
@@ -90,7 +93,6 @@ export function Thread({
   if (staff && conv.kind === "channel") hint = `Posts as NIL TV Team to ${plural(conv.memberCount, "member")}.`;
   if (staff && conv.kind === "group") hint = "Posts as NIL TV Team.";
   if (staff && conv.kind === "desk" && conv.desk) hint = `Replies as ${DESK_LABELS[conv.desk]}.`;
-  const placeholder = conv.kind === "desk" ? `Message ${conv.title}` : `Message #${conv.title}`;
   // The notification prompt: staff on opening a desk; athletes and guests once they have written to it.
   const wrote = thread.messages.some((m) => m.mine);
   const prompt = conv.kind === "desk" && canPost && (staff || wrote) ? <PushPrompt staff={staff} /> : null;
@@ -102,7 +104,7 @@ export function Thread({
           <Icon name="back" size={20} />
         </Link>
         <div className="ttl">
-          <h2>
+          <h2 title={conv.title}>
             {channelish ? "#" : ""}
             {conv.title}
           </h2>
@@ -141,7 +143,7 @@ export function Thread({
       </div>
       <div>
         {infoOpen ? (
-          <div className="info" id={`info-${convId}`}>
+          <div className="convo-info" id={`info-${convId}`}>
             <p className="note">{conv.about || "No description."}</p>
             {conv.kind === "channel" ? (
               <p className="meta">
@@ -158,11 +160,12 @@ export function Thread({
                 {detail.isPending ? <Loading what="Loading members" /> : null}
                 {members.length ? (
                   <ul aria-label="Members">
-                    {members.map((p) => (
+                    {members.slice(0, MEMBERS_SHOWN).map((p) => (
                       <li key={p.sub}>
                         {p.name} <span className="muted">{ROLE_LABELS[p.role]}</span>
                       </li>
                     ))}
+                    {members.length > MEMBERS_SHOWN ? <li>and {members.length - MEMBERS_SHOWN} more</li> : null}
                   </ul>
                 ) : null}
               </>
@@ -179,7 +182,7 @@ export function Thread({
       <Composer
         key={convId}
         convId={convId}
-        placeholder={canPost ? placeholder : "Only staff post here"}
+        placeholder={canPost ? "Write a message" : "Only staff post here"}
         hint={hint}
         lockedNote={canPost ? undefined : `Only staff post in ${conv.title}.`}
         mentions={channelish}
@@ -211,7 +214,8 @@ function MessageList({
 
   const { messages, pending } = thread;
   const first = messages[0]?.id;
-  const last = `${messages[messages.length - 1]?.id ?? ""}:${pending.length}`;
+  const failed = pending.filter((p) => p.state === "failed").length;
+  const last = `${messages[messages.length - 1]?.id ?? ""}:${pending.length}:${failed}`;
   const lastMine = pending.length > 0 || messages[messages.length - 1]?.mine === true;
 
   // Keep the view pinned: jump to the bottom on open and on new messages

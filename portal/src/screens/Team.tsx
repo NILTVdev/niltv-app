@@ -31,6 +31,7 @@ import { SettingsForm } from "./team/SettingsForm";
 type RoleFilter = "all" | "team" | "athlete" | "guest";
 
 export function Team() {
+  const { member: me } = useMe();
   const members = useMembers();
   const [filter, setFilter] = useState<RoleFilter>("all");
   const [q, setQ] = useState("");
@@ -89,7 +90,7 @@ export function Team() {
       {members.data && shown.length === 0 ? <Empty>Nobody matches.</Empty> : null}
       {shown.length ? (
         <div className="tablewrap">
-          <table>
+          <table className="members">
             <thead>
               <tr>
                 <th scope="col">Member</th>
@@ -109,6 +110,7 @@ export function Team() {
           </table>
         </div>
       ) : null}
+      {shown.some((m) => m.sub === me.sub) ? <p className="hint">You cannot change your own role or status.</p> : null}
 
       <SettingsForm />
       <AccessMatrix />
@@ -155,7 +157,7 @@ function MemberRow({ m }: { m: PortalMember }) {
         </div>
         <div className="c">{m.email}</div>
       </td>
-      <td>
+      <td data-label="Role">
         <label className="sr-only" htmlFor={`tr-${m.sub}`}>
           Role for {m.name}
         </label>
@@ -167,29 +169,31 @@ function MemberRow({ m }: { m: PortalMember }) {
           ))}
         </select>
       </td>
-      <td>
-        <label className="sr-only" htmlFor={`ts-${m.sub}`}>
-          Status for {m.name}
-        </label>
-        <select
-          id={`ts-${m.sub}`}
-          value={status}
-          disabled={self}
-          onChange={(e) => setStatus(e.target.value as PortalMemberStatus)}
-        >
-          <option value="active">Active</option>
-          <option value="ready">Waiting</option>
-          <option value="disabled">No access</option>
-        </select>
-        {status === m.status ? null : (
-          <div className="c">
-            Was <Pill tone={statusPill.tone}>{statusPill.label}</Pill>
-          </div>
-        )}
+      <td data-label="Status">
+        <div>
+          <label className="sr-only" htmlFor={`ts-${m.sub}`}>
+            Status for {m.name}
+          </label>
+          <select
+            id={`ts-${m.sub}`}
+            value={status}
+            disabled={self}
+            onChange={(e) => setStatus(e.target.value as PortalMemberStatus)}
+          >
+            <option value="active">Active</option>
+            <option value="ready">Waiting</option>
+            <option value="disabled">No access</option>
+          </select>
+          {status === m.status ? null : (
+            <div className="c">
+              Was <Pill tone={statusPill.tone}>{statusPill.label}</Pill>
+            </div>
+          )}
+        </div>
       </td>
-      <td>
+      <td data-label="Desks">
         {isStaffRole(role) ? (
-          <div className="stack" style={{ gap: 2 }}>
+          <div className="desks">
             {DeskEnum.options.map((d) => (
               <Check
                 key={d}
@@ -206,10 +210,9 @@ function MemberRow({ m }: { m: PortalMember }) {
         )}
       </td>
       <td>
-        <button type="button" className="btn sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+        <button type="button" className="btn" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : "Save"}
         </button>
-        {self ? <div className="c">You cannot change your own role or status.</div> : null}
         {save.error ? (
           <p className="err" role="alert" style={{ marginTop: 6 }}>
             {errorText(save.error)}
@@ -270,6 +273,8 @@ function AddStaff({ onDone }: { onDone: () => void }) {
             <label htmlFor="as-name">Name (optional)</label>
             <input id="as-name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
           </div>
+        </div>
+        <div className="rolerow">
           <div className="field">
             <label htmlFor="as-role">Role</label>
             <select id="as-role" value={role} onChange={(e) => setRole(e.target.value as "staff" | "admin")}>
@@ -279,16 +284,18 @@ function AddStaff({ onDone }: { onDone: () => void }) {
           </div>
           <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
             <legend className="lbl">Desks</legend>
-            {DeskEnum.options.map((d) => (
-              <Check
-                key={d}
-                checked={desks.includes(d) && allowed.includes(d)}
-                disabled={!allowed.includes(d)}
-                onChange={(on) => setDesks((cur) => (on ? [...new Set([...cur, d])] : cur.filter((x) => x !== d)))}
-              >
-                {DESK_LABELS[d]}
-              </Check>
-            ))}
+            <div className="desks">
+              {DeskEnum.options.map((d) => (
+                <Check
+                  key={d}
+                  checked={desks.includes(d) && allowed.includes(d)}
+                  disabled={!allowed.includes(d)}
+                  onChange={(on) => setDesks((cur) => (on ? [...new Set([...cur, d])] : cur.filter((x) => x !== d)))}
+                >
+                  {DESK_LABELS[d]}
+                </Check>
+              ))}
+            </div>
             {!allowed.includes("payments") ? <span className="hint">The Payments desk is admin only.</span> : null}
           </fieldset>
         </div>
@@ -319,7 +326,7 @@ function AccessMatrix() {
         <h2 id="matrix-h">Who can do what</h2>
       </div>
       <div className="tablewrap">
-        <table>
+        <table className="matrix">
           <caption className="sr-only">Permissions by role</caption>
           <thead>
             <tr>
@@ -334,11 +341,11 @@ function AccessMatrix() {
           <tbody>
             {perms.map((p) => (
               <tr key={p}>
-                <th scope="row" style={{ background: "transparent", textTransform: "none", letterSpacing: 0, fontSize: 14, color: "var(--text)", fontWeight: 400 }}>
-                  {PERMISSION_LABELS[p]}
-                </th>
+                <th scope="row">{PERMISSION_LABELS[p]}</th>
                 {roles.map((r) => (
-                  <td key={r}>{portalCan(r, p) ? <span className="yes">Yes</span> : <span className="no">No</span>}</td>
+                  <td key={r} data-label={ROLE_LABELS[r]}>
+                    {portalCan(r, p) ? <span className="yes">Yes</span> : <span className="no">No</span>}
+                  </td>
                 ))}
               </tr>
             ))}

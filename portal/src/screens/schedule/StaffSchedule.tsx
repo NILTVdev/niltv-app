@@ -162,7 +162,6 @@ function StaffEventCard({ e, onEdit }: { e: PortalEvent; onEdit: () => void }) {
               <div className="res" key={o.id}>
                 <span>
                   <span className="t">{label}</span>
-                  <br />
                   <span className="meta">{people.length ? people.map((p) => p.name).join(", ") : "Nobody yet"}</span>
                 </span>
                 <button

@@ -81,11 +81,13 @@ export function Payouts() {
                       <div className="t">{m.name}</div>
                       <div className="c">{m.email}</div>
                     </td>
-                    <td>{campusName(m.campus) || <span className="muted">None</span>}</td>
-                    <td>
+                    <td data-label="Campus">{campusName(m.campus) || <span className="muted">None</span>}</td>
+                    <td data-label="Portal">
                       <Pill tone={status.tone}>{status.label}</Pill>
                     </td>
-                    <td>{stripe ? <Pill tone={stripe.tone}>{stripe.label}</Pill> : <span className="muted">Unknown</span>}</td>
+                    <td data-label="Stripe">
+                      {stripe ? <Pill tone={stripe.tone}>{stripe.label}</Pill> : <span className="muted">Unknown</span>}
+                    </td>
                   </tr>
                 );
               })}

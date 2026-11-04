@@ -31,7 +31,7 @@ export function heatShade(count: number, total: number): { background: string; c
   const alpha = (0.08 + 0.85 * ratio).toFixed(2);
   return {
     background: `rgba(${GOLD},${alpha})`,
-    color: ratio > 0.45 ? "var(--on-gold)" : "var(--text)",
+    color: ratio > 0.6 ? "var(--on-gold)" : "var(--text)",
   };
 }
 

@@ -93,7 +93,7 @@ export function Composer({
     staleTime: 60_000,
     placeholderData: keepPreviousData,
   });
-  const people = listOpen ? (found.data?.people ?? []).filter((p) => p.sub !== member.sub) : [];
+  const people = listOpen ? (found.data?.people ?? []).filter((p) => p.sub !== member.sub).slice(0, 5) : [];
   const activeIndex = Math.min(active, Math.max(0, people.length - 1));
   const showList = people.length > 0;
   const noMatch = listOpen && !showList && q !== "" && found.data !== undefined && !found.isFetching;

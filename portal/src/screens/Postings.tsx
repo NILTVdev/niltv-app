@@ -222,34 +222,36 @@ function StaffCard({ p, onEdit }: { p: Posting; onEdit: () => void }) {
                 </a>
               ) : null}
               <Pill tone={s.tone}>{s.label}</Pill>
-              {p.requiresApproval ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn sm"
-                    disabled={decide.isPending || row.status === "approved"}
-                    onClick={() => decide.mutate({ personSub: row.person.sub, status: "approved" })}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    disabled={decide.isPending || row.status === "declined"}
-                    onClick={() => decide.mutate({ personSub: row.person.sub, status: "declined" })}
-                  >
-                    Decline
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                className="linkbtn"
-                disabled={openDesk.isPending}
-                onClick={() => openDesk.mutate({ desk: "support", personSub: row.person.sub })}
-              >
-                Message
-              </button>
+              <span className="row acts">
+                {p.requiresApproval ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn sm"
+                      disabled={decide.isPending || row.status === "approved"}
+                      onClick={() => decide.mutate({ personSub: row.person.sub, status: "approved" })}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      disabled={decide.isPending || row.status === "declined"}
+                      onClick={() => decide.mutate({ personSub: row.person.sub, status: "declined" })}
+                    >
+                      Decline
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  className="linkbtn"
+                  disabled={openDesk.isPending}
+                  onClick={() => openDesk.mutate({ desk: "support", personSub: row.person.sub })}
+                >
+                  Message
+                </button>
+              </span>
             </div>
           );
         })}
@@ -335,7 +337,7 @@ function PostingForm({ posting, onDone }: { posting?: Posting; onDone: () => voi
           />
         </div>
         <Switch checked={requiresApproval} onChange={setRequiresApproval} label="Requires approval" help={`${APPROVAL_HELP}.`} />
-        <div className="field" style={{ maxWidth: 240 }}>
+        <div className="field" style={{ maxWidth: 260 }}>
           <label htmlFor="po-status">Status</label>
           <select id="po-status" value={status} onChange={(e) => setStatus(e.target.value as "open" | "closed")}>
             <option value="open">Open</option>

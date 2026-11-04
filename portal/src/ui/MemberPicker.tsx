@@ -42,7 +42,7 @@ export function MemberPicker({
       <input
         id={searchId}
         type="search"
-        placeholder="Search by name, email, sport or campus"
+        placeholder="Name, email, sport or campus"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />

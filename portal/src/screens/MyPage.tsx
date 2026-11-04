@@ -74,7 +74,7 @@ export function MyPage() {
               inputMode="url"
               maxLength={500}
               value={link}
-              placeholder="A photo, stats page or new social handle"
+              placeholder="Photo, stats page or handle"
               aria-describedby="rq-link-help"
               onChange={(e) => setLink(e.target.value)}
             />
@@ -118,19 +118,23 @@ export function MyPage() {
                 const s = REQUEST_STATUS[r.status];
                 return (
                   <tr key={r.id}>
-                    <td className="num">{formatShortDate(r.createdAt, zone)}</td>
-                    <td>
-                      <div style={{ whiteSpace: "pre-line" }}>{r.body}</div>
-                      {r.link ? (
-                        <a className="c" href={r.link} target="_blank" rel="noopener noreferrer">
-                          {r.link}
-                        </a>
-                      ) : null}
+                    <td className="num" data-label="Sent">
+                      {formatShortDate(r.createdAt, zone)}
                     </td>
-                    <td>
+                    <td data-label="Request">
+                      <div>
+                        <div style={{ whiteSpace: "pre-line" }}>{r.body}</div>
+                        {r.link ? (
+                          <a className="c" href={r.link} target="_blank" rel="noopener noreferrer">
+                            {r.link}
+                          </a>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td data-label="Status">
                       <Pill tone={s.tone}>{s.label}</Pill>
                     </td>
-                    <td>{r.staffNote ?? <span className="muted">None</span>}</td>
+                    <td data-label="Team note">{r.staffNote ?? <span className="muted">None</span>}</td>
                   </tr>
                 );
               })}
