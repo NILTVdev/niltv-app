@@ -26,7 +26,6 @@ export function Payouts() {
     <>
       <PageHead
         title="Payouts"
-        sub="Payouts go through Stripe Connect. This list shows where each athlete stands with Stripe."
         access="Admins only"
       />
       <div className="bar">

@@ -180,7 +180,6 @@ function StaffHome() {
     <>
       <PageHead
         title={`Hi, ${firstName(member.name)}`}
-        sub="What needs the team right now."
         access={admin ? "Admins" : "Staff and admins"}
       />
       <ErrorNote error={inbox.error ?? events.error ?? requests.error ?? members.error} />

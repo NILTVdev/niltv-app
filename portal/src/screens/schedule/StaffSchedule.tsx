@@ -61,7 +61,6 @@ export function StaffSchedule({ id }: { id?: string }) {
     <>
       <PageHead
         title="Schedule"
-        sub="Post times, see who is free, and lock the best one."
         access="Staff and admins"
       />
       {id && events.data && !target ? <p className="err">That event is not available. It may be older than 30 days.</p> : null}

@@ -92,11 +92,7 @@ export function Account() {
     <>
       <PageHead
         title={guest ? "Profile" : "Account"}
-        sub={
-          staff
-            ? "Your staff profile, your notifications and the desks you answer."
-            : "Your details, your time zone and what reaches you from the portal."
-        }
+        sub={staff ? undefined : "Your details, your time zone and what reaches you from the portal."}
         access={staff ? "You and admins" : "You and staff"}
       />
       <form onSubmit={submit} style={{ gap: 20 }} aria-label={guest ? "Profile" : "Account"}>

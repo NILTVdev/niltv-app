@@ -24,7 +24,6 @@ export function Guests() {
     <>
       <PageHead
         title="Guests"
-        sub="Outside collaborators: streamers, producers, partner contacts. They only see the groups and events you add them to."
         access="Staff and admins"
       />
       <div className="panel">

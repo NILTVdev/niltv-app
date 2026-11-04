@@ -197,7 +197,7 @@ function StaffHub() {
   const pending = ASKS.flatMap((a) => a.claims.filter((c) => c.status === "requested").map((c) => ({ a, c })));
   return (
     <>
-      <PageHead title="Content Hub" sub="Every ask, who claimed it, and what has come in." access="Staff and admins" />
+      <PageHead title="Content Hub" access="Staff and admins" />
       <PreviewBanner />
       <div className="stats">
         <div className="stat">

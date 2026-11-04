@@ -133,7 +133,6 @@ function StaffPostings({ id }: { id?: string }) {
     <>
       <PageHead
         title="Internal Postings"
-        sub="Roles and opportunities for athletes. Post the details and see who is interested."
         access="Staff and admins"
       />
       {id && postings.data && !target ? <p className="err">That posting is not listed.</p> : null}

@@ -58,7 +58,6 @@ export function Athletes() {
     <>
       <PageHead
         title="Athletes"
-        sub="Everyone on the roster. Campus and sport decide which channels they join."
         access="Staff and admins"
       />
       {ready > 0 ? (

@@ -22,7 +22,6 @@ export function Requests() {
     <>
       <PageHead
         title="Requests"
-        sub="Change requests athletes send from My athlete page. Update the page, then mark it done so the athlete sees it."
         access="Staff and admins"
       />
       <div className="chips" role="group" aria-label="Show requests">

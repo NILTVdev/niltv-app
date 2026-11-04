@@ -58,7 +58,7 @@ export function Messages({ id }: ScreenProps) {
       ? "Talk with the NIL TV team, your campus, your sport and every athlete in the network."
       : member.role === "guest"
         ? "Your groups and your messages with the NIL TV team."
-        : "Athlete and guest messages land in shared desk threads. Staff post in any channel and can hide messages.";
+        : undefined;
   const access =
     member.role === "athlete"
       ? "Your desks and channels"

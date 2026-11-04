@@ -55,7 +55,6 @@ export function Team() {
     <>
       <PageHead
         title="Team & access"
-        sub="Who can do what. Roles are checked on the server, not just hidden in the menu."
         access="Admins only"
       />
       <div className="bar">
