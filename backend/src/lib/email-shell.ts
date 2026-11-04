@@ -46,7 +46,7 @@ export function brandmark(logoBase: string | undefined): string {
   if (!logoBase) {
     return `<div style="font-family:${EMAIL_DISPLAY_FONT};font-size:30px;line-height:30px;font-weight:800;letter-spacing:2px;color:${EMAIL_GOLD};">NIL TV</div>`;
   }
-  return `<img src="${logoBase}/video/brand/email/niltv-email@2x.png" width="160" alt="NILTV" style="display:block;width:160px;height:auto;border:0;">`;
+  return `<img src="${logoBase}/video/brand/email/niltv-email-gold@2x.png" width="160" alt="NILTV" style="display:block;width:160px;height:auto;border:0;">`;
 }
 
 /** Small tracked label in gold — "YOUR CODE", "USERNAME". */
