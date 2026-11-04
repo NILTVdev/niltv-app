@@ -23,9 +23,23 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
   const [notice, setNotice] = useState<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
+  const titles: Record<Mode, string> = {
+    signin: "Sign in",
+    forgot: "Reset your password",
+    reset: "Set a new password",
+    create: "Create your account",
+    confirm: "Check your email",
+  };
+
   useEffect(() => {
-    document.title = "Sign in | NIL TV Portal";
-  }, []);
+    document.title = `${titles[mode]} | NIL TV Portal`;
+  });
+
+  /** Signed in: the invite link has done its job, so it must not reopen Create after a sign-out. */
+  const finish = (signedIn: string) => {
+    if (invite.create) window.history.replaceState(null, "", "/");
+    onSignedIn(signedIn);
+  };
 
   const switchTo = (next: Mode, message: string | null = null) => {
     setMode(next);
@@ -51,7 +65,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
     e.preventDefault();
     void run(async () => {
       try {
-        onSignedIn(await signIn(email, password));
+        finish(await signIn(email, password));
       } catch (err) {
         if (!(err instanceof NotConfirmedError)) throw err;
         switchTo("confirm", "This account is not confirmed yet. Enter the code from your email, or send a new one.");
@@ -76,8 +90,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
     void run(async () => {
       await confirmSignUp(email, code);
       setCode("");
-      if (password) onSignedIn(await signIn(email, password));
-      else switchTo("signin", "Account confirmed. Sign in.");
+      try {
+        finish(await signIn(email, password));
+      } catch {
+        switchTo("signin", "Account confirmed. Sign in.");
+      }
     });
   };
 
@@ -105,14 +122,6 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
       setNewPassword("");
       switchTo("signin", "Password changed. Sign in with the new one.");
     });
-  };
-
-  const titles: Record<Mode, string> = {
-    signin: "Sign in",
-    forgot: "Reset your password",
-    reset: "Set a new password",
-    create: "Create your account",
-    confirm: "Check your email",
   };
 
   return (

@@ -29,6 +29,7 @@ import {
   OpenDeskRequest,
   PendingAthlete,
   PendingAthletesResponse,
+  PendingLinkRequest,
   PeopleResponse,
   PortalEvent,
   PortalMeResponse,
@@ -207,6 +208,8 @@ export const api = {
   pendingAthletes: () => request("GET", "/v1/athletes/pending", PendingAthletesResponse),
   inviteAthlete: (applicationId: number) =>
     request("POST", `/v1/athletes/pending/${applicationId}/invite`, PendingAthlete),
+  linkAthlete: (applicationId: number, input: z.input<typeof PendingLinkRequest>) =>
+    request("POST", `/v1/athletes/pending/${applicationId}/link`, PortalMember, bodyOf(PendingLinkRequest, input)),
   settings: () => request("GET", "/v1/settings", PortalSettings),
   saveSettings: (input: z.input<typeof PortalSettings>) =>
     request("PUT", "/v1/settings", PortalSettings, bodyOf(PortalSettings, input)),

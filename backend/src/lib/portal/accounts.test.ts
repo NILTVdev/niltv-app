@@ -9,11 +9,16 @@ vi.mock("@aws-sdk/client-cognito-identity-provider", () => ({
   ListUsersCommand: class {
     constructor(readonly input: unknown) {}
   },
+  AdminDeleteUserCommand: class {
+    constructor(readonly input: unknown) {}
+  },
 }));
 
-import { findAccountByEmail } from "./accounts";
+import { deleteUnfinished, findAccountByEmail, lookupEmail } from "./accounts";
 
 const user = (over: { status?: string; verified?: string; enabled?: boolean; sub?: string } = {}) => ({
+  Username: over.sub ?? "u-1",
+  UserCreateDate: new Date("2026-11-01T00:00:00.000Z"),
   Enabled: over.enabled ?? true,
   UserStatus: over.status ?? "CONFIRMED",
   Attributes: [
@@ -27,6 +32,31 @@ const user = (over: { status?: string; verified?: string; enabled?: boolean; sub
 beforeEach(() => {
   send.mockReset();
   process.env.USER_POOL_ID = "us-east-1_test";
+});
+
+describe("lookupEmail", () => {
+  it("reports a sign-up nobody finished, and never offers it as the account", async () => {
+    send.mockResolvedValue({ Users: [user({ status: "UNCONFIRMED", sub: "stuck" })] });
+    const found = await lookupEmail("a@example.com");
+    expect(found.account).toBeUndefined();
+    expect(found.unfinished).toEqual([{ username: "stuck", createdAt: new Date("2026-11-01T00:00:00.000Z") }]);
+  });
+
+  it("never lists a confirmed account for clearing, verified or not", async () => {
+    send.mockResolvedValue({ Users: [user({ verified: "false", sub: "a" }), user({ status: "EXTERNAL_PROVIDER", sub: "b" }), user({ sub: "c" })] });
+    const found = await lookupEmail("a@example.com");
+    expect(found.unfinished).toEqual([]);
+    expect(found.account?.sub).toBe("c");
+  });
+});
+
+describe("deleteUnfinished", () => {
+  it("deletes exactly the sign-ups it is given", async () => {
+    send.mockResolvedValue({});
+    await deleteUnfinished([{ username: "stuck", createdAt: new Date() }]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0].input).toEqual({ UserPoolId: "us-east-1_test", Username: "stuck" });
+  });
 });
 
 describe("findAccountByEmail", () => {

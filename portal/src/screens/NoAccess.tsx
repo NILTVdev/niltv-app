@@ -14,11 +14,11 @@ export function NoAccess({ email, onSignOut }: { email: string; onSignOut: () =>
         <h1>No portal access yet</h1>
         <div className="panel">
           <p>
-            You are signed in as <b>{email}</b>, but this account is not connected to the NIL TV Portal yet.
+            You are signed in as <b>{email}</b>, but this account does not have portal access yet.
           </p>
           <p>
-            Accepted athletes: this must be the email from your application. We check for new accounts every 30 minutes,
-            and the team turns access on.
+            If you are an accepted athlete, this must be the email from your application. We check for new accounts every
+            30 minutes, and the team turns access on.
           </p>
           <div className="row">
             <button type="button" className="btn ghost" onClick={onSignOut}>

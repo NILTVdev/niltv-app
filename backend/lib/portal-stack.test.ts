@@ -90,6 +90,16 @@ describe("PortalStack", () => {
     });
   });
 
+  it("lets only the members API and the roster sync delete a Cognito user", () => {
+    const deleters = Object.values(template.findResources("AWS::IAM::Policy")).filter((policy) =>
+      JSON.stringify(policy["Properties"]["PolicyDocument"]).includes("cognito-idp:AdminDeleteUser"),
+    );
+    expect(deleters).toHaveLength(2);
+    const roles = JSON.stringify(deleters.map((policy) => policy["Properties"]["Roles"]));
+    expect(roles).toMatch(/MembersFn/);
+    expect(roles).toMatch(/RosterSyncFn/);
+  });
+
   it("lets only the notifier read the private push key", () => {
     const readers = Object.values(template.findResources("AWS::IAM::Policy")).filter((policy) =>
       JSON.stringify(policy["Properties"]["PolicyDocument"]).includes("portal-vapid-private"),

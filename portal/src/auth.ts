@@ -10,8 +10,9 @@
  * Portal accounts are ordinary niltv.com accounts; the portal API decides
  * who gets in (403 NOT_MEMBER), not Cognito. Accounts are created here too,
  * with the same fields as the site's form, so an invited athlete never has
- * to leave the portal. Emails are lowercased, as the app does: Cognito
- * matches them exactly, and every account here is stored in lowercase.
+ * to leave the portal. Cognito matches emails exactly, so everything tries the
+ * lowercase form first, as the app does, then the address as typed: niltv.com
+ * keeps an email as typed, so an older account can have capitals.
  */
 import {
   AuthenticationDetails,
@@ -56,6 +57,28 @@ const userFor = (email: string): CognitoUser =>
 
 const clean = (email: string): string => email.trim().toLowerCase();
 
+const emailForms = (email: string): string[] => [...new Set([clean(email), email.trim()])];
+
+/** For steps Cognito answers honestly: the first form that works wins. */
+async function firstForm(email: string, step: (form: string) => Promise<void>): Promise<void> {
+  let last: unknown;
+  for (const form of emailForms(email)) {
+    try {
+      return await step(form);
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw friendly(last);
+}
+
+/** For steps Cognito fakes when the address is unknown, so success says nothing: try every form. */
+async function everyForm(email: string, step: (form: string) => Promise<void>): Promise<void> {
+  const results = await Promise.allSettled(emailForms(email).map(step));
+  if (results.some((r) => r.status === "fulfilled")) return;
+  throw friendly((results[0] as PromiseRejectedResult).reason);
+}
+
 export class NotSignedInError extends Error {
   constructor() {
     super("Not signed in.");
@@ -95,7 +118,13 @@ function friendly(err: unknown): Error {
     case "ExpiredCodeException":
       return new Error("That code has expired. Ask for a new one.");
     case "InvalidPasswordException":
-      return new Error(raw.replace(/^Password does not conform to policy: /, "") || "That password is not strong enough.");
+      return new Error("That password is too weak. Use at least 8 characters with a number, an uppercase and a lowercase letter.");
+    case "InvalidParameterException":
+      return new Error(
+        raw.includes("no registered/verified")
+          ? "This account was never confirmed, so there is nothing to reset. Sign in with the password you chose to get a new code, or write to support@niltv.com."
+          : "Check your details and try again.",
+      );
     case "LimitExceededException":
     case "TooManyRequestsException":
       return new Error("Too many tries. Wait a few minutes and try again.");
@@ -124,14 +153,11 @@ function authenticate(email: string, password: string): Promise<string> {
 
 /** SRP sign-in. Resolves to the signed-in email. */
 export async function signIn(email: string, password: string): Promise<string> {
-  const typed = email.trim();
-  const lower = typed.toLowerCase();
+  const [lower, typed] = emailForms(email);
   try {
-    return await authenticate(lower, password);
+    return await authenticate(lower!, password);
   } catch (err) {
-    // niltv.com keeps an email as typed, so an older account can have capitals.
-    const retry = typed !== lower && ["NotAuthorizedException", "UserNotFoundException"].includes(codeOf(err) ?? "");
-    if (!retry) throw friendly(err);
+    if (!typed || !["NotAuthorizedException", "UserNotFoundException"].includes(codeOf(err) ?? "")) throw friendly(err);
   }
   return authenticate(typed, password).catch((err: unknown) => {
     throw friendly(err);
@@ -152,36 +178,56 @@ export function signUp(input: { email: string; password: string; name: string; b
 }
 
 export function confirmSignUp(email: string, code: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    userFor(clean(email)).confirmRegistration(code.trim(), false, (err) => (err ? reject(friendly(err)) : resolve()));
-  });
+  return firstForm(
+    email,
+    (form) =>
+      new Promise((resolve, reject) => {
+        userFor(form).confirmRegistration(code.trim(), false, (err) => {
+          // A repeat after a lost response: the first try already worked.
+          if (!err || /Current status is CONFIRMED/.test(String((err as Error).message))) resolve();
+          else reject(err);
+        });
+      }),
+  );
 }
 
 export function resendCode(email: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    userFor(clean(email)).resendConfirmationCode((err) => (err ? reject(friendly(err)) : resolve()));
-  });
+  return everyForm(
+    email,
+    (form) =>
+      new Promise((resolve, reject) => {
+        userFor(form).resendConfirmationCode((err) => (err ? reject(err) : resolve()));
+      }),
+  );
 }
 
 /** Email a reset code. */
 export function forgotPassword(email: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    userFor(clean(email)).forgotPassword({
-      onSuccess: () => resolve(),
-      onFailure: (err: unknown) => reject(friendly(err)),
-      inputVerificationCode: () => resolve(),
-    });
-  });
+  return everyForm(
+    email,
+    (form) =>
+      new Promise((resolve, reject) => {
+        userFor(form).forgotPassword({
+          onSuccess: () => resolve(),
+          onFailure: reject,
+          inputVerificationCode: () => resolve(),
+        });
+      }),
+  );
 }
 
 /** Set a new password with the emailed code. */
 export function confirmPassword(email: string, code: string, newPassword: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    userFor(clean(email)).confirmPassword(code, newPassword, {
-      onSuccess: () => resolve(),
-      onFailure: (err: unknown) => reject(friendly(err)),
-    });
-  });
+  return firstForm(
+    email,
+    (form) =>
+      new Promise((resolve, reject) => {
+        userFor(form).confirmPassword(code, newPassword, {
+          onSuccess: () => resolve(),
+          onFailure: reject,
+        });
+      }),
+  );
 }
 
 /** Restore the saved session. Resolves to the email, or null when signed out. */

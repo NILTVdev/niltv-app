@@ -32,20 +32,22 @@ const getSqs = (): SQSClient => (sqs ??= new SQSClient({}));
  */
 export const MESSAGE_NOTICE_DELAY_SECONDS = 60;
 
-export async function enqueue(notice: PortalNotice): Promise<void> {
+/** For a notice the caller records as sent: a failure has to reach them. */
+export async function enqueueOrThrow(notice: PortalNotice): Promise<void> {
   const url = process.env.NOTIFY_QUEUE_URL;
-  if (!url) {
-    console.warn("portal: NOTIFY_QUEUE_URL unset, notice dropped", notice.type);
-    return;
-  }
+  if (!url) throw new Error("NOTIFY_QUEUE_URL unset");
+  await getSqs().send(
+    new SendMessageCommand({
+      QueueUrl: url,
+      MessageBody: JSON.stringify(notice),
+      ...(notice.type === "message" ? { DelaySeconds: MESSAGE_NOTICE_DELAY_SECONDS } : {}),
+    }),
+  );
+}
+
+export async function enqueue(notice: PortalNotice): Promise<void> {
   try {
-    await getSqs().send(
-      new SendMessageCommand({
-        QueueUrl: url,
-        MessageBody: JSON.stringify(notice),
-        ...(notice.type === "message" ? { DelaySeconds: MESSAGE_NOTICE_DELAY_SECONDS } : {}),
-      }),
-    );
+    await enqueueOrThrow(notice);
   } catch (err) {
     // A lost email must never fail the request that caused it.
     console.error("portal: notice enqueue failed", notice.type, err);

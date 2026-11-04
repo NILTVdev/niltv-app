@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const { leaveAllGroups, syncChannelMemberships } = await import("../src/lib/portal/conversations");
 
   const account = await findAccountByEmail(email);
-  if (!account) throw new Error(`no niltv-${stage} account uses ${email}; sign up on the site first`);
+  if (!account) throw new Error(`no confirmed niltv-${stage} account uses ${email}; create one and verify the email first`);
   const existing = await getMember(account.sub);
   const now = new Date().toISOString();
 

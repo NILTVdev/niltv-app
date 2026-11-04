@@ -208,7 +208,10 @@ function NoAccountList({
           </table>
         </div>
       ) : null}
-      <p className="hint">Each athlete gets one invite on their own once welcome and invite emails are on in Settings.</p>
+      <p className="hint">
+        Each athlete gets one invite on their own once welcome and invite emails are on in Settings. Send again also clears
+        a sign-up they never finished, so they can start over.
+      </p>
     </>
   );
 }
@@ -217,45 +220,128 @@ function NoAccountRow({ p, admin }: { p: PendingAthlete; admin: boolean }) {
   const { zone } = useMe();
   const qc = useQueryClient();
   const toast = useToast();
+  const [linking, setLinking] = useState(false);
+  const [email, setEmail] = useState("");
   const invite = useMutation({
     mutationFn: () => api.inviteAthlete(p.applicationId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.pending });
-      toast(`Invite sent to ${p.email}.`);
+      toast(`Invite on its way to ${p.email}.`);
+    },
+  });
+  const link = useMutation({
+    mutationFn: () => api.linkAthlete(p.applicationId, { email: email.trim() }),
+    onSuccess: (member) => {
+      void qc.invalidateQueries({ queryKey: qk.pending });
+      void qc.invalidateQueries({ queryKey: qk.members });
+      toast(`${member.name} is linked to ${member.email}.`);
     },
   });
   const sentLately = p.invitedAt !== undefined && Date.now() - Date.parse(p.invitedAt) < INVITE_COOLDOWN_MS;
 
   return (
-    <tr>
-      <td>
-        <div className="t">{p.name}</div>
-        <div className="c">{p.email}</div>
-      </td>
-      <td data-label="Campus">{campusName(p.campus) || <span className="muted">None</span>}</td>
-      <td data-label="Sport">{p.sport ?? <span className="muted">None</span>}</td>
-      <td data-label="Invite">
-        {p.invitedAt ? `Sent ${formatShortDate(p.invitedAt, zone)}` : <span className="muted">Not sent</span>}
-      </td>
-      <td>
-        {admin ? (
-          <button
-            type="button"
-            className="btn ghost sm"
-            disabled={invite.isPending || sentLately}
-            aria-label={`${p.invitedAt ? "Send another invite to" : "Send an invite to"} ${p.name}`}
-            onClick={() => invite.mutate()}
-          >
-            {p.invitedAt ? "Send again" : "Send invite"}
-          </button>
-        ) : null}
-        {invite.error ? (
-          <p className="err" role="alert" style={{ marginTop: 6 }}>
-            {errorText(invite.error)}
-          </p>
-        ) : null}
-      </td>
-    </tr>
+    <>
+      <tr>
+        <td>
+          <div className="t">{p.name}</div>
+          <div className="c">{p.email}</div>
+        </td>
+        <td data-label="Campus">{campusName(p.campus) || <span className="muted">None</span>}</td>
+        <td data-label="Sport">{p.sport ?? <span className="muted">None</span>}</td>
+        <td data-label="Invite">
+          {p.sentAt ? (
+            `Sent ${formatShortDate(p.sentAt, zone)}`
+          ) : p.invitedAt ? (
+            `Queued ${formatShortDate(p.invitedAt, zone)}`
+          ) : (
+            <span className="muted">Not sent</span>
+          )}
+        </td>
+        <td>
+          {admin ? (
+            <div className="row">
+              <button
+                type="button"
+                className="btn ghost sm"
+                disabled={invite.isPending || sentLately}
+                aria-label={`${p.invitedAt ? "Send another invite to" : "Send an invite to"} ${p.name}`}
+                onClick={() => {
+                  if (window.confirm(`Email an invite to ${p.email}?`)) invite.mutate();
+                }}
+              >
+                {p.invitedAt ? "Send again" : "Send invite"}
+              </button>
+              {linking ? null : (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  aria-label={`Link ${p.name} to an account on another email`}
+                  onClick={() => setLinking(true)}
+                >
+                  Link
+                </button>
+              )}
+            </div>
+          ) : null}
+          {invite.error ? (
+            <p className="err" role="alert" style={{ marginTop: 6 }}>
+              {errorText(invite.error)}
+            </p>
+          ) : null}
+        </td>
+      </tr>
+      {linking ? (
+        <tr className="editrow">
+          <td colSpan={5}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                link.mutate();
+              }}
+            >
+              <div className="field">
+                <label htmlFor={`lk-${p.applicationId}`}>
+                  Their account email<span className="sr-only"> for {p.name}</span>
+                </label>
+                <input
+                  id={`lk-${p.applicationId}`}
+                  type="email"
+                  value={email}
+                  required
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-describedby={`lk-${p.applicationId}-help`}
+                />
+                <span id={`lk-${p.applicationId}-help`} className="hint">
+                  For an athlete who signed up on another address. Check it is really them first. The account must be
+                  confirmed.
+                </span>
+              </div>
+              {link.error ? (
+                <p className="err" role="alert">
+                  {errorText(link.error)}
+                </p>
+              ) : null}
+              <div className="row">
+                <button type="submit" className="btn sm" disabled={link.isPending || !email.trim()}>
+                  {link.isPending ? "Linking…" : "Link account"}
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => {
+                    setLinking(false);
+                    setEmail("");
+                    link.reset();
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 

@@ -7,7 +7,7 @@ vi.mock("../db", async (importOriginal) => ({
   getDocClient: () => ({ send }),
 }));
 
-import { claimInvite, listPending, savePending } from "./pending";
+import { claimInvite, listPending, markInviteSent, releaseInvite, savePending } from "./pending";
 
 const ccf = Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" });
 const row = {
@@ -50,30 +50,46 @@ describe("savePending", () => {
 describe("claimInvite", () => {
   const at = new Date("2026-11-04T18:00:00.000Z");
 
-  it("works once per person by default", async () => {
+  it("allows one send a day per person", async () => {
     send.mockResolvedValue({ Attributes: { ...row, invitedAt: at.toISOString() } });
     await expect(claimInvite(7, at)).resolves.toMatchObject({ invitedAt: at.toISOString() });
     const input = send.mock.calls[0]![0].input;
-    expect(input.ConditionExpression).toBe("attribute_exists(PK) AND attribute_not_exists(invitedAt)");
-    expect(input.ExpressionAttributeValues[":cutoff"]).toBeUndefined();
-  });
-
-  it("allows another send after a day when asked", async () => {
-    send.mockResolvedValue({ Attributes: { ...row, invitedAt: at.toISOString() } });
-    await claimInvite(7, at, { again: true });
-    const input = send.mock.calls[0]![0].input;
-    expect(input.ConditionExpression).toContain("invitedAt < :cutoff");
+    expect(input.ConditionExpression).toContain("attribute_not_exists(invitedAt) OR invitedAt < :cutoff");
     expect(input.ExpressionAttributeValues[":cutoff"]).toBe("2026-11-03T18:00:00.000Z");
   });
 
   it("returns nothing when the guard says no", async () => {
     send.mockRejectedValue(ccf);
-    await expect(claimInvite(7, at, { again: true })).resolves.toBeUndefined();
+    await expect(claimInvite(7, at)).resolves.toBeUndefined();
   });
 
   it("lets real errors through", async () => {
     send.mockRejectedValue(new Error("throttled"));
     await expect(claimInvite(7, at)).rejects.toThrow("throttled");
+  });
+});
+
+describe("releaseInvite", () => {
+  const at = new Date("2026-11-04T18:00:00.000Z");
+
+  it("only gives back this run's own claim", async () => {
+    send.mockResolvedValue({});
+    await releaseInvite(7, at);
+    const input = send.mock.calls[0]![0].input;
+    expect(input.UpdateExpression).toBe("REMOVE invitedAt");
+    expect(input.ExpressionAttributeValues[":at"]).toBe(at.toISOString());
+  });
+
+  it("does nothing when someone else has claimed since", async () => {
+    send.mockRejectedValue(ccf);
+    await expect(releaseInvite(7, at)).resolves.toBeUndefined();
+  });
+});
+
+describe("markInviteSent", () => {
+  it("does nothing when the person joined while it was sending", async () => {
+    send.mockRejectedValue(ccf);
+    await expect(markInviteSent(7, new Date())).resolves.toBeUndefined();
   });
 });
 

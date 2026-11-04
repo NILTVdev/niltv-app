@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
   sendEmail: vi.fn(),
   resolveAudience: vi.fn(),
   getPending: vi.fn(),
+  markInviteSent: vi.fn(),
 }));
 
 vi.mock("../../lib/db", async (importOriginal) => ({
@@ -48,7 +49,7 @@ vi.mock("../../lib/portal/emails", async (importOriginal) => ({
   sendEmail: m.sendEmail,
 }));
 vi.mock("../../lib/portal/audience", () => ({ resolveAudience: m.resolveAudience }));
-vi.mock("../../lib/portal/pending", () => ({ getPending: m.getPending }));
+vi.mock("../../lib/portal/pending", () => ({ getPending: m.getPending, markInviteSent: m.markInviteSent }));
 
 import { handleNotice } from "./notify";
 
@@ -258,6 +259,7 @@ describe("account invites", () => {
     expect(to).toBe("jordan+nil@example.edu");
     expect(email.paragraphs.join(" ")).toContain("jordan+nil@example.edu");
     expect(email.button.path).toBe("/create-account?email=jordan%2Bnil%40example.edu");
+    expect(m.markInviteSent).toHaveBeenCalledWith(7, NOW);
   });
 
   it("sends nothing once the person has an account", async () => {
@@ -270,6 +272,7 @@ describe("account invites", () => {
     m.getPending.mockResolvedValue(row);
     m.sendEmail.mockResolvedValue(false);
     await expect(handleNotice({ type: "invite", applicationId: 7 }, NOW)).rejects.toThrow("invite email failed");
+    expect(m.markInviteSent).not.toHaveBeenCalled();
   });
 
   it("does not retry a skipped test address", async () => {

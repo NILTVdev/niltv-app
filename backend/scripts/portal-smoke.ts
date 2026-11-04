@@ -3,7 +3,7 @@
  *
  *   PORTAL_API_URL=https://xxxx.execute-api.us-east-1.amazonaws.com npx tsx scripts/portal-smoke.ts
  *
- * 1. Signs up four throwaway accounts in the dev pool (@niltv.invalid, so the
+ * 1. Signs up throwaway accounts in the dev pool (@niltv.invalid, so the
  *    notifier never emails them): admin, staff, athlete, guest. The admin
  *    row is written directly (the bootstrap path); everyone else is added
  *    through the API the way staff will do it.
@@ -217,6 +217,19 @@ async function main(): Promise<void> {
     check("an admin sends an invite", invited.status === 200 && typeof invited.json["invitedAt"] === "string");
     check("a second invite the same day is refused", (await call(admin, "POST", invitePath)).status === 409);
     check("an invite for nobody is not found", (await call(admin, "POST", "/v1/athletes/pending/1/invite")).status === 404);
+    check("staff cannot link an athlete", (await call(staff, "POST", `/v1/athletes/pending/${pendingId}/link`, { email: athlete!.email })).status === 403);
+    const badLink = await call(admin, "POST", `/v1/athletes/pending/${pendingId}/link`, { email: unproven.email });
+    check("an unproven account cannot be linked", badLink.status === 404 && badLink.json["error"] === "NO_ACCOUNT");
+    const staffLink = await call(admin, "POST", `/v1/athletes/pending/${pendingId}/link`, { email: staff!.email });
+    check("a staff account cannot be linked as an athlete", staffLink.status === 409);
+    const linked = await call(admin, "POST", `/v1/athletes/pending/${pendingId}/link`, { email: athlete!.email });
+    const afterLink = await call(staff, "GET", "/v1/athletes/pending");
+    check(
+      "linking connects the athlete and clears the row",
+      linked.status === 200 &&
+        linked.json["applicationId"] === pendingId &&
+        !(afterLink.json["pending"] ?? []).some((p: Json) => p["applicationId"] === pendingId),
+    );
     for (const p of [staff!, athlete!, guest!]) await call(p, "PATCH", "/v1/me", { notify: QUIET });
 
     // ── Push devices ─────────────────────────────────────────────────────

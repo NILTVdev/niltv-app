@@ -25,7 +25,8 @@
  *   interest in an approval posting   the staff member who posted it
  *   page change request               the Athlete support desk
  *   help form                         the support address, reply-to the sender
- *   welcome, invite                   their own switch (Settings: welcomeEmail)
+ *   welcome, automatic invites        their own switch (Settings: welcomeEmail)
+ *   an invite an admin sends by hand  goes out whatever the switches say
  */
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import {
@@ -55,7 +56,7 @@ import {
 } from "../../lib/portal/conversations";
 import { type PortalEmail, formatWhen, isTestAddress, sendEmail } from "../../lib/portal/emails";
 import { deskRecipients, deskStaff, getMember, getMembers, getSettings, listMembers } from "../../lib/portal/members";
-import { getPending } from "../../lib/portal/pending";
+import { getPending, markInviteSent } from "../../lib/portal/pending";
 import type { PortalNotice } from "../../lib/portal/notify";
 import {
   LAST_MINUTE_MS,
@@ -447,9 +448,10 @@ async function welcomeNotice(sub: string): Promise<void> {
 /**
  * The ask to create an account. It names the exact address because the roster
  * sync matches on it. A failed send throws, so SQS retries it and the
- * dead-letter queue keeps it: this is the one email that gets them in.
+ * dead-letter queue keeps it, and with no sentAt the sync tries again tomorrow:
+ * this is the one email that gets them in.
  */
-async function inviteNotice(applicationId: number): Promise<void> {
+async function inviteNotice(applicationId: number, now: Date): Promise<void> {
   const row = await getPending(applicationId);
   if (!row) return; // They made an account in the meantime.
   const sent = await sendEmail(row.email, {
@@ -463,7 +465,8 @@ async function inviteNotice(applicationId: number): Promise<void> {
     button: { label: "Create your account", path: `/create-account?email=${encodeURIComponent(row.email)}` },
     tail: "You get this because you were accepted as a NIL TV athlete.",
   });
-  if (!sent && !isTestAddress(row.email)) throw new Error(`invite email failed for application ${applicationId}`);
+  if (sent) await markInviteSent(applicationId, now);
+  else if (!isTestAddress(row.email)) throw new Error(`invite email failed for application ${applicationId}`);
 }
 
 export async function handleNotice(notice: PortalNotice, now: Date = new Date()): Promise<void> {
@@ -486,7 +489,7 @@ export async function handleNotice(notice: PortalNotice, now: Date = new Date())
     case "welcome":
       return welcomeNotice(notice.sub);
     case "invite":
-      return inviteNotice(notice.applicationId);
+      return inviteNotice(notice.applicationId, now);
   }
 }
 

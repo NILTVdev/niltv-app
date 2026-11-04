@@ -154,6 +154,11 @@ export class PortalStack extends Stack {
       actions: ["cognito-idp:ListUsers"],
       resources: [userPool.userPoolArn],
     });
+    // Only for clearing a sign-up nobody finished, on an address the portal is inviting.
+    const clearSignupPolicy = new iam.PolicyStatement({
+      actions: ["cognito-idp:AdminDeleteUser"],
+      resources: [userPool.userPoolArn],
+    });
     const sesPolicy = new iam.PolicyStatement({
       actions: ["ses:SendEmail", "ses:SendRawEmail"],
       // SESv2 authorises against the sending identity and the identity's
@@ -203,6 +208,7 @@ export class PortalStack extends Stack {
     const requestsFn = portalFn("RequestsFn", "requests", "requests.ts");
     const postsFn = portalFn("PostsFn", "posts", "posts.ts", cfDomain ? { PLAYBACK_BASE_URL: `https://${cfDomain}` } : {});
     membersFn.addToRolePolicy(listUsersPolicy);
+    membersFn.addToRolePolicy(clearSignupPolicy);
     postsFn.addToRolePolicy(catalogueReadPolicy);
 
     // ── Notifier (SQS consumer) ───────────────────────────────────────────
@@ -263,6 +269,7 @@ export class PortalStack extends Stack {
     rosterSyncFn.addToRolePolicy(tablePolicy(PORTAL_LEADING_KEYS));
     rosterSyncFn.addToRolePolicy(catalogueReadPolicy);
     rosterSyncFn.addToRolePolicy(listUsersPolicy);
+    rosterSyncFn.addToRolePolicy(clearSignupPolicy);
     notifyQueue.grantSendMessages(rosterSyncFn);
     rosterSyncFn.addToRolePolicy(
       new iam.PolicyStatement({
@@ -292,6 +299,7 @@ export class PortalStack extends Stack {
       ["/v1/members/{sub}", [M.PATCH], membersFn],
       ["/v1/athletes/pending", [M.GET], membersFn],
       ["/v1/athletes/pending/{id}/invite", [M.POST], membersFn],
+      ["/v1/athletes/pending/{id}/link", [M.POST], membersFn],
       ["/v1/settings", [M.GET, M.PUT], membersFn],
       ["/v1/inbox", [M.GET], conversationsFn],
       ["/v1/desks", [M.POST], conversationsFn],

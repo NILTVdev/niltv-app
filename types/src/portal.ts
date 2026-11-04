@@ -284,13 +284,19 @@ export const PendingAthlete = z.object({
   school: z.string().optional(),
   sport: z.string().optional(),
   firstSeenAt: IsoDate,
-  /** when the last invite to create an account went out */
+  /** when the last invite was queued */
   invitedAt: IsoDate.optional(),
+  /** when an invite really went out; until then it is retried once a day */
+  sentAt: IsoDate.optional(),
 });
 export type PendingAthlete = z.infer<typeof PendingAthlete>;
 
 export const PendingAthletesResponse = z.object({ pending: z.array(PendingAthlete) });
 export type PendingAthletesResponse = z.infer<typeof PendingAthletesResponse>;
+
+/** An admin connects a pending athlete to the account they really use. */
+export const PendingLinkRequest = z.object({ email: z.string().email().max(254) });
+export type PendingLinkRequest = z.infer<typeof PendingLinkRequest>;
 
 /** Add someone who already has a niltv.com account. */
 export const MemberAddRequest = z.object({
@@ -323,7 +329,7 @@ export const PortalSettings = z.object({
   supportEmail: z.string().email().default("support@niltv.com"),
   /** off while testing: accepted athletes wait as "ready" until an admin enables them */
   autoEnableAthletes: z.boolean().default(false),
-  /** send the welcome email when an athlete is enabled */
+  /** send the welcome email on access, and the one invite to accepted athletes with no account */
   welcomeEmail: z.boolean().default(false),
   /**
    * Off while testing. Summary emails for unseen activity, staff desk

@@ -10,7 +10,7 @@ import { PENDING_ATHLETES_PK, getDocClient, pendingAthleteKey } from "../db";
 
 const table = (): string => process.env.TABLE_NAME ?? "";
 
-/** An admin can send an invite again, at most once a day per person. */
+/** An invite goes out at most once a day per person, whoever asks. */
 export const INVITE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 function parsePending(item: Record<string, unknown> | undefined): PendingAthlete | undefined {
@@ -81,33 +81,66 @@ export async function deletePending(applicationId: number): Promise<void> {
   await getDocClient().send(new DeleteCommand({ TableName: table(), Key: pendingAthleteKey(applicationId) }));
 }
 
+const isConditionFailure = (err: unknown): boolean =>
+  (err as { name?: string }).name === "ConditionalCheckFailedException";
+
 /**
  * Take the right to send an invite, atomically, so a sync and an admin can
- * never both send one. Without `again` it works once per person. With it, once
- * a day. Returns the updated row, or undefined when nothing may be sent.
+ * never both send one, and nobody gets two in a day. Returns the updated row,
+ * or undefined when nothing may be sent.
  */
-export async function claimInvite(
-  applicationId: number,
-  at: Date,
-  opts: { again?: boolean } = {},
-): Promise<PendingAthlete | undefined> {
-  const cutoff = new Date(at.getTime() - INVITE_COOLDOWN_MS).toISOString();
+export async function claimInvite(applicationId: number, at: Date): Promise<PendingAthlete | undefined> {
   try {
     const out = await getDocClient().send(
       new UpdateCommand({
         TableName: table(),
         Key: pendingAthleteKey(applicationId),
         UpdateExpression: "SET invitedAt = :at",
-        ConditionExpression: opts.again
-          ? "attribute_exists(PK) AND (attribute_not_exists(invitedAt) OR invitedAt < :cutoff)"
-          : "attribute_exists(PK) AND attribute_not_exists(invitedAt)",
-        ExpressionAttributeValues: { ":at": at.toISOString(), ...(opts.again ? { ":cutoff": cutoff } : {}) },
+        ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(invitedAt) OR invitedAt < :cutoff)",
+        ExpressionAttributeValues: {
+          ":at": at.toISOString(),
+          ":cutoff": new Date(at.getTime() - INVITE_COOLDOWN_MS).toISOString(),
+        },
         ReturnValues: "ALL_NEW",
       }),
     );
     return parsePending(out.Attributes);
   } catch (err) {
-    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return undefined;
+    if (isConditionFailure(err)) return undefined;
     throw err;
+  }
+}
+
+/** Give back a claim whose notice never reached the queue, so the next run can try again. */
+export async function releaseInvite(applicationId: number, at: Date): Promise<void> {
+  try {
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: pendingAthleteKey(applicationId),
+        UpdateExpression: "REMOVE invitedAt",
+        ConditionExpression: "invitedAt = :at",
+        ExpressionAttributeValues: { ":at": at.toISOString() },
+      }),
+    );
+  } catch (err) {
+    if (!isConditionFailure(err)) throw err;
+  }
+}
+
+/** The email really went out. Without this the row reads Queued and the sync retries it. */
+export async function markInviteSent(applicationId: number, at: Date): Promise<void> {
+  try {
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: pendingAthleteKey(applicationId),
+        UpdateExpression: "SET sentAt = :at",
+        ConditionExpression: "attribute_exists(PK)",
+        ExpressionAttributeValues: { ":at": at.toISOString() },
+      }),
+    );
+  } catch (err) {
+    if (!isConditionFailure(err)) throw err; // They joined while it was sending.
   }
 }

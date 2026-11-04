@@ -122,7 +122,7 @@ export function SettingsForm() {
           checked={welcome}
           onChange={setWelcome}
           label="Send welcome and invite emails"
-          help="A welcome when someone gets access, and one invite to each accepted athlete with no account yet."
+          help="A welcome when someone gets access, and one invite to each accepted athlete with no account yet. Turn it on with auto-enable, or athletes released first never get a welcome. An admin can still send an invite by hand from Athletes."
         />
         <Switch
           checked={activityEmails}
