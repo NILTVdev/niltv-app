@@ -240,6 +240,22 @@ prod; on dev, add athletes by hand in Team & access). Invoke
 `niltv-{stage}-portal-roster-sync` with `{"dryRun": true}` to count what it
 would create or update without writing anything.
 
+## Test accounts on dev
+
+One account per role, with sample content, for people testing by hand:
+
+```
+cd backend
+PORTAL_API_URL=<PortalApiUrl output> npx tsx scripts/portal-test-accounts.ts --support-email someone@niltv.com
+```
+
+It is safe to run again, and it prints the sign-ins. `--rotate` issues new
+passwords and `--remove` deletes everything it made. Passwords live in SSM at
+`/niltv/dev/portal-test-accounts`, never in the repo. The addresses are on
+`@niltv.invalid`, so nothing is emailed to them and Forgot password cannot work.
+`--support-email` keeps the Help form pointed at a mailbox that exists, because a
+bounce would suppress that address for the whole AWS account.
+
 ## Test a deployed stage
 
 ```
