@@ -197,6 +197,7 @@ export const handler = portalHandler({
       MessagesResponse.parse({
         messages: page.messages.map((m) => presentMessage(m, ctx.caller.member, thread.meta)),
         ...(page.before ? { before: page.before } : {}),
+        lastSeq: thread.meta.seq,
       }),
     );
   },

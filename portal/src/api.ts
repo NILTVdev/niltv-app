@@ -47,6 +47,8 @@ import {
   PostingsResponse,
   Ask,
   AskActionRequest,
+  AskImageRequest,
+  AskImageResponse,
   AskUpsertRequest,
   AsksResponse,
   FileUrlResponse,
@@ -291,6 +293,8 @@ export const api = {
     request("PUT", `/v1/asks/${enc(id)}`, Ask, bodyOf(AskUpsertRequest, input)),
   askAction: (id: string, input: z.input<typeof AskActionRequest>) =>
     requestOk("POST", `/v1/asks/${enc(id)}/action`, bodyOf(AskActionRequest, input)),
+  askImage: (input: z.input<typeof AskImageRequest>) =>
+    request("POST", "/v1/asks/images", AskImageResponse, bodyOf(AskImageRequest, input)),
   startUpload: (id: string, input: z.input<typeof UploadStartRequest>) =>
     request("POST", `/v1/asks/${enc(id)}/uploads`, UploadStartResponse, bodyOf(UploadStartRequest, input)),
   uploadPart: (id: string, fileId: string, partNumber: number) =>

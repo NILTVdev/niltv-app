@@ -1,9 +1,9 @@
 import { defineConfig } from "vitest/config";
 
-// Unit tests cover the pure helpers in src/lib only (no DOM).
+// Unit tests: pure helpers, plus components rendered to a string (no DOM).
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
   },
 });

@@ -11,6 +11,7 @@ import { formatShortDate } from "../lib/time";
 import type { ScreenProps } from "../Portal";
 import { qk, useAsks } from "../queries";
 import { Empty, ErrorNote, Loading, PageHead, Pill, Tabs } from "../ui/bits";
+import { Markdown } from "../ui/Markdown";
 import { useMe } from "../ui/me";
 import { useToast } from "../ui/Toast";
 import { useFlash } from "../ui/useFlash";
@@ -104,7 +105,7 @@ function AskCard({ ask }: { ask: Ask }) {
         {status ? <Pill tone={CLAIM[status].tone}>{CLAIM[status].label}</Pill> : null}
       </div>
       <h3 id={`ask-h-${ask.id}`}>{ask.title}</h3>
-      {ask.description ? <p className="desc">{ask.description}</p> : null}
+      {ask.description ? <Markdown text={ask.description} images={ask.images} /> : null}
       {status === "changes" && ask.myClaim?.reviewNote ? (
         <p className="note">
           <b>What to change:</b> {ask.myClaim.reviewNote}

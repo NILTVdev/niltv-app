@@ -465,6 +465,8 @@ export const MessagesResponse = z.object({
   messages: z.array(PortalMessage),
   /** pass as ?before= for the next older page; absent at the start of the thread */
   before: z.string().optional(),
+  /** the thread's newest sequence number, shown or not: reading it clears the unread count */
+  lastSeq: z.number().int().nonnegative().optional(),
 });
 export type MessagesResponse = z.infer<typeof MessagesResponse>;
 
@@ -607,21 +609,44 @@ export const EventActionRequest = z.discriminatedUnion("action", [
 export type EventActionRequest = z.infer<typeof EventActionRequest>;
 
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-export const DAY_BLOCKS = ["morning", "afternoon", "evening", "late"] as const;
-export const DAY_BLOCK_LABELS: Record<(typeof DAY_BLOCKS)[number], string> = {
-  morning: "Morning",
-  afternoon: "Afternoon",
-  evening: "Evening",
-  late: "Late night",
+/** Half-hour rows from 6 AM to midnight, as "0600" ... "2330". */
+export const DAY_TIMES: readonly string[] = Array.from({ length: 36 }, (_, i) => {
+  const minutes = 360 + i * 30;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}${minutes % 60 === 0 ? "00" : "30"}`;
+});
+
+/** "1730" -> "5:30 PM" */
+export function dayTimeLabel(time: string): string {
+  const hour = Number(time.slice(0, 2));
+  return `${hour % 12 || 12}:${time.slice(2)} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** "thu-1730": a weekday and a half hour, in the member's own time zone. */
+export const AvailabilitySlot = z.string().regex(/^(mon|tue|wed|thu|fri|sat|sun)-(0[6-9]|1\d|2[0-3])(00|30)$/);
+
+/** Saved rows from when the week was four blocks a day. */
+const OLD_BLOCKS: Record<string, readonly [string, string]> = {
+  morning: ["0600", "1200"],
+  afternoon: ["1200", "1700"],
+  evening: ["1700", "2100"],
+  late: ["2100", "2400"],
 };
 
-/** "thu-evening": a weekday and a block of the day, in the member's own time zone. */
-export const AvailabilitySlot = z
-  .string()
-  .regex(/^(mon|tue|wed|thu|fri|sat|sun)-(morning|afternoon|evening|late)$/);
+export function upgradeSlots(slots: unknown): string[] {
+  if (!Array.isArray(slots)) return [];
+  const out = new Set<string>();
+  for (const slot of slots) {
+    if (typeof slot !== "string") continue;
+    const [day, block] = slot.split("-") as [string, string];
+    const range = OLD_BLOCKS[block];
+    if (!range) out.add(slot);
+    else for (const t of DAY_TIMES) if (t >= range[0] && t < range[1]) out.add(`${day}-${t}`);
+  }
+  return [...out].filter((s) => AvailabilitySlot.safeParse(s).success);
+}
 
 export const Availability = z.object({
-  slots: z.array(AvailabilitySlot).max(28),
+  slots: z.array(AvailabilitySlot).max(WEEKDAYS.length * DAY_TIMES.length),
   timezone: z.string().max(64).optional(),
   updatedAt: IsoDate.optional(),
 });
@@ -742,7 +767,10 @@ export const Ask = z.object({
   id: z.string(),
   title: z.string(),
   format: AskFormat,
+  /** Markdown */
   description: z.string().default(""),
+  /** short-lived links for the images the description uploads, by id */
+  images: z.record(z.string()).default({}),
   audience: AskAudience,
   audienceLabel: z.string(),
   /** on: staff approve each claim before the athlete starts */
@@ -763,7 +791,7 @@ export type AsksResponse = z.infer<typeof AsksResponse>;
 export const AskUpsertRequest = z.object({
   title: z.string().trim().min(1).max(100),
   format: AskFormat,
-  description: z.string().trim().max(2000).default(""),
+  description: z.string().trim().max(5000).default(""),
   audience: AskAudience,
   requiresApproval: z.boolean().default(false),
   status: z.enum(["open", "closed"]).default("open"),
@@ -784,6 +812,19 @@ export const AskActionRequest = z.discriminatedUnion("action", [
   }),
 ]);
 export type AskActionRequest = z.infer<typeof AskActionRequest>;
+
+/** Images staff put in a description. Photos only, unlike submissions. */
+export const ASK_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
+export const MAX_ASK_IMAGE_BYTES = 10 * 1024 ** 2;
+
+export const AskImageRequest = z.object({
+  type: z.enum(ASK_IMAGE_TYPES),
+  size: z.number().int().positive().max(MAX_ASK_IMAGE_BYTES),
+});
+export type AskImageRequest = z.infer<typeof AskImageRequest>;
+
+export const AskImageResponse = z.object({ id: z.string(), uploadUrl: z.string(), url: z.string() });
+export type AskImageResponse = z.infer<typeof AskImageResponse>;
 
 export const UploadStartRequest = z.object({
   name: z.string().trim().min(1).max(255),

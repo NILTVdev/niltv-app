@@ -5,6 +5,7 @@
  *   GET    /v1/asks                                  athletes: asks for them + any they claimed; staff: all + claims
  *   POST   /v1/asks                                  staff
  *   PUT    /v1/asks/{id}                             staff
+ *   POST   /v1/asks/images                           staff: a link to upload an image for a description
  *   POST   /v1/asks/{id}/action                      claim, release (athletes) · submit (athletes) · decide, review (staff)
  *   POST   /v1/asks/{id}/uploads                     start or pick up an upload
  *   POST   /v1/asks/{id}/uploads/{fileId}/part       a short-lived link for one part
@@ -23,6 +24,7 @@ import {
   GetObjectCommand,
   ListPartsCommand,
   type Part,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
@@ -31,6 +33,8 @@ import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, U
 import {
   type Ask,
   AskActionRequest,
+  AskImageRequest,
+  AskImageResponse,
   AskUpsertRequest,
   AsksResponse,
   type ClaimStatus,
@@ -53,8 +57,10 @@ import {
   StoredAsk,
   StoredClaim,
   StoredFile,
+  askImageKey,
   canChangeFiles,
   fileKey,
+  imageIds,
   partsMatch,
   presentFile,
   readPartition,
@@ -71,6 +77,8 @@ const bucket = (): string => process.env.SUBMISSIONS_BUCKET ?? "";
 /** Long enough for one 16 MB part on a slow phone connection. */
 const PART_LINK_SECONDS = 60 * 60;
 const OPEN_LINK_SECONDS = 15 * 60;
+/** The page refetches asks well inside this. */
+const IMAGE_LINK_SECONDS = 6 * 60 * 60;
 
 let s3: S3Client | undefined;
 const getS3 = (): S3Client => (s3 ??= new S3Client({}));
@@ -85,9 +93,15 @@ const askItem = (a: StoredAsk): Record<string, unknown> => ({
   ...a,
 });
 
-const present = (a: StoredAsk): Ask => {
+const imageLink = (id: string): Promise<string> =>
+  getSignedUrl(getS3(), new GetObjectCommand({ Bucket: bucket(), Key: askImageKey(id) }), { expiresIn: IMAGE_LINK_SECONDS });
+
+/** The ask as readers get it. Signing happens locally, so links cost no network call. */
+const present = async (a: StoredAsk): Promise<Ask> => {
   const { createdBySub: _by, ...rest } = a;
-  return rest;
+  const ids = imageIds(a.description);
+  const links = await Promise.all(ids.map(imageLink));
+  return { ...rest, images: Object.fromEntries(ids.map((id, i) => [id, links[i]!])) };
 };
 
 async function getAsk(id: string): Promise<StoredAsk | undefined> {
@@ -250,7 +264,7 @@ export const handler = portalHandler({
           const claim = claims.get(a.id);
           if (!claim) return present(a);
           const files = (await filesOf(a.id, caller.sub)).filter((f) => f.state === "ready");
-          return { ...present(a), myClaim: claimFields(claim, files) };
+          return { ...(await present(a)), myClaim: claimFields(claim, files) };
         }),
       );
       return ok(AsksResponse.parse({ asks }));
@@ -258,10 +272,11 @@ export const handler = portalHandler({
 
     const partitions = await Promise.all(all.map(async (a) => readPartition(await askPartition(a.id))));
     const people = await getMembers(partitions.flatMap((p) => p.claims.map((c) => c.sub)));
-    const asks = all.map((a, i) => {
+    const views = await Promise.all(all.map(present));
+    const asks = all.map((_, i) => {
       const { claims, files } = partitions[i]!;
       return {
-        ...present(a),
+        ...views[i]!,
         claims: claims.map((c) => {
           const m = people.get(c.sub);
           return {
@@ -289,7 +304,7 @@ export const handler = portalHandler({
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: askItem(ask) }));
     if (ask.status === "open") await enqueue({ type: "ask.new", askId: ask.id });
-    return ok(present(ask), 201);
+    return ok(await present(ask), 201);
   },
 
   "PUT /v1/asks/{id}": async ({ caller, body, param }) => {
@@ -305,7 +320,20 @@ export const handler = portalHandler({
       updatedAt: new Date().toISOString(),
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: askItem(ask) }));
-    return ok(present(ask));
+    return ok(await present(ask));
+  },
+
+  "POST /v1/asks/images": async ({ caller, body }) => {
+    if (!can(caller, "manageHub")) return denied();
+    const req = body(AskImageRequest);
+    if (!req) return badRequest("Use a JPG, PNG, WebP or GIF up to 10 MB.");
+    const id = newPortalId("img");
+    const uploadUrl = await getSignedUrl(
+      getS3(),
+      new PutObjectCommand({ Bucket: bucket(), Key: askImageKey(id), ContentType: req.type }),
+      { expiresIn: OPEN_LINK_SECONDS },
+    );
+    return ok(AskImageResponse.parse({ id, uploadUrl, url: await imageLink(id) }), 201);
   },
 
   "POST /v1/asks/{id}/action": async ({ caller, body, param }) => {

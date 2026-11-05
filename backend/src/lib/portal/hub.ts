@@ -72,6 +72,13 @@ export const fileKey = (askId: string, sub: string, fileId: string, name: string
 
 export const presentFile = (f: StoredFile): SubmissionFile => ({ id: f.id, name: f.name, size: f.size, type: f.type, at: f.at });
 
+export const askImageKey = (id: string): string => `submissions/ask-images/${id}`;
+
+/** The uploaded images a description points at. */
+export const imageIds = (markdown: string): string[] => [
+  ...new Set([...markdown.matchAll(/portal-image:(img-[a-z0-9]+)/g)].map((m) => m[1]!)),
+];
+
 /** Do the parts that arrived make up the file the athlete said they were sending? */
 export function partsMatch(parts: readonly { size: number }[], expectedParts: number, expectedBytes: number): boolean {
   return parts.length === expectedParts && parts.reduce((sum, p) => sum + p.size, 0) === expectedBytes;

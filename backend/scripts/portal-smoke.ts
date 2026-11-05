@@ -22,7 +22,7 @@ import {
   InitiateAuthCommand,
   SignUpCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { DeleteCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const table = "niltv-dev";
 process.env.TABLE_NAME = table;
@@ -134,6 +134,11 @@ async function main(): Promise<void> {
   /** Puts the real settings back; set once the run has swapped them. */
   let restoreSettings: (() => Promise<unknown>) | undefined;
   const people: Person[] = [];
+  // This run posts in shared channels. Their counters go back when it ends, or members see
+  // an unread count for messages cleanup removed.
+  const sharedChannels = await Promise.all(
+    ["ch-announcements", "ch-sport-womens-basketball"].map(async (id) => (await getDocClient().send(new GetCommand({ TableName: table, Key: { PK: `CONV#${id}`, SK: "META" } }))).Item),
+  );
   const created = { convs: new Set<string>(), events: [] as string[], postings: [] as string[], asks: [] as string[], requests: [] as string[], messages: [] as [string, string][] };
 
   try {
@@ -291,6 +296,7 @@ async function main(): Promise<void> {
     const annMsg = (annView.json["messages"] ?? []).find((m: Json) => m["id"] === ann.json["id"]);
     check("athletes see staff posts as NIL TV Team, without the staff name", annMsg?.["authorName"] === "NIL TV Team" && annMsg?.["staffName"] === undefined);
     const annStaffView = await call(staff, "GET", "/v1/conversations/ch-announcements/messages");
+    check("a thread reports its newest position, so opening it clears the count", annStaffView.json["lastSeq"] > 0);
     const annStaffMsg = (annStaffView.json["messages"] ?? []).find((m: Json) => m["id"] === ann.json["id"]);
     check("staff see who posted", annStaffMsg?.["staffName"] === "Smoke Admin");
 
@@ -399,9 +405,9 @@ async function main(): Promise<void> {
     const athleteEvents = await call(athlete, "GET", "/v1/events");
     check("athlete in the group sees the event", (athleteEvents.json["events"] ?? []).some((e: Json) => e["id"] === ev.json["id"]));
 
-    await call(athlete, "PUT", "/v1/availability", { slots: ["thu-evening", "sat-afternoon"], timezone: "America/New_York" });
+    await call(athlete, "PUT", "/v1/availability", { slots: ["thu-1730", "sat-1300"], timezone: "America/New_York" });
     const heat = await call(staff, "GET", `/v1/availability/heatmap?type=group&value=${encodeURIComponent(groupId)}`);
-    const thu = (heat.json["cells"] ?? []).find((c: Json) => c["slot"] === "thu-evening");
+    const thu = (heat.json["cells"] ?? []).find((c: Json) => c["slot"] === "thu-1730");
     check("the heatmap counts the athlete's availability", heat.status === 200 && thu?.["count"] === 1 && heat.json["invited"] === 2);
     check("athletes cannot read the heatmap", (await call(athlete, "GET", "/v1/availability/heatmap")).status === 403);
 
@@ -478,6 +484,16 @@ async function main(): Promise<void> {
     check("the athlete sees what to change", sentBack?.["status"] === "changes" && sentBack?.["reviewNote"] === "Smoke fix");
     check("the athlete sends it again", (await act(athlete, { action: "submit" })).status === 200);
     check("staff accept it", (await act(staff, { action: "review", personSub: athlete!.sub, outcome: "delivered" })).status === 200 && (await myAsk())?.["myClaim"]?.["status"] === "delivered");
+    // Images in a description.
+    check("athletes cannot upload ask images", (await call(athlete, "POST", "/v1/asks/images", { type: "image/png", size: 5 })).status === 403);
+    check("only photo types", (await call(staff, "POST", "/v1/asks/images", { type: "image/svg+xml", size: 5 })).status === 400);
+    const image = await call(staff, "POST", "/v1/asks/images", { type: "image/png", size: 5 });
+    const imagePut = await fetch(image.json["uploadUrl"], { method: "PUT", headers: { "content-type": "image/png" }, body: "smoke" });
+    check("staff upload an image", imagePut.ok);
+    await call(staff, "PUT", `/v1/asks/${askId}`, { ...askBody, description: `Look ![shot](portal-image:${image.json["id"]})` });
+    const imageUrl = (await myAsk())?.["images"]?.[image.json["id"]];
+    check("the athlete gets a working image link", Boolean(imageUrl) && (await (await fetch(imageUrl)).text()) === "smoke");
+    await s3.send(new DeleteObjectCommand({ Bucket: SUBMISSIONS_BUCKET, Key: `submissions/ask-images/${image.json["id"]}` }));
     const staffAsks = (await call(staff, "GET", "/v1/asks")).json["asks"] ?? [];
     const staffClaim = staffAsks.find((a: Json) => a["id"] === askId)?.["claims"]?.[0];
     check("staff see the claim and its files", staffClaim?.["status"] === "delivered" && staffClaim?.["files"]?.length === 1);
@@ -531,6 +547,7 @@ async function main(): Promise<void> {
       );
       for (const item of out.Items ?? []) await db.send(new DeleteCommand({ TableName: table, Key: { PK: item["PK"], SK: item["SK"] } }));
     }
+    for (const item of sharedChannels) if (item) await db.send(new PutCommand({ TableName: table, Item: item }));
     console.log("cleanup done");
   }
 

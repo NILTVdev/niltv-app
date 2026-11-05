@@ -148,7 +148,8 @@ export function useThread(convId: string) {
 
   // Read marker: move it to the newest message while the thread is open and visible.
   const messages = page.data?.messages ?? [];
-  const newest = newestSeq(messages);
+  // Past the last message shown too: a count must clear even when nothing is left to show.
+  const newest = Math.max(newestSeq(messages), page.data?.lastSeq ?? 0);
   const marked = useRef(0);
   useEffect(() => {
     if (!visible || newest === 0 || newest <= marked.current) return;

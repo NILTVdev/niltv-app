@@ -17,6 +17,7 @@ import {
   Audience,
   Availability,
   AvailabilityHeatmap,
+  upgradeSlots,
   EventActionRequest,
   EventUpsertRequest,
   EventsResponse,
@@ -439,7 +440,7 @@ export const handler = portalHandler({
 
   "GET /v1/availability": async ({ caller }) => {
     const out = await getDocClient().send(new GetCommand({ TableName: table(), Key: availabilityKey(caller.sub) }));
-    const parsed = Availability.safeParse(out.Item ?? {});
+    const parsed = Availability.safeParse({ ...out.Item, slots: upgradeSlots(out.Item?.["slots"]) });
     return ok(parsed.success ? parsed.data : { slots: [] });
   },
 
@@ -494,7 +495,7 @@ export const handler = portalHandler({
         const sub = String(item["GSI1SK"] ?? "");
         const name = names.get(sub);
         if (!name) continue;
-        const slots = Array.isArray(item["slots"]) ? (item["slots"] as string[]) : [];
+        const slots = upgradeSlots(item["slots"]);
         if (slots.length > 0) responded++;
         for (const slot of slots) counts.set(slot, [...(counts.get(slot) ?? []), name]);
       }

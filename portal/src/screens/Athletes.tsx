@@ -4,11 +4,13 @@
  * Accepted athletes with no account are not members yet, so they sit behind
  * their own status filter, where an admin can send the invite by hand.
  */
-import { type PendingAthlete, type PortalMember, type PortalMemberStatus, PORTAL_SPORTS } from "@niltv/types";
+import { type PendingAthlete, type PortalMember, type PortalMemberStatus } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, errorText } from "../api";
-import { CAMPUS_OPTIONS, campusName, MEMBER_STATUS, plural, STRIPE_STATUS } from "../lib/format";
+import { CAMPUS_COMBO, SPORT_COMBO } from "../lib/combo";
+import { campusName, MEMBER_STATUS, plural, STRIPE_STATUS } from "../lib/format";
+import { ComboBox } from "../ui/ComboBox";
 import { formatSeen, formatShortDate } from "../lib/time";
 import { patchMember, qk, useMembers, useOpenDesk, usePendingAthletes } from "../queries";
 import { Empty, ErrorNote, Loading, PageHead, Pill } from "../ui/bits";
@@ -99,27 +101,21 @@ export function Athletes() {
         </div>
         <div className="field">
           <label htmlFor="at-campus">Campus</label>
-          <select id="at-campus" value={campus} onChange={(e) => setCampus(e.target.value)}>
-            <option value="">Any campus</option>
-            <option value="none">No campus set</option>
-            {CAMPUS_OPTIONS.map((c) => (
-              <option key={c.slug} value={c.slug}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <ComboBox
+            id="at-campus"
+            value={campus}
+            onChange={setCampus}
+            options={[{ value: "", label: "Any campus" }, { value: "none", label: "No campus set" }, ...CAMPUS_COMBO]}
+          />
         </div>
         <div className="field">
           <label htmlFor="at-sport">Sport</label>
-          <select id="at-sport" value={sport} onChange={(e) => setSport(e.target.value)}>
-            <option value="">Any sport</option>
-            <option value="none">No sport set</option>
-            {PORTAL_SPORTS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+          <ComboBox
+            id="at-sport"
+            value={sport}
+            onChange={setSport}
+            options={[{ value: "", label: "Any sport" }, { value: "none", label: "No sport set" }, ...SPORT_COMBO]}
+          />
         </div>
       </div>
       {members.isPending ? <Loading /> : null}
@@ -438,27 +434,13 @@ function AthleteRow({ m, admin }: { m: PortalMember; admin: boolean }) {
                 <label htmlFor={`ec-${m.sub}`}>
                   Campus<span className="sr-only"> for {m.name}</span>
                 </label>
-                <select id={`ec-${m.sub}`} value={campus} onChange={(e) => setCampus(e.target.value)}>
-                  <option value="">None</option>
-                  {CAMPUS_OPTIONS.map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <ComboBox id={`ec-${m.sub}`} value={campus} onChange={setCampus} options={[{ value: "", label: "None" }, ...CAMPUS_COMBO]} />
               </div>
               <div className="field">
                 <label htmlFor={`es-${m.sub}`}>
                   Sport<span className="sr-only"> for {m.name}</span>
                 </label>
-                <select id={`es-${m.sub}`} value={sport} onChange={(e) => setSport(e.target.value)}>
-                  <option value="">None</option>
-                  {PORTAL_SPORTS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                <ComboBox id={`es-${m.sub}`} value={sport} onChange={setSport} options={[{ value: "", label: "None" }, ...SPORT_COMBO]} />
               </div>
             </div>
             <div className="row">

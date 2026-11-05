@@ -26,6 +26,11 @@ export function splitAsks(asks: readonly Ask[]): { open: Ask[]; mine: Ask[]; don
   };
 }
 
+/** Put text at the cursor; returns the new value and where the cursor lands. */
+export function insertAt(value: string, start: number, end: number, text: string): { value: string; cursor: number } {
+  return { value: value.slice(0, start) + text + value.slice(end), cursor: start + text.length };
+}
+
 export const formatBytes = (bytes: number): string => {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;

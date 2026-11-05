@@ -202,7 +202,7 @@ async function seed(tokens: Record<string, string>, subs: Record<string, string>
     status: "open",
   });
   await call(athlete, "POST", `/v1/postings/${posting["id"]}/action`, { action: "interest", interested: true });
-  await call(athlete, "PUT", "/v1/availability", { slots: ["thu-evening", "sat-afternoon"], timezone: "America/New_York" });
+  await call(athlete, "PUT", "/v1/availability", { slots: ["thu-1730", "thu-1800", "sat-1300"], timezone: "America/New_York" });
 
   return { convs: [groupId, deskId], events: [poll["id"], set["id"]], postings: [posting["id"]] };
 }

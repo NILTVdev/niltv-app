@@ -7,6 +7,7 @@ import { CLAIM, formatBytes } from "../../lib/hub";
 import { formatShortDate } from "../../lib/time";
 import { qk, useAsks } from "../../queries";
 import { Empty, ErrorNote, Loading, PageHead, Pill } from "../../ui/bits";
+import { Markdown } from "../../ui/Markdown";
 import { useMe } from "../../ui/me";
 import { useToast } from "../../ui/Toast";
 import { useFlash } from "../../ui/useFlash";
@@ -239,6 +240,10 @@ function ReviewCard({ ask, claim }: { ask: Ask; claim: AskClaim }) {
         <Pill tone={CLAIM[claim.status].tone}>{CLAIM[claim.status].label}</Pill>
       </div>
       <h3>{ask.title}</h3>
+      <details>
+        <summary className="lbl">The ask</summary>
+        <Markdown text={ask.description} images={ask.images} />
+      </details>
       {claim.note ? <p className="desc">{claim.note}</p> : null}
       <ul className="hub-files">
         {claim.files.map((f) => (

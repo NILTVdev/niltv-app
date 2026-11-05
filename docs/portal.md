@@ -275,6 +275,17 @@ audio and photos only, 2 GB per file, 10 files per claim. Browsers upload
 list before a file counts as landed. Picking the same file again carries on
 from the parts that arrived. Unfinished uploads clear after 7 days.
 
+Ask descriptions are GitHub-style Markdown (`portal/src/ui/Markdown.tsx`). Raw HTML
+never renders. Staff can upload, paste or drop an image: it lands under
+`submissions/ask-images/`, the text stores `portal-image:{id}`, and the API returns
+short-lived links in `images`, so the bucket stays private.
+
+## Availability
+
+The week is 30-minute rows from 6 AM to midnight (`DAY_TIMES`), slots like
+`thu-1730`, in each member's own time zone. `upgradeSlots` reads rows saved in the
+older four-block shape.
+
 ## Test accounts on dev
 
 One account per role, with sample content, for people testing by hand:

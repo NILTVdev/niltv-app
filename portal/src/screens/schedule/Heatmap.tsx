@@ -1,19 +1,20 @@
-/** Staff: when people are usually free, as a 7 x 4 heatmap for an audience. */
-import { DAY_BLOCK_LABELS, DAY_BLOCKS, PORTAL_SPORTS, WEEKDAYS } from "@niltv/types";
+/** Staff: when people are usually free, as a heatmap of half hours for an audience. */
+import { DAY_TIMES, WEEKDAYS, dayTimeLabel } from "@niltv/types";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../../api";
-import { CAMPUS_OPTIONS, plural } from "../../lib/format";
-import { bestSlots, heatShade, slotKey, WEEKDAY_LABELS } from "../../lib/heat";
+import { CAMPUS_COMBO, SPORT_COMBO } from "../../lib/combo";
+import { plural } from "../../lib/format";
+import { bestSlots, heatShade, hourLabel, slotKey, WEEKDAY_LABELS } from "../../lib/heat";
 import { qk, useInbox } from "../../queries";
 import { ErrorNote, Loading } from "../../ui/bits";
-import { BLOCK_HELP } from "./AvailabilityGrid";
+import { ComboBox } from "../../ui/ComboBox";
 
 type HeatType = "everyone" | "campus" | "sport" | "group";
 
 const slotLabel = (slot: string): string => {
-  const [d, b] = slot.split("-") as [keyof typeof WEEKDAY_LABELS, keyof typeof DAY_BLOCK_LABELS];
-  return `${WEEKDAY_LABELS[d] ?? d} ${(DAY_BLOCK_LABELS[b] ?? b).toLowerCase()}`;
+  const [d, t] = slot.split("-") as [keyof typeof WEEKDAY_LABELS, string];
+  return `${WEEKDAY_LABELS[d] ?? d} ${dayTimeLabel(t)}`;
 };
 
 export function Heatmap() {
@@ -58,33 +59,18 @@ export function Heatmap() {
         {type !== "everyone" ? (
           <div className="field">
             <label htmlFor="hm-value">{type === "campus" ? "Campus" : type === "sport" ? "Sport" : "Group"}</label>
-            <select
+            <ComboBox
               id="hm-value"
               value={value}
-              onChange={(e) => {
-                setValue(e.target.value);
+              placeholder="Pick one"
+              options={
+                type === "campus" ? CAMPUS_COMBO : type === "sport" ? SPORT_COMBO : groups.map((g) => ({ value: g.id, label: g.title }))
+              }
+              onChange={(next) => {
+                setValue(next);
                 setSelected(null);
               }}
-            >
-              <option value="">Pick one</option>
-              {type === "campus"
-                ? CAMPUS_OPTIONS.map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.name}
-                    </option>
-                  ))
-                : type === "sport"
-                  ? PORTAL_SPORTS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))
-                  : groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.title}
-                      </option>
-                    ))}
-            </select>
+            />
           </div>
         ) : null}
       </div>
@@ -101,19 +87,19 @@ export function Heatmap() {
             responded. Darker means more people are free. Hover or tap a cell for names.
           </p>
           <div className="avail" role="group" aria-label="Availability heatmap">
-            <span />
+            <span className="h" />
             {WEEKDAYS.map((d) => (
               <span key={d} className="h" aria-hidden="true">
                 {WEEKDAY_LABELS[d]}
               </span>
             ))}
-            {DAY_BLOCKS.map((b) => (
-              <div key={b} style={{ display: "contents" }}>
+            {DAY_TIMES.map((t) => (
+              <div key={t} style={{ display: "contents" }}>
                 <span className="rl" aria-hidden="true">
-                  {DAY_BLOCK_LABELS[b]}
+                  {hourLabel(t)}
                 </span>
                 {WEEKDAYS.map((d) => {
-                  const key = slotKey(d, b);
+                  const key = slotKey(d, t);
                   const cell = cells.get(key);
                   const count = cell?.count ?? 0;
                   return (
@@ -153,7 +139,7 @@ export function Heatmap() {
               .
             </p>
           ) : null}
-          <p className="meta">{BLOCK_HELP} Each person sets the blocks in their own time zone.</p>
+          <p className="meta">Each person sets their times in their own time zone.</p>
         </>
       ) : null}
     </div>

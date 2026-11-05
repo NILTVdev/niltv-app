@@ -1,6 +1,6 @@
 import { MAX_SUBMISSION_BYTES, SUBMISSION_PART_BYTES, submissionParts, submissionTypeAllowed } from "@niltv/types";
 import { describe, expect, it } from "vitest";
-import { CLAIM_FROM, canChangeFiles, fileKey, partsMatch, readPartition, safeFileName } from "./hub";
+import { CLAIM_FROM, canChangeFiles, fileKey, imageIds, partsMatch, readPartition, safeFileName } from "./hub";
 
 describe("claim moves", () => {
   it("never lets a delivered or submitted claim be given back", () => {
@@ -66,6 +66,16 @@ describe("what can be sent", () => {
     expect(submissionParts(MAX_SUBMISSION_BYTES)).toBe(128);
     expect(submissionParts(1)).toBe(1);
     expect(submissionParts(SUBMISSION_PART_BYTES + 1)).toBe(2);
+  });
+});
+
+describe("imageIds", () => {
+  it("finds each uploaded image once", () => {
+    expect(imageIds("![a](portal-image:img-1a) ![b](portal-image:img-2b) ![a](portal-image:img-1a)")).toEqual(["img-1a", "img-2b"]);
+  });
+
+  it("ignores outside images and anything that is not an id", () => {
+    expect(imageIds("![a](https://niltv.com/a.png) portal-image:../../secret")).toEqual([]);
   });
 });
 

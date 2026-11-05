@@ -344,6 +344,7 @@ export class PortalStack extends Stack {
       ["/v1/postings/{id}", [M.PUT], postingsFn],
       ["/v1/postings/{id}/action", [M.POST], postingsFn],
       ["/v1/asks", [M.GET, M.POST], asksFn],
+      ["/v1/asks/images", [M.POST], asksFn],
       ["/v1/asks/{id}", [M.PUT], asksFn],
       ["/v1/asks/{id}/action", [M.POST], asksFn],
       ["/v1/asks/{id}/uploads", [M.POST], asksFn],

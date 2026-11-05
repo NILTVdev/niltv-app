@@ -1,17 +1,23 @@
 /** Post or edit an ask: title, format, one description, who it is for, and optional approval. */
 import {
+  ASK_IMAGE_TYPES,
   type Ask,
   type AskAudience,
+  type AskImageRequest,
   AskUpsertRequest,
   CAMPUS_CHANNELS,
-  PORTAL_SPORTS,
+  MAX_ASK_IMAGE_BYTES,
 } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { api, errorText } from "../../api";
-import { CAMPUS_OPTIONS, describeIssues } from "../../lib/format";
+import { CAMPUS_COMBO, SPORT_COMBO } from "../../lib/combo";
+import { describeIssues } from "../../lib/format";
+import { insertAt } from "../../lib/hub";
 import { qk } from "../../queries";
-import { Switch } from "../../ui/bits";
+import { Switch, Tabs } from "../../ui/bits";
+import { ComboBox } from "../../ui/ComboBox";
+import { Markdown } from "../../ui/Markdown";
 import { useToast } from "../../ui/Toast";
 
 export function AskForm({ ask, onDone }: { ask?: Ask; onDone: () => void }) {
@@ -27,6 +33,10 @@ export function AskForm({ ask, onDone }: { ask?: Ask; onDone: () => void }) {
   const [requiresApproval, setRequiresApproval] = useState(ask?.requiresApproval ?? false);
   const [status, setStatus] = useState<"open" | "closed">(ask?.status ?? "open");
   const [error, setError] = useState<string | null>(null);
+  const [descTab, setDescTab] = useState<"write" | "preview">("write");
+  const [images, setImages] = useState<Record<string, string>>(ask?.images ?? {});
+  const [adding, setAdding] = useState(false);
+  const descRef = useRef<HTMLTextAreaElement>(null);
 
   const save = useMutation({
     mutationFn: (body: ReturnType<typeof AskUpsertRequest.parse>) => (ask ? api.updateAsk(ask.id, body) : api.createAsk(body)),
@@ -37,6 +47,30 @@ export function AskForm({ ask, onDone }: { ask?: Ask; onDone: () => void }) {
     },
     onError: (err) => setError(errorText(err)),
   });
+
+  const addImage = (file: File) => {
+    setError(null);
+    if (!(ASK_IMAGE_TYPES as readonly string[]).includes(file.type) || file.size > MAX_ASK_IMAGE_BYTES) {
+      return setError("Use a JPG, PNG, WebP or GIF up to 10 MB.");
+    }
+    const box = descRef.current;
+    const start = box?.selectionStart ?? description.length;
+    const end = box?.selectionEnd ?? description.length;
+    setAdding(true);
+    void (async () => {
+      try {
+        const { id, uploadUrl, url } = await api.askImage({ type: file.type as AskImageRequest["type"], size: file.size });
+        const put = await fetch(uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
+        if (!put.ok) throw new Error("The image did not upload. Try again.");
+        setImages((all) => ({ ...all, [id]: url }));
+        setDescription((text) => insertAt(text, start, end, `![image](portal-image:${id})`).value);
+      } catch (err) {
+        setError(errorText(err));
+      } finally {
+        setAdding(false);
+      }
+    })();
+  };
 
   const audience = (): AskAudience | string => {
     if (audType === "campus") return campus ? { type: "campus", campus } : "Pick a campus.";
@@ -77,16 +111,69 @@ export function AskForm({ ask, onDone }: { ask?: Ask; onDone: () => void }) {
             <option value="long">Long form</option>
           </select>
         </div>
-        <div className="field">
-          <label htmlFor="ask-desc">Description</label>
-          <textarea
-            id="ask-desc"
-            rows={5}
-            maxLength={2000}
-            value={description}
-            placeholder="What to film, how long, and anything to avoid"
-            onChange={(e) => setDescription(e.target.value)}
+        <div className="field ask-desc">
+          <span className="lbl" id="ask-desc-l">
+            Description
+          </span>
+          <Tabs
+            idBase="ask-desc"
+            label="Description"
+            value={descTab}
+            onChange={setDescTab}
+            tabs={[
+              { key: "write", label: "Write" },
+              { key: "preview", label: "Preview" },
+            ]}
           />
+          <div id="ask-desc-panel" role="tabpanel" aria-labelledby={`ask-desc-${descTab}`}>
+            {descTab === "write" ? (
+              <textarea
+                id="ask-desc"
+                ref={descRef}
+                aria-labelledby="ask-desc-l"
+                rows={8}
+                maxLength={5000}
+                value={description}
+                placeholder="What to film, how long, and anything to avoid"
+                onChange={(e) => setDescription(e.target.value)}
+                onPaste={(e) => {
+                  const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
+                  if (!file) return;
+                  e.preventDefault();
+                  addImage(file);
+                }}
+                onDrop={(e) => {
+                  const file = [...e.dataTransfer.files].find((f) => f.type.startsWith("image/"));
+                  if (!file) return;
+                  e.preventDefault();
+                  addImage(file);
+                }}
+              />
+            ) : description.trim() ? (
+              <div className="md-preview">
+                <Markdown text={description} images={images} />
+              </div>
+            ) : (
+              <p className="note md-preview">Nothing to preview yet.</p>
+            )}
+          </div>
+          <div className="row">
+            <label className="btn ghost sm hub-pick">
+              {adding ? "Adding…" : "Add image"}
+              <input
+                className="sr-only"
+                type="file"
+                accept={ASK_IMAGE_TYPES.join(",")}
+                disabled={adding}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) addImage(file);
+                }}
+              />
+            </label>
+            <span className="hint">Markdown works here: **bold**, lists, links, tables. Paste or drop an image too.</span>
+          </div>
         </div>
         <div className="field" style={{ maxWidth: 260 }}>
           <label htmlFor="ask-aud">Who it is for</label>
@@ -99,28 +186,14 @@ export function AskForm({ ask, onDone }: { ask?: Ask; onDone: () => void }) {
         {audType === "campus" ? (
           <div className="field" style={{ maxWidth: 260 }}>
             <label htmlFor="ask-campus">Campus</label>
-            <select id="ask-campus" value={campus} onChange={(e) => setCampus(e.target.value)}>
-              <option value="">Pick a campus</option>
-              {CAMPUS_OPTIONS.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <ComboBox id="ask-campus" value={campus} onChange={setCampus} options={CAMPUS_COMBO} placeholder="Type or pick a campus" />
             {campus && !CAMPUS_CHANNELS[campus] ? <span className="hint">Unknown campus: {campus}</span> : null}
           </div>
         ) : null}
         {audType === "sport" ? (
           <div className="field" style={{ maxWidth: 260 }}>
             <label htmlFor="ask-sport">Sport</label>
-            <select id="ask-sport" value={sport} onChange={(e) => setSport(e.target.value)}>
-              <option value="">Pick a sport</option>
-              {PORTAL_SPORTS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <ComboBox id="ask-sport" value={sport} onChange={setSport} options={SPORT_COMBO} placeholder="Type or pick a sport" />
           </div>
         ) : null}
         <Switch

@@ -9,12 +9,13 @@ import {
   EventUpsertRequest,
   type PortalEvent,
   type PortalEventKind,
-  PORTAL_SPORTS,
 } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api, errorText } from "../../api";
-import { CAMPUS_OPTIONS, describeIssues, isHttpUrl } from "../../lib/format";
+import { CAMPUS_COMBO, SPORT_COMBO } from "../../lib/combo";
+import { describeIssues, isHttpUrl } from "../../lib/format";
+import { ComboBox } from "../../ui/ComboBox";
 import { utcToWallTime, wallTimeToUtc, zoneAbbr } from "../../lib/time";
 import { qk, useInbox, useMembers } from "../../queries";
 import { ErrorNote } from "../../ui/bits";
@@ -163,28 +164,14 @@ export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () =
           {audType === "campus" ? (
             <div className="field full">
               <label htmlFor="ev-campus">Campus</label>
-              <select id="ev-campus" value={campus} onChange={(e) => setCampus(e.target.value)}>
-                <option value="">Pick a campus</option>
-                {CAMPUS_OPTIONS.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <ComboBox id="ev-campus" value={campus} onChange={setCampus} options={CAMPUS_COMBO} placeholder="Type or pick a campus" />
               {campus && !CAMPUS_CHANNELS[campus] ? <span className="hint">Unknown campus: {campus}</span> : null}
             </div>
           ) : null}
           {audType === "sport" ? (
             <div className="field full">
               <label htmlFor="ev-sport">Sport</label>
-              <select id="ev-sport" value={sport} onChange={(e) => setSport(e.target.value)}>
-                <option value="">Pick a sport</option>
-                {PORTAL_SPORTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <ComboBox id="ev-sport" value={sport} onChange={setSport} options={SPORT_COMBO} placeholder="Type or pick a sport" />
             </div>
           ) : null}
           {audType === "group" ? (

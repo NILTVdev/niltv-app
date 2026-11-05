@@ -1,6 +1,6 @@
 import { type Ask, type ClaimStatus, MAX_SUBMISSION_BYTES, SUBMISSION_PART_BYTES } from "@niltv/types";
 import { describe, expect, it } from "vitest";
-import { formatBytes, hubCount, splitAsks } from "./hub";
+import { formatBytes, hubCount, insertAt, splitAsks } from "./hub";
 import { partRange, partsToSend, retryDelay } from "./upload";
 
 const AT = "2026-11-05T12:00:00.000Z";
@@ -11,6 +11,7 @@ const ask = (over: Partial<Ask>): Ask => ({
   format: "short",
   description: "",
   audience: { type: "everyone" },
+  images: {},
   audienceLabel: "Every athlete",
   requiresApproval: false,
   status: "open",
@@ -76,6 +77,13 @@ describe("upload parts", () => {
 
   it("backs off between attempts", () => {
     expect([0, 1, 2, 3].map(retryDelay)).toEqual([1, 2, 4, 8]);
+  });
+});
+
+describe("insertAt", () => {
+  it("puts text at the cursor and replaces a selection", () => {
+    expect(insertAt("abcd", 2, 2, "X")).toEqual({ value: "abXcd", cursor: 3 });
+    expect(insertAt("abcd", 1, 3, "X")).toEqual({ value: "aXd", cursor: 2 });
   });
 });
 
