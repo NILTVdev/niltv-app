@@ -203,7 +203,7 @@ function StaffHome() {
       </section>
       <section className="stack" aria-label="Counts">
         <CountRow to={pathFor("messages")} text="Unread messages" n={unread} />
-        <CountRow to={pathFor("schedule")} text="Time polls ready to lock" n={polls.length} />
+        <CountRow to={pathFor("schedule")} text="Events waiting on a final time" n={polls.length} />
         {can("manageRequests") ? <CountRow to={pathFor("requests")} text="Open page change requests" n={openRequests} /> : null}
         {admin ? <CountRow to={pathFor("athletes")} text="Athletes waiting for access" n={ready} /> : null}
       </section>

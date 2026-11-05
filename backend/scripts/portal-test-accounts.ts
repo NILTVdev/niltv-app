@@ -181,7 +181,7 @@ async function seed(tokens: Record<string, string>, subs: Record<string, string>
   const poll = await call(staff, "POST", "/v1/events", {
     title: "Test stream night",
     kind: "stream",
-    description: "A sample time poll. Pick the times that work.",
+    description: "A sample event with times to pick. Tick the ones that work.",
     audience: { type: "group", convId: groupId },
     options: [{ startsAt: daysFromNow(5, 23) }, { startsAt: daysFromNow(6, 23) }],
   });

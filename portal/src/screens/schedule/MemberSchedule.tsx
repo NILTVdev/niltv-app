@@ -66,7 +66,7 @@ export function MemberSchedule({ id }: { id?: string }) {
               ))}
             </div>
           ) : (
-            <Empty>No time polls right now.</Empty>
+            <Empty>No times to pick right now.</Empty>
           )
         ) : null}
         {tab === "upcoming" && events.data ? (

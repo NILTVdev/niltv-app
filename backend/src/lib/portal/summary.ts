@@ -174,7 +174,7 @@ export function summaryEmail(
         ? `${t.unread} new, including an @mention of you`
         : plural(t.unread, "new message", "new messages"),
     })),
-    ...content.polls.map((p) => ({ label: `Pick your times: ${p.title}`, detail: "A time poll is waiting on your answer." })),
+    ...content.polls.map((p) => ({ label: `Pick your times: ${p.title}`, detail: "These times are waiting on your answer." })),
     ...content.events.map((e) => ({ label: e.title, detail: `${formatWhen(e.startsAt, member.timezone)}. You have not replied yet.` })),
     ...content.postings.map((p) => ({ label: `New posting: ${p.title}` })),
     ...content.notes.map((n) => ({ label: n.text })),

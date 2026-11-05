@@ -80,12 +80,12 @@ export function StaffSchedule({ id }: { id?: string }) {
             {events.isPending ? <Loading /> : null}
             <ErrorNote error={events.error} onRetry={() => void events.refetch()} />
             <div className="bar">
-              <h2>Time polls</h2>
+              <h2>Pick a time</h2>
               <button type="button" className="btn" onClick={() => setTab("form")}>
                 New event
               </button>
             </div>
-            {polls.length ? <div className="grid">{polls.map(card)}</div> : <Empty>No open polls.</Empty>}
+            {polls.length ? <div className="grid">{polls.map(card)}</div> : <Empty>No events waiting on a time.</Empty>}
             <div className="bar">
               <h2>Set</h2>
             </div>

@@ -26,7 +26,7 @@ export function EventTop({ e }: { e: PortalEvent }) {
         <span className="fmt">{EVENT_KIND_LABELS[e.kind]}</span>
         <span className="tgt">{e.audienceLabel}</span>
       </span>
-      {e.status === "cancelled" ? <Pill tone="bad">Cancelled</Pill> : e.status === "poll" ? <Pill tone="info">Time poll</Pill> : null}
+      {e.status === "cancelled" ? <Pill tone="bad">Cancelled</Pill> : e.status === "poll" ? <Pill tone="info">Pick a time</Pill> : null}
     </div>
   );
 }

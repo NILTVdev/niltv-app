@@ -147,7 +147,7 @@ summary if still unseen), daily summary, or off.
 | `groups` | group chats | right away |
 | `announcements` | Announcements | right away |
 | `channels` | All athletes, campus and sport chats (never push) | off |
-| `schedule` | polls, set times, new times, cancellations | right away |
+| `schedule` | Pick a time events (`poll` in the code), set times, new times, cancellations | right away |
 | `postings` | new internal postings | daily |
 
 How it flows:

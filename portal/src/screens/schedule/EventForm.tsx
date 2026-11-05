@@ -1,6 +1,6 @@
 /**
  * Staff: create or edit an event. One time makes a set event; two or more
- * make a time poll. Times are typed in the viewer's zone and sent in UTC.
+ * ask invitees to pick a time. Times are typed in the viewer's zone and sent in UTC.
  */
 import {
   type Audience,
@@ -72,7 +72,7 @@ export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () =
           ? "Event saved."
           : filled.length === 1
             ? "Event created. Invitees are notified."
-            : "Poll sent. Invitees pick the times that work.",
+            : "Sent. Invitees pick the times that work.",
       );
       onDone();
     },
@@ -283,7 +283,7 @@ export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () =
           <p className="note" role="status">
             {filled.length <= 1
               ? "One time: this is a set event. Invitees RSVP."
-              : `${filled.length} times: this is a time poll. Invitees tick every time that works, then you lock one.`}
+              : `${filled.length} times: invitees tick every time that works, then you lock one.`}
           </p>
           {event && event.status !== "poll" && filled.length > 1 ? (
             <p className="hint">If the locked time is still in the list, the event stays set at that time.</p>
@@ -297,7 +297,7 @@ export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () =
         ) : null}
         <div className="row">
           <button className="btn" type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving…" : event ? "Save event" : filled.length > 1 ? "Send the poll" : "Create event"}
+            {save.isPending ? "Saving…" : event ? "Save event" : filled.length > 1 ? "Send the times" : "Create event"}
           </button>
           <button className="btn ghost" type="button" onClick={onDone}>
             Cancel

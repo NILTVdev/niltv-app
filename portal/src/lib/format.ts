@@ -99,7 +99,7 @@ export const NOTIFY_LABELS: Record<NotifyTopic, { label: string; help: string }>
   groups: { label: "Group chats", help: "New messages in your groups." },
   announcements: { label: "Announcements", help: "Posts from the NIL TV team." },
   channels: { label: "Campus and sport chats", help: "Every athlete, campus and sport channels. These never send a phone notification." },
-  schedule: { label: "Schedule", help: "Time polls, set times, changes and cancellations." },
+  schedule: { label: "Schedule", help: "Times to pick, set times, changes and cancellations." },
   postings: { label: "Internal postings", help: "New postings you can raise your hand for." },
 };
 
