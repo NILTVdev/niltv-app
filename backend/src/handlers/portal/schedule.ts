@@ -5,7 +5,7 @@
  *   GET  /v1/events                      events the caller is invited to (staff: all)
  *   POST /v1/events                      staff: one time = a set event, more = a time poll
  *   PUT  /v1/events/{id}                 staff: edit
- *   POST /v1/events/{id}/action          lock | cancel (staff) · vote | rsvp (invitees)
+ *   POST /v1/events/{id}/action          lock | reopen | remind | cancel (staff) · vote | rsvp (invitees)
  *   GET  /v1/availability                my weekly availability
  *   PUT  /v1/availability
  *   GET  /v1/availability/heatmap        staff: ?type=everyone|campus|sport|group&value=
@@ -21,6 +21,7 @@ import {
   EventUpsertRequest,
   EventsResponse,
   type PortalEvent,
+  type PortalMember,
   PortalEventKind,
   PortalEventStatus,
   type PortalPerson,
@@ -39,11 +40,12 @@ import {
   portalEventRsvpKey,
   portalEventVoteKey,
 } from "../../lib/db";
-import { type Caller, can, denied } from "../../lib/portal/access";
+import { type Caller, can, conflictResult, denied } from "../../lib/portal/access";
 import { audienceIncludes, audienceLabel, resolveAudience } from "../../lib/portal/audience";
 import { listMemberships } from "../../lib/portal/conversations";
+import { type VoteRow, clearRsvps, eventReplies, hasAnswered, markGoing } from "../../lib/portal/events";
 import { newPortalId } from "../../lib/portal/ids";
-import { formerMember, getMembers, toPerson } from "../../lib/portal/members";
+import { formerMember, getMembers, getSettings, toPerson } from "../../lib/portal/members";
 import { enqueue } from "../../lib/portal/notify";
 import { badRequest, notFound, ok, portalHandler } from "../../lib/portal/router";
 
@@ -66,12 +68,17 @@ const StoredEvent = z.object({
   createdByName: z.string(),
   createdAt: z.string(),
   updatedAt: z.string().optional(),
+  /** when a time was last added: everyone is asked again */
+  timesChangedAt: z.string().optional(),
+  remindedAt: z.string().optional(),
   invitedCount: z.number().int().default(0),
 });
 type StoredEvent = z.infer<typeof StoredEvent>;
 
 const KEEP_PAST_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** The most names one list carries; the count covers the rest. */
+const WAITING_SHOWN = 20;
 
 /** Option ids come from the start time, so an edit that keeps a time keeps its votes. */
 export const optionId = (startsAt: string): string => `o-${Date.parse(startsAt).toString(36)}`;
@@ -124,39 +131,17 @@ async function listEvents(): Promise<StoredEvent[]> {
     .map((item) => StoredEvent.safeParse(item))
     .filter((p): p is { success: true; data: StoredEvent } => p.success)
     .map((p) => p.data)
-    .filter((e) => e.status === "poll" || lastTime(e) >= cutoff);
+    .filter((e) => lastTime(e) >= cutoff);
 }
 
-/** Every vote and RSVP on an event (staff view). */
-async function repliesFor(id: string): Promise<{ votes: Map<string, string[]>; rsvps: Map<string, RsvpStatus> }> {
-  const votes = new Map<string, string[]>();
-  const rsvps = new Map<string, RsvpStatus>();
-  let startKey: Record<string, unknown> | undefined;
-  do {
-    const page = await getDocClient().send(
-      new QueryCommand({
-        TableName: table(),
-        KeyConditionExpression: "PK = :pk",
-        ExpressionAttributeValues: { ":pk": `PEVENT#${id}` },
-        ExclusiveStartKey: startKey,
-      }),
-    );
-    for (const item of page.Items ?? []) {
-      const sk = String(item["SK"] ?? "");
-      if (sk.startsWith("VOTE#") && Array.isArray(item["optionIds"])) votes.set(sk.slice(5), item["optionIds"] as string[]);
-      if (sk.startsWith("RSVP#")) {
-        const status = RsvpStatus.safeParse(item["status"]);
-        if (status.success) rsvps.set(sk.slice(5), status.data);
-      }
-    }
-    startKey = page.LastEvaluatedKey;
-  } while (startKey);
-  return { votes, rsvps };
+interface MyReply {
+  vote?: VoteRow;
+  rsvp?: RsvpStatus;
 }
 
 /** The caller's own vote and RSVP across many events, in one BatchGet per 50 events. */
-async function myReplies(events: StoredEvent[], sub: string): Promise<Map<string, { votes: string[]; rsvp?: RsvpStatus }>> {
-  const out = new Map<string, { votes: string[]; rsvp?: RsvpStatus }>();
+async function myReplies(events: StoredEvent[], sub: string): Promise<Map<string, MyReply>> {
+  const out = new Map<string, MyReply>();
   for (let i = 0; i < events.length; i += 50) {
     const keys = events
       .slice(i, i + 50)
@@ -164,8 +149,10 @@ async function myReplies(events: StoredEvent[], sub: string): Promise<Map<string
     const res = await getDocClient().send(new BatchGetCommand({ RequestItems: { [table()]: { Keys: keys } } }));
     for (const item of res.Responses?.[table()] ?? []) {
       const id = String(item["PK"] ?? "").slice("PEVENT#".length);
-      const entry = out.get(id) ?? { votes: [] };
-      if (String(item["SK"]).startsWith("VOTE#") && Array.isArray(item["optionIds"])) entry.votes = item["optionIds"] as string[];
+      const entry = out.get(id) ?? {};
+      if (String(item["SK"]).startsWith("VOTE#") && Array.isArray(item["optionIds"])) {
+        entry.vote = { optionIds: item["optionIds"] as string[], at: item["at"] as string | undefined };
+      }
       if (String(item["SK"]).startsWith("RSVP#")) {
         const status = RsvpStatus.safeParse(item["status"]);
         if (status.success) entry.rsvp = status.data;
@@ -176,15 +163,18 @@ async function myReplies(events: StoredEvent[], sub: string): Promise<Map<string
   return out;
 }
 
-function present(e: StoredEvent, mine: { votes: string[]; rsvp?: RsvpStatus } | undefined): PortalEvent {
-  const { createdBySub: _by, ...rest } = e;
+function present(e: StoredEvent, mine: MyReply | undefined): PortalEvent {
+  const { createdBySub: _by, timesChangedAt: _changed, ...rest } = e;
   const optionIds = new Set(e.options.map((o) => o.id));
   return {
     ...rest,
-    myVotes: (mine?.votes ?? []).filter((id) => optionIds.has(id)),
+    myVotes: (mine?.vote?.optionIds ?? []).filter((id) => optionIds.has(id)),
+    myAnswered: hasAnswered(e, mine?.vote),
     ...(mine?.rsvp ? { myRsvp: mine.rsvp } : {}),
   };
 }
+
+const hasStarted = (o: { startsAt: string }, now: number): boolean => Date.parse(o.startsAt) <= now;
 
 async function groupIdsOf(caller: Caller): Promise<Set<string>> {
   return new Set((await listMemberships(caller.sub)).filter((m) => m.kind === "group" && !m.marker).map((m) => m.convId));
@@ -193,6 +183,26 @@ async function groupIdsOf(caller: Caller): Promise<Set<string>> {
 async function isInvited(caller: Caller, e: StoredEvent): Promise<boolean> {
   if (isStaffRole(caller.member.role)) return true;
   return audienceIncludes(e.audience, caller.member, await groupIdsOf(caller));
+}
+
+/** Change an event only if it is still in the status the caller saw. False when it was not. */
+async function moveStatus(id: string, from: PortalEvent["status"], update: string, values: Record<string, unknown>): Promise<boolean> {
+  try {
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: portalEventKey(id),
+        UpdateExpression: update,
+        ConditionExpression: "#s = :from",
+        ExpressionAttributeNames: { "#s": "status" },
+        ExpressionAttributeValues: { ":from": from, ...values },
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return false;
+    throw err;
+  }
 }
 
 const HeatmapQuery = z.object({
@@ -209,8 +219,16 @@ export const handler = portalHandler({
     const mine = await myReplies(visible, caller.sub);
     if (!staff) return ok(EventsResponse.parse({ events: visible.map((e) => present(e, mine.get(e.id))) }));
 
-    // Staff see who picked what.
-    const replies = await Promise.all(visible.map((e) => repliesFor(e.id)));
+    // Staff see who picked what, and who has not answered.
+    const replies = await Promise.all(visible.map((e) => eventReplies(e.id)));
+    const audiences = new Map<string, Promise<PortalMember[]>>();
+    const invitedTo = (e: StoredEvent): Promise<PortalMember[]> => {
+      const key = JSON.stringify(e.audience);
+      const known = audiences.get(key) ?? resolveAudience(e.audience);
+      audiences.set(key, known);
+      return known;
+    };
+    const invited = await Promise.all(visible.map((e) => (e.status === "poll" ? invitedTo(e) : [])));
     const subs = replies.flatMap((r) => [...r.votes.keys(), ...r.rsvps.keys()]);
     const people = await getMembers(subs);
     const person = (sub: string): PortalPerson => {
@@ -219,13 +237,22 @@ export const handler = portalHandler({
     };
     const events = visible.map((e, i) => {
       const { votes, rsvps } = replies[i]!;
+      const waiting = invited[i]!.filter((m) => !hasAnswered(e, votes.get(m.sub)));
       return {
         ...present(e, mine.get(e.id)),
         votes: e.options.map((o) => ({
           optionId: o.id,
-          people: [...votes.entries()].filter(([, ids]) => ids.includes(o.id)).map(([sub]) => person(sub)),
+          people: [...votes.entries()].filter(([, v]) => v.optionIds.includes(o.id)).map(([sub]) => person(sub)),
         })),
         rsvps: [...rsvps.entries()].map(([sub, status]) => ({ person: person(sub), status })),
+        ...(e.status === "poll"
+          ? {
+              noneWork: [...votes.entries()].filter(([, v]) => v.optionIds.length === 0 && hasAnswered(e, v)).map(([sub]) => person(sub)),
+              waiting: waiting.slice(0, WAITING_SHOWN).map(toPerson),
+              waitingCount: waiting.length,
+              invitedCount: invited[i]!.length,
+            }
+          : {}),
       };
     });
     return ok(EventsResponse.parse({ events }));
@@ -272,6 +299,10 @@ export const handler = portalHandler({
     const lockedStillThere = current.lockedOptionId && options.some((o) => o.id === current.lockedOptionId);
     const status = current.status === "cancelled" ? "cancelled" : options.length === 1 ? "set" : lockedStillThere ? "set" : "poll";
     const lockedOptionId = status === "set" ? (lockedStillThere ? current.lockedOptionId : options[0]!.id) : undefined;
+    const known = new Set(current.options.map((o) => o.id));
+    const added = options.some((o) => !known.has(o.id));
+    const timesChanged = added || options.length !== current.options.length;
+    const nowIso = new Date().toISOString();
     const event: StoredEvent = {
       ...current,
       title: req.title,
@@ -285,9 +316,15 @@ export const handler = portalHandler({
       audience: req.audience,
       audienceLabel: await audienceLabel(req.audience),
       invitedCount: (await resolveAudience(req.audience)).length,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
+      // A new time asks everyone again, so nobody is left answering the old list.
+      ...(status === "poll" && added ? { timesChangedAt: nowIso } : {}),
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: eventItem(event) }));
+    if (current.status === "set" && status === "poll") {
+      await clearRsvps(event.id, [...(await eventReplies(event.id)).rsvps.keys()]);
+    }
+    if (status === "poll" && timesChanged) await enqueue({ type: "event.times", eventId: event.id });
     // A set event that moved tells its invitees (right away when it is close).
     const before = current.status === "set" ? current.options.find((o) => o.id === current.lockedOptionId) : undefined;
     const after = event.status === "set" ? event.options.find((o) => o.id === event.lockedOptionId) : undefined;
@@ -308,18 +345,54 @@ export const handler = portalHandler({
     switch (req.action) {
       case "lock": {
         if (!can(caller, "manageEvents")) return denied();
-        if (!event.options.some((o) => o.id === req.optionId)) return badRequest("Unknown time.");
-        await db.send(
-          new UpdateCommand({
-            TableName: table(),
-            Key: portalEventKey(event.id),
-            UpdateExpression: "SET #s = :set, lockedOptionId = :o, updatedAt = :now",
-            ExpressionAttributeNames: { "#s": "status" },
-            ExpressionAttributeValues: { ":set": "set", ":o": req.optionId, ":now": now },
-          }),
-        );
+        const option = event.options.find((o) => o.id === req.optionId);
+        if (!option) return badRequest("Unknown time.");
+        if (hasStarted(option, Date.now())) return badRequest("That time has passed.");
+        // Only an event still waiting on a time can lock, so a stale screen cannot revive a
+        // cancelled event or overwrite a colleague's choice.
+        if (!(await moveStatus(event.id, "poll", "SET #s = :to, lockedOptionId = :o, updatedAt = :now", { ":to": "set", ":o": req.optionId, ":now": now }))) {
+          return conflictResult("CONFLICT", "This event changed. Refresh to see it.");
+        }
+        const { votes, rsvps } = await eventReplies(event.id);
+        const going = [...votes.entries()].filter(([sub, v]) => v.optionIds.includes(req.optionId) && !rsvps.has(sub)).map(([sub]) => sub);
+        await markGoing(event.id, going, now);
         await enqueue({ type: "event.locked", eventId: event.id });
         return ok(present({ ...event, status: "set", lockedOptionId: req.optionId, updatedAt: now }, undefined));
+      }
+      case "reopen": {
+        if (!can(caller, "manageEvents")) return denied();
+        if (event.options.length < 2) return badRequest("This event only has one time.");
+        if (!(await moveStatus(event.id, "set", "SET #s = :to, updatedAt = :now REMOVE lockedOptionId", { ":to": "poll", ":now": now }))) {
+          return conflictResult("CONFLICT", "This event changed. Refresh to see it.");
+        }
+        await clearRsvps(event.id, [...(await eventReplies(event.id)).rsvps.keys()]);
+        await enqueue({ type: "event.times", eventId: event.id });
+        const { lockedOptionId: _locked, ...open } = event;
+        return ok(present({ ...open, status: "poll", updatedAt: now }, undefined));
+      }
+      case "remind": {
+        if (!can(caller, "manageEvents")) return denied();
+        if (event.status !== "poll") return conflictResult("CONFLICT", "This event is not waiting on a time.");
+        const settings = await getSettings();
+        if (!settings.activityEmails && !settings.webPush) {
+          return conflictResult("CONFLICT", "Notifications are off, so a reminder cannot reach anyone yet.");
+        }
+        try {
+          await db.send(
+            new UpdateCommand({
+              TableName: table(),
+              Key: portalEventKey(event.id),
+              UpdateExpression: "SET remindedAt = :now",
+              ConditionExpression: "attribute_not_exists(remindedAt) OR remindedAt < :cutoff",
+              ExpressionAttributeValues: { ":now": now, ":cutoff": new Date(Date.now() - DAY_MS).toISOString() },
+            }),
+          );
+        } catch (err) {
+          if ((err as { name?: string }).name !== "ConditionalCheckFailedException") throw err;
+          return conflictResult("CONFLICT", "A reminder already went out today.");
+        }
+        await enqueue({ type: "event.reminder", eventId: event.id });
+        return ok(present({ ...event, remindedAt: now }, undefined));
       }
       case "cancel": {
         if (!can(caller, "manageEvents")) return denied();
@@ -336,8 +409,11 @@ export const handler = portalHandler({
         return ok(present({ ...event, status: "cancelled", updatedAt: now }, undefined));
       }
       case "vote": {
+        if (event.status === "cancelled") return badRequest("This event was cancelled.");
         if (event.status !== "poll") return badRequest("This time is already set.");
-        const valid = new Set(event.options.map((o) => o.id));
+        const open = event.options.filter((o) => !hasStarted(o, Date.now()));
+        if (open.length === 0) return badRequest("These times have passed.");
+        const valid = new Set(open.map((o) => o.id));
         const optionIds = [...new Set(req.optionIds)].filter((id) => valid.has(id));
         await db.send(
           new PutCommand({
@@ -345,9 +421,10 @@ export const handler = portalHandler({
             Item: { ...portalEventVoteKey(event.id, caller.sub), optionIds, at: now },
           }),
         );
-        return ok(present(event, { votes: optionIds }));
+        return ok(present(event, { vote: { optionIds, at: now } }));
       }
       case "rsvp": {
+        if (event.status === "cancelled") return badRequest("This event was cancelled.");
         if (event.status !== "set") return badRequest("Pick a time first.");
         await db.send(
           new PutCommand({
@@ -355,7 +432,7 @@ export const handler = portalHandler({
             Item: { ...portalEventRsvpKey(event.id, caller.sub), status: req.status, at: now },
           }),
         );
-        return ok(present(event, { votes: [], rsvp: req.status }));
+        return ok(present(event, { rsvp: req.status }));
       }
     }
   },

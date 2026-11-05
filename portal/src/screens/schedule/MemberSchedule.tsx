@@ -3,7 +3,7 @@ import type { PortalEvent, RsvpStatus } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../api";
-import { byStart, isPast, lockedOption } from "../../lib/events";
+import { byStart, hasStarted, isPast, lockedOption, openPolls, unansweredPolls } from "../../lib/events";
 import { RSVP_LABELS } from "../../lib/format";
 import { downloadIcs } from "../../lib/ics";
 import { formatRange } from "../../lib/time";
@@ -20,9 +20,9 @@ type Tab = "pick" | "upcoming" | "avail";
 export function MemberSchedule({ id }: { id?: string }) {
   const events = useEvents();
   const all = events.data ?? [];
-  const polls = all.filter((e) => e.status === "poll").sort(byStart);
+  const polls = openPolls(all);
   const upcoming = all.filter((e) => e.status !== "poll" && !isPast(e)).sort(byStart);
-  const unanswered = polls.filter((e) => e.myVotes.length === 0).length;
+  const unanswered = unansweredPolls(all).length;
   const target = id ? all.find((e) => e.id === id) : undefined;
 
   const [tab, setTab] = useState<Tab>("pick");
@@ -94,12 +94,16 @@ function PollCard({ e }: { e: PortalEvent }) {
   const toast = useToast();
   const [picked, setPicked] = useState<Set<string>>(() => new Set(e.myVotes));
   const dirty = !sameSet(picked, e.myVotes);
+  const noneSaved = e.myAnswered && e.myVotes.length === 0;
+  // Times changed since they answered: their picks are kept, and saving confirms them.
+  const askedAgain = !e.myAnswered && e.myVotes.length > 0;
 
   const vote = useMutation({
-    mutationFn: () => api.eventAction(e.id, { action: "vote", optionIds: [...picked] }),
+    mutationFn: (optionIds: string[]) => api.eventAction(e.id, { action: "vote", optionIds }),
     onSuccess: (ev) => {
       patchEvent(qc, ev);
-      toast("Saved. Staff lock the best time.");
+      setPicked(new Set(ev.myVotes));
+      toast(ev.myVotes.length ? "Saved. Staff lock the best time." : "Saved. Staff can see none of these work for you.");
     },
   });
 
@@ -120,7 +124,7 @@ function PollCard({ e }: { e: PortalEvent }) {
         {e.options.map((o) => {
           const on = picked.has(o.id);
           return (
-            <button key={o.id} type="button" className="opt" aria-pressed={on} onClick={() => toggle(o.id)}>
+            <button key={o.id} type="button" className="opt" aria-pressed={on} disabled={hasStarted(o)} onClick={() => toggle(o.id)}>
               <span className="row tight">
                 <span className="tick" aria-hidden="true">
                   {on ? "✓" : ""}
@@ -137,17 +141,27 @@ function PollCard({ e }: { e: PortalEvent }) {
         </p>
       ) : null}
       <div className="foot row">
-        <button type="button" className="btn" disabled={!dirty || vote.isPending} onClick={() => vote.mutate()}>
+        <button
+          type="button"
+          className="btn"
+          disabled={picked.size === 0 || (!dirty && !askedAgain) || vote.isPending}
+          onClick={() => vote.mutate([...picked])}
+        >
           {vote.isPending ? "Saving…" : "Save my times"}
         </button>
+        <button type="button" className="btn ghost" disabled={noneSaved || vote.isPending} onClick={() => vote.mutate([])}>
+          None of these work
+        </button>
         <span className="note">
-          {dirty
-            ? picked.size === 0
-              ? "Saving with nothing ticked tells staff none of these work."
-              : "Not saved yet."
-            : e.myVotes.length
-              ? "Saved. Staff pick the best time."
-              : "Tick every time that works."}
+          {askedAgain && !dirty
+            ? "The times changed. Check your picks and save."
+            : dirty
+              ? "Not saved yet."
+              : noneSaved
+                ? "Saved. You said none of these work."
+                : e.myVotes.length
+                  ? "Saved. Staff pick the best time."
+                  : "Tick every time that works."}
         </span>
       </div>
     </article>

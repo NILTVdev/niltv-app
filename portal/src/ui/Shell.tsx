@@ -3,9 +3,12 @@
  * a bottom tab bar and a More sheet for the rest of the menu.
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { isStaffRole } from "@niltv/types";
+import { scheduleCount } from "../lib/events";
 import { campusName } from "../lib/format";
 import { type NavItem, type Screen, moreItems, navFor } from "../lib/nav";
 import { pathFor } from "../lib/router";
+import { useEvents } from "../queries";
 import { Avatar } from "./bits";
 import { Mark } from "./Brand";
 import { Icon, type IconName } from "./Icon";
@@ -33,6 +36,8 @@ const ICON: Record<Screen, IconName> = {
 
 export function Shell({ screen, children }: { screen: Screen; children: ReactNode }) {
   const { member, unread } = useMe();
+  const events = useEvents();
+  const scheduled = scheduleCount(events.data ?? [], isStaffRole(member.role));
   const nav = navFor(member.role);
   const extra = moreItems(member.role);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -72,15 +77,23 @@ export function Shell({ screen, children }: { screen: Screen; children: ReactNod
     };
   }, [moreOpen]);
 
-  const badge = (key: Screen) =>
-    key === "messages" && unread > 0 ? (
+  const counts: Partial<Record<Screen, { n: number; label: string }>> = {
+    messages: { n: unread, label: "unread" },
+    schedule: { n: scheduled, label: "waiting on you" },
+  };
+  const badge = (key: Screen) => {
+    const count = counts[key];
+    return count && count.n > 0 ? (
       <>
         <span className="badge hot" aria-hidden="true">
-          {unread > 99 ? "99+" : unread}
+          {count.n > 99 ? "99+" : count.n}
         </span>
-        <span className="sr-only">, {unread} unread</span>
+        <span className="sr-only">
+          , {count.n} {count.label}
+        </span>
       </>
     ) : null;
+  };
 
   const navLink = (i: NavItem) => (
     <Link key={i.key} to={pathFor(i.key)} aria-current={screen === i.key ? "page" : undefined}>
@@ -154,12 +167,14 @@ export function Shell({ screen, children }: { screen: Screen; children: ReactNod
           <Link key={i.key} to={pathFor(i.key)} aria-current={screen === i.key && !moreOpen ? "page" : undefined}>
             <Icon name={ICON[i.key]} size={22} />
             <span>{i.short}</span>
-            {i.key === "messages" && unread > 0 ? (
+            {(counts[i.key]?.n ?? 0) > 0 ? (
               <>
                 <span className="bdot" aria-hidden="true">
-                  {unread > 99 ? "99+" : unread}
+                  {counts[i.key]!.n > 99 ? "99+" : counts[i.key]!.n}
                 </span>
-                <span className="sr-only">, {unread} unread</span>
+                <span className="sr-only">
+                  , {counts[i.key]!.n} {counts[i.key]!.label}
+                </span>
               </>
             ) : null}
           </Link>

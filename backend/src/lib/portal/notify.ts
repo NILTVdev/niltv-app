@@ -17,6 +17,10 @@ export type PortalNotice =
   /** a set event's time moved (staff edited it) */
   | { type: "event.changed"; eventId: string; previousStartsAt?: string }
   | { type: "event.cancelled"; eventId: string }
+  /** the times to pick from changed, or staff reopened a set event */
+  | { type: "event.times"; eventId: string }
+  /** staff asked the people who have not answered */
+  | { type: "event.reminder"; eventId: string }
   | { type: "request.new"; requestId: string }
   | { type: "help"; sub: string; topic: HelpTopic; message: string }
   | { type: "welcome"; sub: string }

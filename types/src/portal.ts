@@ -559,11 +559,20 @@ export const PortalEvent = z.object({
   createdAt: IsoDate,
   updatedAt: IsoDate.optional(),
   myVotes: z.array(z.string()).default([]),
+  /** the member has answered these times; a saved answer with no picks means none work */
+  myAnswered: z.boolean().default(false),
   myRsvp: RsvpStatus.optional(),
   /** staff only: who picked each option */
   votes: z.array(z.object({ optionId: z.string(), people: z.array(PortalPerson) })).optional(),
   /** staff only: replies to a set event */
   rsvps: z.array(z.object({ person: PortalPerson, status: RsvpStatus })).optional(),
+  /** staff only: said none of the times work */
+  noneWork: z.array(PortalPerson).optional(),
+  /** staff only: the first invitees who have not answered; waitingCount is all of them */
+  waiting: z.array(PortalPerson).optional(),
+  waitingCount: z.number().int().nonnegative().optional(),
+  /** when staff last sent a reminder */
+  remindedAt: IsoDate.optional(),
   invitedCount: z.number().int().nonnegative().default(0),
 });
 export type PortalEvent = z.infer<typeof PortalEvent>;
@@ -586,6 +595,8 @@ export type EventUpsertRequest = z.infer<typeof EventUpsertRequest>;
 export const EventActionRequest = z.discriminatedUnion("action", [
   z.object({ action: z.literal("lock"), optionId: z.string() }),
   z.object({ action: z.literal("cancel") }),
+  z.object({ action: z.literal("reopen") }),
+  z.object({ action: z.literal("remind") }),
   z.object({ action: z.literal("vote"), optionIds: z.array(z.string()).max(12) }),
   z.object({ action: z.literal("rsvp"), status: RsvpStatus }),
 ]);

@@ -128,6 +128,8 @@ async function main(): Promise<void> {
 
   const runId = Date.now().toString(36);
   const pendingId = 900_000_000 + (Date.now() % 1_000_000);
+  /** Puts the real settings back; set once the run has swapped them. */
+  let restoreSettings: (() => Promise<unknown>) | undefined;
   const people: Person[] = [];
   const created = { convs: new Set<string>(), events: [] as string[], postings: [] as string[], requests: [] as string[], messages: [] as [string, string][] };
 
@@ -167,6 +169,14 @@ async function main(): Promise<void> {
     );
     await call(admin, "PATCH", "/v1/me", { notify: QUIET });
     const settingsNow = await call(admin, "GET", "/v1/settings");
+    // Help and page change requests always email. During a run that mail goes nowhere.
+    const realSettings = settingsNow.json;
+    restoreSettings = () => call(admin, "PUT", "/v1/settings", realSettings);
+    await call(admin, "PUT", "/v1/settings", {
+      ...realSettings,
+      supportEmail: "smoke@niltv.invalid",
+      deskEmails: { content: ["smoke@niltv.invalid"], support: ["smoke@niltv.invalid"], payments: ["smoke@niltv.invalid"] },
+    });
     const reach = me.json["notifications"] ?? {};
     check(
       "/v1/me reports the Settings notification switches",
@@ -358,7 +368,31 @@ async function main(): Promise<void> {
     check("guests cannot lock times", (await call(guest, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "lock", optionId: opt })).status === 403);
     const lock = await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "lock", optionId: opt });
     check("staff lock the time", lock.status === 200 && lock.json["status"] === "set");
-    check("the guest RSVPs", (await call(guest, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "rsvp", status: "going" })).status === 200);
+    const relock = await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "lock", optionId: opt });
+    check("a time cannot be locked twice", relock.status === 409);
+    const afterLock = (await call(guest, "GET", "/v1/events")).json["events"]?.find((e: Json) => e["id"] === ev.json["id"]);
+    check("people who picked the locked time count as going", afterLock?.["myRsvp"] === "going");
+    check("the guest RSVPs", (await call(guest, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "rsvp", status: "maybe" })).status === 200);
+    const reopen = await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "reopen" });
+    const afterReopen = (await call(guest, "GET", "/v1/events")).json["events"]?.find((e: Json) => e["id"] === ev.json["id"]);
+    check("reopening goes back to picking and clears replies", reopen.status === 200 && afterReopen?.["status"] === "poll" && !afterReopen?.["myRsvp"] && afterReopen?.["myAnswered"] === true);
+    await call(athlete, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "vote", optionIds: [] });
+    const athleteView = (await call(athlete, "GET", "/v1/events")).json["events"]?.find((e: Json) => e["id"] === ev.json["id"]);
+    const staffView = (await call(staff, "GET", "/v1/events")).json["events"]?.find((e: Json) => e["id"] === ev.json["id"]);
+    check("none of these work counts as an answer", athleteView?.["myAnswered"] === true);
+    check("staff see who said none work", (staffView?.["noneWork"] ?? []).some((p: Json) => p["sub"] === athlete!.sub));
+    check("nobody is left waiting once all have answered", staffView?.["waitingCount"] === 0);
+    check("members never see who has not answered", athleteView?.["waiting"] === undefined);
+    check("guests cannot send a reminder", (await call(guest, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "remind" })).status === 403);
+    const edited = await call(staff, "PUT", `/v1/events/${ev.json["id"]}`, {
+      title: `Smoke stream ${runId}`, kind: "stream", audience: { type: "group", convId: groupId },
+      options: [{ startsAt: t1 }, { startsAt: t2 }, { startsAt: new Date(Date.now() + 5 * 864e5).toISOString() }],
+    });
+    const asked = (await call(guest, "GET", "/v1/events")).json["events"]?.find((e: Json) => e["id"] === ev.json["id"]);
+    check("adding a time asks everyone again and keeps their picks", edited.status === 200 && asked?.["myAnswered"] === false && asked?.["myVotes"]?.includes(opt));
+    await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "lock", optionId: opt });
+    await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "cancel" });
+    check("a cancelled event cannot be locked", (await call(staff, "POST", `/v1/events/${ev.json["id"]}/action`, { action: "lock", optionId: opt })).status === 409);
     const athleteEvents = await call(athlete, "GET", "/v1/events");
     check("athlete in the group sees the event", (athleteEvents.json["events"] ?? []).some((e: Json) => e["id"] === ev.json["id"]));
 
@@ -397,6 +431,7 @@ async function main(): Promise<void> {
     check("an admin cannot change their own role", (await call(admin, "PATCH", `/v1/members/${admin!.sub}`, { role: "staff" })).status === 403);
   } finally {
     // ── Cleanup ──────────────────────────────────────────────────────────
+    await restoreSettings?.();
     const db = getDocClient();
     await db.send(new DeleteCommand({ TableName: table, Key: pendingAthleteKey(pendingId) }));
     for (const [convId, msgId] of created.messages) {

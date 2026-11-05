@@ -519,6 +519,8 @@ div.mini { cursor: default; }
 .res { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .res .btn { justify-self: start; }
 .res .meta { display: block; line-height: 1.4; }
+.restop { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.answers { margin-top: 10px; }
 .res:last-child { border-bottom: 0; }
 .meter { grid-column: 1 / -1; height: 6px; border-radius: 999px; background: var(--surface-hi); overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--gold); border-radius: 999px; }

@@ -1,6 +1,6 @@
 /** Home: what needs you now. Athletes and staff see different lists. */
 import { DESK_LABELS, EVENT_KIND_LABELS, type PortalEvent } from "@niltv/types";
-import { lockedOption, unansweredPolls, upcomingSet } from "../lib/events";
+import { lockedOption, openPolls, unansweredPolls, upcomingSet } from "../lib/events";
 import { firstName, plural } from "../lib/format";
 import { pathFor } from "../lib/router";
 import { formatRange } from "../lib/time";
@@ -171,7 +171,7 @@ function StaffHome() {
   const members = useMembers(admin);
 
   const deskUnread = (inbox.data ?? []).filter((c) => c.kind === "desk" && c.unread > 0);
-  const polls = (events.data ?? []).filter((e) => e.status === "poll");
+  const polls = openPolls(events.data ?? []);
   const upcoming = upcomingSet(events.data ?? []).slice(0, 5);
   const openRequests = (requests.data ?? []).filter((r) => r.status === "open").length;
   const ready = (members.data ?? []).filter((m) => m.role === "athlete" && m.status === "ready").length;

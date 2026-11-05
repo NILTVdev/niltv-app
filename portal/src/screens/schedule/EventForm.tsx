@@ -34,7 +34,8 @@ let rowKey = 1;
 const newRow = (start = "", end = ""): TimeRow => ({ key: rowKey++, start, end });
 
 export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () => void }) {
-  const { zone } = useMe();
+  const { zone, notifications } = useMe();
+  const reach = notifications.activityEmails || notifications.webPush;
   const qc = useQueryClient();
   const toast = useToast();
   const inbox = useInbox();
@@ -71,8 +72,8 @@ export function EventForm({ event, onDone }: { event?: PortalEvent; onDone: () =
         event
           ? "Event saved."
           : filled.length === 1
-            ? "Event created. Invitees are notified."
-            : "Sent. Invitees pick the times that work.",
+            ? `Event created.${reach ? " Invitees are notified." : ""}`
+            : `Sent.${reach ? " Invitees are notified." : " Invitees see it in the portal."}`,
       );
       onDone();
     },

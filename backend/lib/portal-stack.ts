@@ -138,6 +138,7 @@ export class PortalStack extends Stack {
           "dynamodb:DeleteItem",
           "dynamodb:Query",
           "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem",
           "dynamodb:ConditionCheckItem",
         ],
         resources: [table.tableArn, `${table.tableArn}/index/*`],

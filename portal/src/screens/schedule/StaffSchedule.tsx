@@ -3,11 +3,11 @@ import type { PortalEvent, RsvpStatus } from "@niltv/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../api";
-import { byStart, isPast } from "../../lib/events";
+import { byStart, hasStarted, isPast, openPolls, topOptions } from "../../lib/events";
 import { plural, RSVP_LABELS } from "../../lib/format";
-import { formatRange } from "../../lib/time";
+import { formatRange, formatShortDate } from "../../lib/time";
 import { qk, useEvents } from "../../queries";
-import { Empty, ErrorNote, Loading, PageHead, Tabs } from "../../ui/bits";
+import { Empty, ErrorNote, Loading, PageHead, Pill, Tabs } from "../../ui/bits";
 import { useMe } from "../../ui/me";
 import { useToast } from "../../ui/Toast";
 import { useFlash } from "../../ui/useFlash";
@@ -17,6 +17,9 @@ import { EventFacts, EventTop, patchEvent, SetTime } from "./shared";
 
 type Tab = "events" | "form" | "avail";
 
+/** Matches the server: one reminder a day per event. */
+const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 export function StaffSchedule({ id }: { id?: string }) {
   const { can } = useMe();
   const events = useEvents();
@@ -24,7 +27,8 @@ export function StaffSchedule({ id }: { id?: string }) {
   const [editing, setEditing] = useState<PortalEvent | undefined>(undefined);
 
   const all = events.data ?? [];
-  const polls = all.filter((e) => e.status === "poll").sort(byStart);
+  const polls = openPolls(all);
+  const expired = all.filter((e) => e.status === "poll" && isPast(e)).sort((a, b) => byStart(b, a));
   const set = all.filter((e) => e.status === "set" && !isPast(e)).sort(byStart);
   const cancelled = all.filter((e) => e.status === "cancelled").sort(byStart);
   const past = all.filter((e) => e.status === "set" && isPast(e)).sort((a, b) => byStart(b, a));
@@ -98,6 +102,14 @@ export function StaffSchedule({ id }: { id?: string }) {
                 </div>
               </details>
             ) : null}
+            {expired.length ? (
+              <details>
+                <summary className="lbl">Times passed with none chosen ({expired.length})</summary>
+                <div className="grid" style={{ marginTop: 12 }}>
+                  {expired.map(card)}
+                </div>
+              </details>
+            ) : null}
             {past.length ? (
               <details>
                 <summary className="lbl">Past 30 days ({past.length})</summary>
@@ -116,28 +128,39 @@ export function StaffSchedule({ id }: { id?: string }) {
 }
 
 function StaffEventCard({ e, onEdit }: { e: PortalEvent; onEdit: () => void }) {
-  const { zone } = useMe();
+  const { zone, notifications } = useMe();
   const qc = useQueryClient();
   const toast = useToast();
+  const reach = notifications.activityEmails || notifications.webPush;
+  const told = reach ? " Invitees are notified." : "";
 
   const act = useMutation({
-    mutationFn: (input: { action: "lock"; optionId: string } | { action: "cancel" }) => api.eventAction(e.id, input),
+    mutationFn: (input: { action: "lock"; optionId: string } | { action: "cancel" | "reopen" | "remind" }) =>
+      api.eventAction(e.id, input),
     onSuccess: (ev, input) => {
       patchEvent(qc, ev);
       void qc.invalidateQueries({ queryKey: qk.events });
-      toast(input.action === "lock" ? "Locked. Invitees are notified." : "Cancelled. Invitees are notified.");
+      const done = { lock: "Locked.", cancel: "Cancelled.", reopen: "Reopened.", remind: "Reminder sent." }[input.action];
+      toast(input.action === "remind" ? done : `${done}${told}`);
     },
   });
 
   const votes = new Map((e.votes ?? []).map((v) => [v.optionId, v.people]));
   const max = Math.max(1, ...e.options.map((o) => votes.get(o.id)?.length ?? 0));
-  const voters = new Set((e.votes ?? []).flatMap((v) => v.people.map((p) => p.sub)));
+  const top = topOptions(e);
+  const waitingCount = e.waitingCount ?? 0;
+  const waiting = (e.waiting ?? []).map((p) => p.name);
+  const noneWork = (e.noneWork ?? []).map((p) => p.name);
+  const remindedLately = e.remindedAt !== undefined && Date.now() - Date.parse(e.remindedAt) < REMINDER_COOLDOWN_MS;
 
   const lock = (optionId: string, label: string) => {
-    if (window.confirm(`Lock ${label}? Invitees are notified.`)) act.mutate({ action: "lock", optionId });
+    if (window.confirm(`Lock ${label}?${told}`)) act.mutate({ action: "lock", optionId });
   };
   const cancel = () => {
-    if (window.confirm(`Cancel "${e.title}"? Invitees are notified.`)) act.mutate({ action: "cancel" });
+    if (window.confirm(`Cancel "${e.title}"?${told}`)) act.mutate({ action: "cancel" });
+  };
+  const reopen = () => {
+    if (window.confirm(`Reopen "${e.title}"? The set time comes off and replies are cleared. Picks stay.`)) act.mutate({ action: "reopen" });
   };
 
   const byStatus = (s: RsvpStatus) => (e.rsvps ?? []).filter((r) => r.status === s).map((r) => r.person.name);
@@ -152,7 +175,7 @@ function StaffEventCard({ e, onEdit }: { e: PortalEvent; onEdit: () => void }) {
       {e.status === "poll" ? (
         <div>
           <p className="meta">
-            {voters.size} of {plural(e.invitedCount, "invitee")} answered.
+            {e.invitedCount - waitingCount} of {plural(e.invitedCount, "invitee")} answered.
           </p>
           {e.options.map((o) => {
             const people = votes.get(o.id) ?? [];
@@ -160,23 +183,59 @@ function StaffEventCard({ e, onEdit }: { e: PortalEvent; onEdit: () => void }) {
             return (
               <div className="res" key={o.id}>
                 <span>
-                  <span className="t">{label}</span>
+                  <span className="restop">
+                    <span className="t">{label}</span>
+                    {top.has(o.id) ? <Pill tone="warn">Most picks</Pill> : null}
+                  </span>
                   <span className="meta">{people.length ? people.map((p) => p.name).join(", ") : "Nobody yet"}</span>
                 </span>
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  disabled={act.isPending}
-                  onClick={() => lock(o.id, label)}
-                >
-                  Lock this time
-                </button>
+                {hasStarted(o) ? (
+                  <span className="meta">This time has passed.</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={act.isPending}
+                    onClick={() => lock(o.id, label)}
+                  >
+                    Lock this time
+                  </button>
+                )}
                 <span className="meter" aria-hidden="true">
                   <i style={{ width: `${(people.length / max) * 100}%` }} />
                 </span>
               </div>
             );
           })}
+          {noneWork.length ? (
+            <p className="note answers">
+              <span className="muted">None of these work: </span>
+              {noneWork.join(", ")}
+            </p>
+          ) : null}
+          {waitingCount > 0 ? (
+            <div className="stack answers" style={{ gap: 6 }}>
+              <p className="note">
+                <span className="muted">Not answered yet: </span>
+                {waiting.join(", ")}
+                {waitingCount > waiting.length ? ` and ${waitingCount - waiting.length} more` : ""}
+              </p>
+              {!isPast(e) && reach ? (
+                <div className="row">
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={act.isPending || remindedLately}
+                    onClick={() => act.mutate({ action: "remind" })}
+                  >
+                    Send a reminder
+                  </button>
+                  {e.remindedAt ? <span className="meta">Last sent {formatShortDate(e.remindedAt, zone)}</span> : null}
+                </div>
+              ) : null}
+              {!isPast(e) && !reach ? <span className="hint">Reminders work once notifications are on.</span> : null}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="stack" style={{ gap: 4 }}>
@@ -203,6 +262,11 @@ function StaffEventCard({ e, onEdit }: { e: PortalEvent; onEdit: () => void }) {
         <button type="button" className="btn ghost sm" onClick={onEdit}>
           Edit
         </button>
+        {e.status === "set" && e.options.length > 1 && !isPast(e) ? (
+          <button type="button" className="btn ghost sm" disabled={act.isPending} onClick={reopen}>
+            Reopen
+          </button>
+        ) : null}
         {e.status !== "cancelled" ? (
           <button type="button" className="btn danger sm" disabled={act.isPending} onClick={cancel}>
             Cancel event

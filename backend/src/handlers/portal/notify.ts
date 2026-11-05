@@ -56,6 +56,7 @@ import {
 } from "../../lib/portal/conversations";
 import { type PortalEmail, formatWhen, isTestAddress, sendEmail } from "../../lib/portal/emails";
 import { deskRecipients, deskStaff, getMember, getMembers, getSettings, listMembers } from "../../lib/portal/members";
+import { eventReplies, hasAnswered } from "../../lib/portal/events";
 import { getPending, markInviteSent } from "../../lib/portal/pending";
 import type { PortalNotice } from "../../lib/portal/notify";
 import {
@@ -312,6 +313,7 @@ const EventRow = z.object({
   lockedOptionId: z.string().optional(),
   audience: z.any(),
   location: z.string().optional(),
+  timesChangedAt: z.string().optional(),
 });
 
 /** Starts within LAST_MINUTE_MS from now (and has not long passed). */
@@ -326,7 +328,12 @@ async function eventNotice(notice: Extract<PortalNotice, { type: `event.${string
   const parsed = EventRow.safeParse((await getRow(portalEventKey(notice.eventId))) ?? {});
   if (!parsed.success) return;
   const e = parsed.data;
-  const invitees = (await resolveAudience(e.audience as PortalEvent["audience"])).filter((m) => m.status === "active");
+  let invitees = (await resolveAudience(e.audience as PortalEvent["audience"])).filter((m) => m.status === "active");
+  if (notice.type === "event.reminder") {
+    if (e.status !== "poll") return;
+    const { votes } = await eventReplies(e.id);
+    invitees = invitees.filter((m) => !hasAnswered(e, votes.get(m.sub)));
+  }
   const locked = e.options.find((o) => o.id === e.lockedOptionId);
   const kind = EVENT_KIND_LABELS[e.kind];
   const path = `/schedule/${encodeURIComponent(e.id)}`;
@@ -360,7 +367,9 @@ async function eventNotice(notice: Extract<PortalNotice, { type: `event.${string
         button: { label: "See the details", path },
       };
     } else if (e.status === "poll") {
-      push = { title: "Pick your times", body: e.title, url: path, tag };
+      const title =
+        notice.type === "event.times" ? "New times to pick" : notice.type === "event.reminder" ? "Reminder: pick your times" : "Pick your times";
+      push = { title, body: e.title, url: path, tag };
     } else {
       push = {
         title: notice.type === "event.locked" ? "Time set" : kind,
@@ -481,6 +490,8 @@ export async function handleNotice(notice: PortalNotice, now: Date = new Date())
     case "event.locked":
     case "event.changed":
     case "event.cancelled":
+    case "event.times":
+    case "event.reminder":
       return eventNotice(notice, { settings: await getSettings(), now });
     case "request.new":
       return requestNotice(notice.requestId);

@@ -27,6 +27,7 @@ import {
   portalEventVoteKey,
 } from "../db";
 import { audienceIncludes } from "./audience";
+import { hasAnswered } from "./events";
 import { inbox, listMemberships } from "./conversations";
 import { type PortalEmail, formatWhen } from "./emails";
 import { type SummaryNote, cadenceFor, messageTopic } from "./prefs";
@@ -54,6 +55,7 @@ const EventRow = z.object({
   id: z.string(),
   title: z.string(),
   status: z.enum(["poll", "set", "cancelled"]),
+  timesChangedAt: z.string().optional(),
   options: z.array(z.object({ id: z.string(), startsAt: z.string(), endsAt: z.string().optional() })),
   lockedOptionId: z.string().optional(),
   audience: Audience,
@@ -89,7 +91,14 @@ async function answered(events: EventRow[], sub: string): Promise<Set<string>> {
       const sk = String(item["SK"] ?? "");
       const event = events.find((e) => e.id === id);
       if (!event) continue;
-      if (event.status === "poll" && sk.startsWith("VOTE#") && Array.isArray(item["optionIds"]) && item["optionIds"].length > 0) out.add(id);
+      if (
+        event.status === "poll" &&
+        sk.startsWith("VOTE#") &&
+        Array.isArray(item["optionIds"]) &&
+        hasAnswered(event, { optionIds: item["optionIds"] as string[], at: item["at"] as string | undefined })
+      ) {
+        out.add(id);
+      }
       if (event.status === "set" && sk.startsWith("RSVP#")) out.add(id);
     }
   }

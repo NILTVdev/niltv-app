@@ -240,6 +240,16 @@ prod; on dev, add athletes by hand in Team & access). Invoke
 `niltv-{stage}-portal-roster-sync` with `{"dryRun": true}` to count what it
 would create or update without writing anything.
 
+## Pick a time
+
+Two or more times make a Pick a time event (`poll` in the code). Invitees tick every
+time that works or say none work, and a saved answer with nothing ticked counts as an
+answer. Staff see the picks, who said none work, who has not answered, and can send a
+reminder once a day while notifications are on. Locking a time marks everyone who picked
+it as going, and they can change that. Reopen takes the set time off, clears replies and
+keeps picks. Adding a time asks everyone again with their picks kept. Once every time has
+passed the event leaves members' screens, and staff find it under Times passed.
+
 ## Test accounts on dev
 
 One account per role, with sample content, for people testing by hand:

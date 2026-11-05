@@ -29,6 +29,24 @@ export const byStart = (a: PortalEvent, b: PortalEvent): number => eventStartMs(
 export const upcomingSet = (events: readonly PortalEvent[], now: number = Date.now()): PortalEvent[] =>
   events.filter((e) => e.status === "set" && !isPast(e, now)).sort(byStart);
 
+/** Events still waiting on a final time, soonest first. Once every time has passed there is nothing to pick. */
+export const openPolls = (events: readonly PortalEvent[], now: number = Date.now()): PortalEvent[] =>
+  events.filter((e) => e.status === "poll" && !isPast(e, now)).sort(byStart);
+
 /** Open polls the member has not answered. */
-export const unansweredPolls = (events: readonly PortalEvent[]): PortalEvent[] =>
-  events.filter((e) => e.status === "poll" && e.myVotes.length === 0);
+export const unansweredPolls = (events: readonly PortalEvent[], now: number = Date.now()): PortalEvent[] =>
+  openPolls(events, now).filter((e) => !e.myAnswered);
+
+/** The number on the Schedule menu item: what is waiting on this person. */
+export function scheduleCount(events: readonly PortalEvent[], staff: boolean, now: number = Date.now()): number {
+  if (staff) return openPolls(events, now).length;
+  return unansweredPolls(events, now).length + upcomingSet(events, now).filter((e) => !e.myRsvp).length;
+}
+
+/** The option ids with the most picks. None until somebody has picked. */
+export function topOptions(e: PortalEvent): Set<string> {
+  const most = Math.max(0, ...(e.votes ?? []).map((v) => v.people.length));
+  return new Set(most === 0 ? [] : (e.votes ?? []).filter((v) => v.people.length === most).map((v) => v.optionId));
+}
+
+export const hasStarted = (o: TimeOption, now: number = Date.now()): boolean => Date.parse(o.startsAt) <= now;
