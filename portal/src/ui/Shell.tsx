@@ -5,10 +5,11 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { isStaffRole } from "@niltv/types";
 import { scheduleCount } from "../lib/events";
+import { hubCount } from "../lib/hub";
 import { campusName } from "../lib/format";
 import { type NavItem, type Screen, moreItems, navFor } from "../lib/nav";
 import { pathFor } from "../lib/router";
-import { useEvents } from "../queries";
+import { useAsks, useEvents } from "../queries";
 import { Avatar } from "./bits";
 import { Mark } from "./Brand";
 import { Icon, type IconName } from "./Icon";
@@ -35,8 +36,9 @@ const ICON: Record<Screen, IconName> = {
 };
 
 export function Shell({ screen, children }: { screen: Screen; children: ReactNode }) {
-  const { member, unread } = useMe();
+  const { member, unread, can } = useMe();
   const events = useEvents();
+  const asks = useAsks(can("viewHub"));
   const scheduled = scheduleCount(events.data ?? [], isStaffRole(member.role));
   const nav = navFor(member.role);
   const extra = moreItems(member.role);
@@ -80,6 +82,7 @@ export function Shell({ screen, children }: { screen: Screen; children: ReactNod
   const counts: Partial<Record<Screen, { n: number; label: string }>> = {
     messages: { n: unread, label: "unread" },
     schedule: { n: scheduled, label: "waiting on you" },
+    hub: { n: hubCount(asks.data ?? [], isStaffRole(member.role)), label: "waiting on you" },
   };
   const badge = (key: Screen) => {
     const count = counts[key];

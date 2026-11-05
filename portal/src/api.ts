@@ -45,6 +45,15 @@ import {
   PostingActionRequest,
   PostingUpsertRequest,
   PostingsResponse,
+  Ask,
+  AskActionRequest,
+  AskUpsertRequest,
+  AsksResponse,
+  FileUrlResponse,
+  SubmissionFile,
+  UploadPartRequest,
+  UploadStartRequest,
+  UploadStartResponse,
   PushDevice,
   PushDevicesResponse,
   PushRemoveRequest,
@@ -98,7 +107,7 @@ function messageFor(status: number, code: string, serverMessage: string | undefi
   }
 }
 
-type Method = "GET" | "POST" | "PUT" | "PATCH";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /** Fetch with the bearer token; throws PortalApiError for any non-2xx. */
 async function call(method: Method, path: string, body?: unknown): Promise<Response> {
@@ -273,6 +282,24 @@ export const api = {
     request("PUT", `/v1/postings/${enc(id)}`, Posting, bodyOf(PostingUpsertRequest, input)),
   postingAction: (id: string, input: z.input<typeof PostingActionRequest>) =>
     requestOk("POST", `/v1/postings/${enc(id)}/action`, bodyOf(PostingActionRequest, input)),
+
+  /* content hub */
+  asks: () => request("GET", "/v1/asks", AsksResponse),
+  createAsk: (input: z.input<typeof AskUpsertRequest>) =>
+    request("POST", "/v1/asks", Ask, bodyOf(AskUpsertRequest, input)),
+  updateAsk: (id: string, input: z.input<typeof AskUpsertRequest>) =>
+    request("PUT", `/v1/asks/${enc(id)}`, Ask, bodyOf(AskUpsertRequest, input)),
+  askAction: (id: string, input: z.input<typeof AskActionRequest>) =>
+    requestOk("POST", `/v1/asks/${enc(id)}/action`, bodyOf(AskActionRequest, input)),
+  startUpload: (id: string, input: z.input<typeof UploadStartRequest>) =>
+    request("POST", `/v1/asks/${enc(id)}/uploads`, UploadStartResponse, bodyOf(UploadStartRequest, input)),
+  uploadPart: (id: string, fileId: string, partNumber: number) =>
+    request("POST", `/v1/asks/${enc(id)}/uploads/${enc(fileId)}/part`, FileUrlResponse, bodyOf(UploadPartRequest, { partNumber })),
+  completeUpload: (id: string, fileId: string) =>
+    request("POST", `/v1/asks/${enc(id)}/uploads/${enc(fileId)}/complete`, SubmissionFile),
+  removeUpload: (id: string, fileId: string) => requestOk("DELETE", `/v1/asks/${enc(id)}/uploads/${enc(fileId)}`),
+  fileUrl: (id: string, sub: string, fileId: string) =>
+    request("GET", `/v1/asks/${enc(id)}/files/${enc(sub)}/${enc(fileId)}`, FileUrlResponse),
 
   /* requests and help */
   requests: () => request("GET", "/v1/requests", PortalRequestsResponse),

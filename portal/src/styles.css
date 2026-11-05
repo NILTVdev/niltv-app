@@ -671,3 +671,13 @@ div.mini { cursor: default; }
   .tabs { gap: 0; }
   .tabs button { padding-inline: 6px; font-size: 14px; }
 }
+
+/* Content Hub: sending files */
+.hub-submit { margin-top: 4px; }
+.hub-pick { align-self: flex-start; cursor: pointer; }
+.hub-pick:focus-within { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.hub-files { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hub-files li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; min-width: 0; }
+.hub-files .linkbtn:first-child, .hub-files .t { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.hub-files .linkbtn { min-height: 44px; }
+.hub-files progress { flex-basis: 100%; width: 100%; height: 6px; accent-color: var(--gold-ink); }

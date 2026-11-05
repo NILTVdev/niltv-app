@@ -21,6 +21,7 @@ export const qk = {
   availability: ["availability"] as const,
   heatmap: (type: string, value: string | undefined) => ["heatmap", type, value ?? ""] as const,
   postings: ["postings"] as const,
+  asks: ["asks"] as const,
   requests: ["requests"] as const,
   myPosts: ["my-posts"] as const,
   settings: ["settings"] as const,
@@ -52,6 +53,10 @@ export function useEvents(enabled = true) {
 
 export function usePostings(enabled = true) {
   return useQuery({ queryKey: qk.postings, queryFn: api.postings, select: (r) => r.postings, enabled });
+}
+
+export function useAsks(enabled = true) {
+  return useQuery({ queryKey: qk.asks, queryFn: api.asks, select: (r) => r.asks, enabled });
 }
 
 export function useRequests(enabled = true) {

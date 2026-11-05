@@ -1,161 +1,43 @@
 /**
- * Content Hub: a static PREVIEW of asks and claims from the approved mockup.
- * Nothing here calls the API and every action is disabled until the
- * feature ships. Sample data has no real names.
+ * Content Hub: asks from the team. Athletes claim one, film it and send it
+ * here; staff decide on claims and accept the work or send it back.
  */
-import { useState } from "react";
-import { Empty, PageHead, Pill, Tabs } from "../ui/bits";
+import { ASK_FORMAT_LABELS, type Ask } from "@niltv/types";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { api, errorText } from "../api";
+import { CLAIM, splitAsks } from "../lib/hub";
+import { formatShortDate } from "../lib/time";
+import type { ScreenProps } from "../Portal";
+import { qk, useAsks } from "../queries";
+import { Empty, ErrorNote, Loading, PageHead, Pill, Tabs } from "../ui/bits";
 import { useMe } from "../ui/me";
-import type { Tone } from "../lib/format";
+import { useToast } from "../ui/Toast";
+import { useFlash } from "../ui/useFlash";
+import { StaffHub } from "./hub/StaffHub";
+import { Submit } from "./hub/Submit";
 
-type ClaimState = "requested" | "claimed" | "submitted" | "delivered" | "declined";
-
-const CLAIM: Record<ClaimState, { label: string; tone: Tone }> = {
-  requested: { label: "Needs approval", tone: "neutral" },
-  claimed: { label: "Claimed", tone: "warn" },
-  submitted: { label: "In review", tone: "info" },
-  delivered: { label: "Delivered", tone: "ok" },
-  declined: { label: "Not approved", tone: "bad" },
-};
-
-interface SampleAsk {
-  id: number;
-  title: string;
-  format: "Short form" | "Long form";
-  target: string;
-  approval: boolean;
-  posted: string;
-  desc: string;
-  mine?: ClaimState;
-  claims: { who: string; status: ClaimState }[];
+export function ContentHub({ id }: ScreenProps) {
+  const { member } = useMe();
+  return member.role === "athlete" ? <AthleteHub id={id} /> : <StaffHub id={id} />;
 }
 
-const ASKS: SampleAsk[] = [
-  {
-    id: 1,
-    title: "Preseason prediction",
-    format: "Short form",
-    target: "Women's Basketball",
-    approval: false,
-    posted: "Oct 15",
-    desc: "Give one bold prediction for your team this season. 20 to 30 seconds, vertical, talking to camera.",
-    claims: [],
-  },
-  {
-    id: 2,
-    title: "Media day, behind the scenes",
-    format: "Long form",
-    target: "Women's Basketball",
-    approval: true,
-    posted: "Oct 14",
-    desc: "Film the parts of media day nobody sees: the waiting around and the photo setups.\nPhone footage is perfect. Send 3 to 5 minutes of raw clips.",
-    mine: "requested",
-    claims: [{ who: "Athlete A", status: "requested" }],
-  },
-  {
-    id: 3,
-    title: "Rules of your sport, rapid fire",
-    format: "Short form",
-    target: "Every athlete",
-    approval: false,
-    posted: "Oct 13",
-    desc: "Answer five rules questions about your sport on camera. We send the questions once you claim.\nVertical, 60 to 90 seconds.",
-    claims: [
-      { who: "Athlete B", status: "submitted" },
-      { who: "Athlete C", status: "claimed" },
-    ],
-  },
-  {
-    id: 4,
-    title: "Walk-in fit check",
-    format: "Short form",
-    target: "TrueBlue TV",
-    approval: false,
-    posted: "Oct 12",
-    desc: "Home game. Ten seconds of your outfit on the way in. One take is fine.",
-    mine: "claimed",
-    claims: [{ who: "Athlete A", status: "claimed" }],
-  },
-  {
-    id: 5,
-    title: "Pitch a story for the podcast",
-    format: "Long form",
-    target: "Every athlete",
-    approval: true,
-    posted: "Oct 12",
-    desc: "Record a voice memo or video pitching a story you would tell on the NIL TV podcast.",
-    claims: [{ who: "Athlete D", status: "requested" }],
-  },
-  {
-    id: 6,
-    title: "Home opener hype clip",
-    format: "Short form",
-    target: "TrueBlue TV",
-    approval: false,
-    posted: "Sep 24",
-    desc: "Locker room energy before the opener. Keep teammates who opt out off camera.",
-    mine: "delivered",
-    claims: [
-      { who: "Athlete A", status: "delivered" },
-      { who: "Athlete B", status: "delivered" },
-    ],
-  },
-];
+type Tab = "open" | "mine" | "done";
 
-function PreviewBanner() {
-  return (
-    <div className="banner" role="note">
-      <Pill tone="info">Preview</Pill>
-      <span>Preview. Asks and claims are coming soon.</span>
-    </div>
-  );
-}
+function AthleteHub({ id }: { id?: string }) {
+  const asks = useAsks();
+  const [tab, setTab] = useState<Tab>("open");
+  const { open, mine, done } = splitAsks(asks.data ?? []);
+  const target = id ? asks.data?.find((a) => a.id === id) : undefined;
+  useFlash(target ? `ask-${target.id}` : undefined, Boolean(target));
 
-function AskCard({ ask }: { ask: SampleAsk }) {
-  return (
-    <article className="card" aria-label={ask.title}>
-      <div className="card-top">
-        <span className="row tight">
-          <span className={`fmt${ask.format === "Long form" ? " long" : ""}`}>{ask.format}</span>
-          <span className="tgt">{ask.target}</span>
-        </span>
-        {ask.mine ? <Pill tone={CLAIM[ask.mine].tone}>{CLAIM[ask.mine].label}</Pill> : null}
-      </div>
-      <h3>{ask.title}</h3>
-      <p className="desc">{ask.desc}</p>
-      <div className="meta">Posted {ask.posted}</div>
-      <div className="foot row">
-        {!ask.mine ? (
-          <>
-            <button type="button" className="btn" disabled>
-              {ask.approval ? "Request to claim" : "Claim this"}
-            </button>
-            {ask.approval ? <span className="note">Staff approve this one first.</span> : null}
-          </>
-        ) : ask.mine === "claimed" ? (
-          <>
-            <button type="button" className="btn" disabled>
-              Submit content
-            </button>
-            <button type="button" className="btn ghost" disabled>
-              Give it back
-            </button>
-          </>
-        ) : ask.mine === "requested" ? (
-          <span className="note">Waiting for staff to approve.</span>
-        ) : (
-          <span className="note">Delivered and accepted.</span>
-        )}
-      </div>
-    </article>
-  );
-}
+  // A link to one ask lands on the tab that holds it.
+  useEffect(() => {
+    if (!target) return;
+    const status = target.myClaim?.status;
+    setTab(!status ? "open" : status === "delivered" ? "done" : "mine");
+  }, [target]);
 
-function AthleteHub() {
-  const [tab, setTab] = useState<"open" | "mine" | "done">("open");
-  const open = ASKS.filter((a) => !a.mine);
-  const mine = ASKS.filter((a) => a.mine && a.mine !== "delivered");
-  const done = ASKS.filter((a) => a.mine === "delivered");
   const list = tab === "open" ? open : tab === "mine" ? mine : done;
   return (
     <>
@@ -164,155 +46,112 @@ function AthleteHub() {
         sub="Content the NIL TV team is looking for. Claim what you want to make, film it, and send it in here."
         access="You and staff"
       />
-      <PreviewBanner />
-      <Tabs
-        idBase="hub"
-        label="Asks"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { key: "open", label: "Open asks", count: open.length },
-          { key: "mine", label: "My claims", count: mine.length },
-          { key: "done", label: "Delivered", count: done.length },
-        ]}
-      />
-      <div id="hub-panel" role="tabpanel" aria-labelledby={`hub-${tab}`}>
-        {list.length ? (
-          <div className="grid">
-            {list.map((a) => (
-              <AskCard key={a.id} ask={a} />
-            ))}
+      {id && asks.data && !target ? <p className="err">That ask is closed or no longer listed.</p> : null}
+      {asks.isPending ? <Loading /> : null}
+      <ErrorNote error={asks.error} onRetry={() => void asks.refetch()} />
+      {asks.data ? (
+        <>
+          <Tabs
+            idBase="hub"
+            label="Asks"
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { key: "open", label: "Open asks", count: open.length },
+              { key: "mine", label: "My claims", count: mine.length },
+              { key: "done", label: "Delivered", count: done.length },
+            ]}
+          />
+          <div id="hub-panel" role="tabpanel" aria-labelledby={`hub-${tab}`}>
+            {list.length ? (
+              <div className="grid">
+                {list.map((a) => (
+                  <AskCard key={a.id} ask={a} />
+                ))}
+              </div>
+            ) : (
+              <Empty>Nothing here yet.</Empty>
+            )}
           </div>
-        ) : (
-          <Empty>Nothing here yet.</Empty>
-        )}
-      </div>
+        </>
+      ) : null}
     </>
   );
 }
 
-function StaffHub() {
-  const claims = ASKS.flatMap((a) => a.claims);
-  const n = (s: ClaimState) => claims.filter((c) => c.status === s).length;
-  const pending = ASKS.flatMap((a) => a.claims.filter((c) => c.status === "requested").map((c) => ({ a, c })));
+function AskCard({ ask }: { ask: Ask }) {
+  const { zone, member } = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [submitting, setSubmitting] = useState(false);
+  const status = ask.myClaim?.status;
+  const action = useMutation({
+    mutationFn: (kind: "claim" | "release") => api.askAction(ask.id, { action: kind }),
+    onSuccess: (_, kind) => {
+      void qc.invalidateQueries({ queryKey: qk.asks });
+      toast(kind === "release" ? "Given back." : ask.requiresApproval ? "Requested. Staff will decide." : "Claimed. It's under My claims.");
+    },
+  });
+  const working = status === "claimed" || status === "changes";
+
   return (
-    <>
-      <PageHead title="Content Hub" access="Staff and admins" />
-      <PreviewBanner />
-      <div className="stats">
-        <div className="stat">
-          <b>{ASKS.length}</b>
-          <span>Open asks</span>
-        </div>
-        <div className="stat">
-          <b>{n("requested")}</b>
-          <span>Waiting approval</span>
-        </div>
-        <div className="stat">
-          <b>{n("claimed")}</b>
-          <span>Claimed</span>
-        </div>
-        <div className="stat">
-          <b>{n("submitted")}</b>
-          <span>In review</span>
-        </div>
-        <div className="stat">
-          <b>{n("delivered")}</b>
-          <span>Delivered</span>
-        </div>
+    <article className="card" id={`ask-${ask.id}`} aria-labelledby={`ask-h-${ask.id}`}>
+      <div className="card-top">
+        <span className="row tight">
+          <span className={`fmt${ask.format === "long" ? " long" : ""}`}>{ASK_FORMAT_LABELS[ask.format]}</span>
+          <span className="tgt">{ask.audienceLabel}</span>
+        </span>
+        {status ? <Pill tone={CLAIM[status].tone}>{CLAIM[status].label}</Pill> : null}
       </div>
-      <div className="bar">
-        <h2>All asks</h2>
-        <button type="button" className="btn" disabled>
-          Post a new ask
-        </button>
-      </div>
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Ask</th>
-              <th scope="col">Approval</th>
-              <th scope="col">Claims</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ASKS.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <div className="t">{a.title}</div>
-                  <div className="c">
-                    {a.format} · {a.target} · Posted {a.posted}
-                  </div>
-                </td>
-                <td data-label="Approval">{a.approval ? <Pill tone="warn">On</Pill> : <Pill tone="neutral">Off</Pill>}</td>
-                <td data-label="Claims">
-                  {a.claims.length ? (
-                    <div className="who-list">
-                      {a.claims.map((c) => (
-                        <div className="who-row" key={c.who}>
-                          {c.who} <Pill tone={CLAIM[c.status].tone}>{CLAIM[c.status].label}</Pill>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="muted">No claims yet</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="bar">
-        <h2>Claim requests</h2>
-      </div>
-      <p className="note">
-        Asks with approval on land here. Approve and the athlete can start filming. Decline and the ask stays open.
-      </p>
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Athlete</th>
-              <th scope="col">Ask</th>
-              <th scope="col">Format</th>
-              <th scope="col">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {pending.map(({ a, c }) => (
-              <tr key={`${a.id}-${c.who}`}>
-                <td className="t">{c.who}</td>
-                <td data-label="Ask">
-                  <div>
-                    {a.title}
-                    <div className="c">{a.target}</div>
-                  </div>
-                </td>
-                <td data-label="Format">{a.format}</td>
-                <td>
-                  <div className="row">
-                    <button type="button" className="btn sm" disabled>
-                      Approve
-                    </button>
-                    <button type="button" className="btn ghost sm" disabled>
-                      Decline
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+      <h3 id={`ask-h-${ask.id}`}>{ask.title}</h3>
+      {ask.description ? <p className="desc">{ask.description}</p> : null}
+      {status === "changes" && ask.myClaim?.reviewNote ? (
+        <p className="note">
+          <b>What to change:</b> {ask.myClaim.reviewNote}
+        </p>
+      ) : null}
+      <div className="meta">Posted {formatShortDate(ask.createdAt, zone)}</div>
+      {action.error ? (
+        <p className="err" role="alert">
+          {errorText(action.error)}
+        </p>
+      ) : null}
+      {submitting && working ? (
+        <Submit ask={ask} sub={member.sub} onDone={() => setSubmitting(false)} />
+      ) : (
+        <div className="foot row">
+          {!status ? (
+            <>
+              <button type="button" className="btn" disabled={action.isPending} onClick={() => action.mutate("claim")}>
+                {ask.requiresApproval ? "Request to claim" : "Claim this"}
+              </button>
+              {ask.requiresApproval ? <span className="note">Staff approve this one first.</span> : null}
+            </>
+          ) : working ? (
+            <>
+              <button type="button" className="btn" onClick={() => setSubmitting(true)}>
+                {status === "changes" ? "Send new content" : "Submit content"}
+              </button>
+              <button type="button" className="btn ghost" disabled={action.isPending} onClick={() => action.mutate("release")}>
+                Give it back
+              </button>
+            </>
+          ) : status === "requested" ? (
+            <>
+              <span className="note">Waiting for staff to approve.</span>
+              <button type="button" className="btn ghost" disabled={action.isPending} onClick={() => action.mutate("release")}>
+                Withdraw
+              </button>
+            </>
+          ) : status === "submitted" ? (
+            <span className="note">With the team for review.</span>
+          ) : status === "declined" ? (
+            <span className="note">Not approved this time.</span>
+          ) : (
+            <span className="note">Delivered and accepted.</span>
+          )}
+        </div>
+      )}
+    </article>
   );
-}
-
-export function ContentHub() {
-  const { member } = useMe();
-  return member.role === "athlete" ? <AthleteHub /> : <StaffHub />;
 }

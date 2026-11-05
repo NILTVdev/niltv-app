@@ -112,5 +112,6 @@ anything out of the portal; both are off while testing.
 
 ## Content Hub
 
-Asks and claims are a static preview from the approved mockup. Nothing on that
-screen calls the API and every action is disabled.
+Staff post asks; athletes claim one, upload their files and send them for
+review; staff accept the work or send it back. `docs/portal.md` has the flow.
+`src/lib/upload.ts` sends files to S3 in 16 MB parts straight from the browser.

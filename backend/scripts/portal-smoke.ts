@@ -13,6 +13,7 @@
  *    approval, page change requests, Help, My posts, and instant removal.
  * 3. Deletes every row and account it created. Refuses anything but dev.
  */
+import { DeleteObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import {
   AdminConfirmSignUpCommand,
   AdminDeleteUserCommand,
@@ -30,6 +31,8 @@ const TEST_CLIENT_ID = "7ninm1g7ro3b9df4mqnhpds05r";
 const API = (process.env.PORTAL_API_URL ?? "").replace(/\/$/, "");
 
 const cognito = new CognitoIdentityProviderClient({ region: "us-east-1" });
+const s3 = new S3Client({ region: "us-east-1" });
+const SUBMISSIONS_BUCKET = "niltv-dev-portal-submissions-858321320457";
 const checks: { name: string; ok: boolean; detail?: string }[] = [];
 const check = (name: string, ok: boolean, detail?: string): void => {
   checks.push({ name, ok, ...(detail ? { detail } : {}) });
@@ -131,7 +134,7 @@ async function main(): Promise<void> {
   /** Puts the real settings back; set once the run has swapped them. */
   let restoreSettings: (() => Promise<unknown>) | undefined;
   const people: Person[] = [];
-  const created = { convs: new Set<string>(), events: [] as string[], postings: [] as string[], requests: [] as string[], messages: [] as [string, string][] };
+  const created = { convs: new Set<string>(), events: [] as string[], postings: [] as string[], asks: [] as string[], requests: [] as string[], messages: [] as [string, string][] };
 
   try {
     const [admin, staff, athlete, guest] = await Promise.all(["admin", "staff", "athlete", "guest"].map((k) => mint(k, runId)));
@@ -413,6 +416,72 @@ async function main(): Promise<void> {
     const mine = (athletePostings.json["postings"] ?? []).find((p: Json) => p["id"] === posting.json["id"]);
     check("staff approve and the athlete sees it", decide.status === 200 && mine?.["myInterest"] === "approved");
 
+    // ── Content Hub ──────────────────────────────────────────────────────
+    const askBody = { title: `Smoke ask ${runId}`, format: "short", description: "Smoke test.", audience: { type: "everyone" }, requiresApproval: true, status: "open" };
+    const ask = await call(staff, "POST", "/v1/asks", askBody);
+    created.asks.push(ask.json["id"]);
+    const askId = ask.json["id"];
+    check("staff post an ask", ask.status === 201);
+    check("athletes cannot post an ask", (await call(athlete, "POST", "/v1/asks", askBody)).status === 403);
+    check("guests cannot see the Hub", (await call(guest, "GET", "/v1/asks")).status === 403);
+    const otherSport = await call(staff, "POST", "/v1/asks", { ...askBody, title: `Smoke other ${runId}`, audience: { type: "sport", sport: "Golf" } });
+    created.asks.push(otherSport.json["id"]);
+    const myAsks = async (): Promise<Json[]> => (await call(athlete, "GET", "/v1/asks")).json["asks"] ?? [];
+    const myAsk = async (): Promise<Json | undefined> => (await myAsks()).find((a) => a["id"] === askId);
+    check("an ask for another sport stays hidden", !(await myAsks()).some((a) => a["id"] === otherSport.json["id"]));
+    check("an athlete cannot claim an ask that is not for them", (await call(athlete, "POST", `/v1/asks/${otherSport.json["id"]}/action`, { action: "claim" })).status === 403);
+    const act = (who: typeof staff, body: Json) => call(who, "POST", `/v1/asks/${askId}/action`, body);
+    check("the athlete requests the claim", (await act(athlete, { action: "claim" })).status === 200 && (await myAsk())?.["myClaim"]?.["status"] === "requested");
+    const uploadBody = { name: "smoke clip.mp4", size: 11, type: "video/mp4" };
+    check("no uploads before approval", (await call(athlete, "POST", `/v1/asks/${askId}/uploads`, uploadBody)).status === 403);
+    check("athletes cannot approve themselves", (await act(athlete, { action: "decide", personSub: athlete!.sub, approved: true })).status === 403);
+    check("staff approve the claim", (await act(staff, { action: "decide", personSub: athlete!.sub, approved: true })).status === 200 && (await myAsk())?.["myClaim"]?.["status"] === "claimed");
+    check("a stale decision is refused", (await act(staff, { action: "decide", personSub: athlete!.sub, approved: false })).status === 409);
+    check("nothing to submit yet", (await act(athlete, { action: "submit" })).status === 400);
+    check("only video, audio and photos", (await call(athlete, "POST", `/v1/asks/${askId}/uploads`, { ...uploadBody, type: "text/html" })).status === 400);
+    check("nothing over 2 GB", (await call(athlete, "POST", `/v1/asks/${askId}/uploads`, { ...uploadBody, size: 2 * 1024 ** 3 + 1 })).status === 400);
+    const started = await call(athlete, "POST", `/v1/asks/${askId}/uploads`, uploadBody);
+    const fileId = started.json["fileId"];
+    check("the upload starts", started.status === 201 && Boolean(fileId));
+    check("a part past the end gets no link", (await call(athlete, "POST", `/v1/asks/${askId}/uploads/${fileId}/part`, { partNumber: 2 })).status === 400);
+    check("an unfinished file cannot land", (await call(athlete, "POST", `/v1/asks/${askId}/uploads/${fileId}/complete`)).status === 400);
+    const link = await call(athlete, "POST", `/v1/asks/${askId}/uploads/${fileId}/part`, { partNumber: 1 });
+    const put = await fetch(link.json["url"], { method: "PUT", body: "smoke bytes" });
+    check("the part reaches the bucket", put.ok);
+    const resumed = await call(athlete, "POST", `/v1/asks/${askId}/uploads`, uploadBody);
+    check("picking the same file again carries on", resumed.status === 200 && resumed.json["fileId"] === fileId && resumed.json["doneParts"]?.[0] === 1);
+    check("the file lands", (await call(athlete, "POST", `/v1/asks/${askId}/uploads/${fileId}/complete`)).status === 200);
+    check("the athlete sees the file", (await myAsk())?.["myClaim"]?.["files"]?.[0]?.["id"] === fileId);
+    const preflight = await fetch(link.json["url"], { method: "OPTIONS", headers: { origin: "https://portal-dev.niltv.com", "access-control-request-method": "PUT" } });
+    check("the bucket lets the portal upload from a browser", preflight.ok && preflight.headers.get("access-control-allow-origin") === "https://portal-dev.niltv.com");
+    const otherSite = await fetch(link.json["url"], { method: "OPTIONS", headers: { origin: "https://example.com", "access-control-request-method": "PUT" } });
+    check("the bucket refuses other sites", !otherSite.ok);
+    const bigSize = 16 * 1024 ** 2 + 5;
+    const big = await call(athlete, "POST", `/v1/asks/${askId}/uploads`, { name: "two parts.mov", size: bigSize, type: "video/quicktime" });
+    for (const [partNumber, bytes] of [[1, 16 * 1024 ** 2], [2, 5]] as const) {
+      const part = await call(athlete, "POST", `/v1/asks/${askId}/uploads/${big.json["fileId"]}/part`, { partNumber });
+      await fetch(part.json["url"], { method: "PUT", body: new Uint8Array(bytes) });
+    }
+    const bigDone = await call(athlete, "POST", `/v1/asks/${askId}/uploads/${big.json["fileId"]}/complete`);
+    check("a file in two parts lands whole", bigDone.status === 200 && bigDone.json["size"] === bigSize);
+    check("a landed file can be removed", (await call(athlete, "DELETE", `/v1/asks/${askId}/uploads/${big.json["fileId"]}`)).status === 200 && (await myAsk())?.["myClaim"]?.["files"]?.length === 1);
+    check("the athlete sends it for review", (await act(athlete, { action: "submit", note: "Smoke note" })).status === 200);
+    check("files lock during review", (await call(athlete, "DELETE", `/v1/asks/${askId}/uploads/${fileId}`)).status === 403);
+    check("a claim in review cannot be given back", (await act(athlete, { action: "release" })).status === 409);
+    const filePath = `/v1/asks/${askId}/files/${athlete!.sub}/${fileId}`;
+    check("guests cannot open a file", (await call(guest, "GET", filePath)).status === 403);
+    const opened = await call(staff, "GET", filePath);
+    check("staff open the file", opened.status === 200 && (await (await fetch(opened.json["url"])).text()) === "smoke bytes");
+    check("Needs changes takes a note", (await act(staff, { action: "review", personSub: athlete!.sub, outcome: "changes" })).status === 400);
+    check("staff send it back", (await act(staff, { action: "review", personSub: athlete!.sub, outcome: "changes", note: "Smoke fix" })).status === 200);
+    const sentBack = (await myAsk())?.["myClaim"];
+    check("the athlete sees what to change", sentBack?.["status"] === "changes" && sentBack?.["reviewNote"] === "Smoke fix");
+    check("the athlete sends it again", (await act(athlete, { action: "submit" })).status === 200);
+    check("staff accept it", (await act(staff, { action: "review", personSub: athlete!.sub, outcome: "delivered" })).status === 200 && (await myAsk())?.["myClaim"]?.["status"] === "delivered");
+    const staffAsks = (await call(staff, "GET", "/v1/asks")).json["asks"] ?? [];
+    const staffClaim = staffAsks.find((a: Json) => a["id"] === askId)?.["claims"]?.[0];
+    check("staff see the claim and its files", staffClaim?.["status"] === "delivered" && staffClaim?.["files"]?.length === 1);
+
     // ── Requests, Help, My posts ─────────────────────────────────────────
     const req = await call(athlete, "POST", "/v1/requests", { body: "Smoke test: please ignore this request." });
     created.requests.push(req.json["id"]);
@@ -440,6 +509,12 @@ async function main(): Promise<void> {
     for (const id of created.convs) if (id) await purgePartition(`CONV#${id}`);
     for (const id of created.events) if (id) await purgePartition(`PEVENT#${id}`);
     for (const id of created.postings) if (id) await purgePartition(`POSTING#${id}`);
+    for (const id of created.asks) {
+      if (!id) continue;
+      await purgePartition(`ASK#${id}`);
+      const left = await s3.send(new ListObjectsV2Command({ Bucket: SUBMISSIONS_BUCKET, Prefix: `submissions/${id}/` }));
+      for (const o of left.Contents ?? []) await s3.send(new DeleteObjectCommand({ Bucket: SUBMISSIONS_BUCKET, Key: o.Key }));
+    }
     for (const id of created.requests) if (id) await purgePartition(`PREQ#${id}`);
     for (const p of people) {
       await purgePartition(`USER#${p.sub}`);

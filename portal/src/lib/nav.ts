@@ -44,6 +44,7 @@ export interface RoleNav {
 
 /** Screens whose access maps to one permission in the contract table. */
 export const SCREEN_PERMISSION: Partial<Record<Screen, PortalPermission>> = {
+  hub: "viewHub",
   postings: "viewPostings",
   posts: "athleteTools",
   page: "requestPageChange",

@@ -476,6 +476,21 @@ export const postingInterestKey = (id: string, sub: string): TableKey => ({
 /** GSI1 partition of every posting; GSI1SK is `{createdAt}#{id}`. */
 export const POSTINGS_ALL_GSI1PK = "POSTINGS#ALL";
 
+/** ASK#{id} / META — a Content Hub ask. */
+export const askKey = (id: string): TableKey => ({ PK: `ASK#${id}`, SK: "META" });
+
+/** ASK#{id} / CLAIM#{sub} — one athlete's claim on an ask. */
+export const askClaimKey = (id: string, sub: string): TableKey => ({ PK: `ASK#${id}`, SK: `CLAIM#${sub}` });
+
+/** ASK#{id} / FILE#{sub}#{fileId} — one file sent for a claim. */
+export const askFileKey = (id: string, sub: string, fileId: string): TableKey => ({
+  PK: `ASK#${id}`,
+  SK: `FILE#${sub}#${fileId}`,
+});
+
+/** GSI1 partition of every ask; GSI1SK is `{createdAt}#{id}`. */
+export const ASKS_ALL_GSI1PK = "ASKS#ALL";
+
 /** PREQ#{id} / META — a page change request. */
 export const portalRequestKey = (id: string): TableKey => ({ PK: `PREQ#${id}`, SK: "META" });
 

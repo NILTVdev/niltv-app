@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
@@ -11,6 +11,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import type * as lambda from "aws-cdk-lib/aws-lambda";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import type { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
 import { makeFn } from "./fn";
@@ -49,6 +50,8 @@ export const PORTAL_LEADING_KEYS = [
   "AVAIL#ALL",
   "POSTING#*",
   "POSTINGS#ALL",
+  "ASK#*",
+  "ASKS#ALL",
   "PREQ#*",
   "PREQS#ALL",
 ];
@@ -207,6 +210,26 @@ export class PortalStack extends Stack {
     const scheduleFn = portalFn("ScheduleFn", "schedule", "schedule.ts");
     const postingsFn = portalFn("PostingsFn", "postings", "postings.ts");
     const requestsFn = portalFn("RequestsFn", "requests", "requests.ts");
+
+    // Files athletes send through the Content Hub. Their own bucket: nothing
+    // here reaches the transcoder or the public catalogue. Browsers upload
+    // straight to it with short-lived links; a stalled upload clears itself.
+    const submissionsBucket = new s3.Bucket(this, "SubmissionsBucket", {
+      bucketName: `niltv-${stage}-portal-submissions-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+      cors: [{ allowedOrigins: origins, allowedMethods: [s3.HttpMethods.PUT], allowedHeaders: ["*"], maxAge: 3600 }],
+      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(7) }],
+    });
+    const asksFn = portalFn("AsksFn", "asks", "asks.ts", { SUBMISSIONS_BUCKET: submissionsBucket.bucketName });
+    asksFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+        resources: [submissionsBucket.arnForObjects("submissions/*")],
+      }),
+    );
     const postsFn = portalFn("PostsFn", "posts", "posts.ts", cfDomain ? { PLAYBACK_BASE_URL: `https://${cfDomain}` } : {});
     membersFn.addToRolePolicy(listUsersPolicy);
     membersFn.addToRolePolicy(clearSignupPolicy);
@@ -320,6 +343,14 @@ export class PortalStack extends Stack {
       ["/v1/postings", [M.GET, M.POST], postingsFn],
       ["/v1/postings/{id}", [M.PUT], postingsFn],
       ["/v1/postings/{id}/action", [M.POST], postingsFn],
+      ["/v1/asks", [M.GET, M.POST], asksFn],
+      ["/v1/asks/{id}", [M.PUT], asksFn],
+      ["/v1/asks/{id}/action", [M.POST], asksFn],
+      ["/v1/asks/{id}/uploads", [M.POST], asksFn],
+      ["/v1/asks/{id}/uploads/{fileId}", [M.DELETE], asksFn],
+      ["/v1/asks/{id}/uploads/{fileId}/part", [M.POST], asksFn],
+      ["/v1/asks/{id}/uploads/{fileId}/complete", [M.POST], asksFn],
+      ["/v1/asks/{id}/files/{sub}/{fileId}", [M.GET], asksFn],
       ["/v1/requests", [M.GET, M.POST], requestsFn],
       ["/v1/requests/{id}", [M.PATCH], requestsFn],
       ["/v1/help", [M.POST], requestsFn],

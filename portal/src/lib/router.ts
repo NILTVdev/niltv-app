@@ -1,6 +1,6 @@
 /**
  * A tiny history-API router: one path per screen, plus an id for the deep
- * links (/messages/{convId}, /schedule/{eventId}, /postings/{id}).
+ * links (/messages/{convId}, /schedule/{eventId}, /postings/{id}, /content-hub/{id}).
  * The host must serve index.html for every path (SPA fallback).
  */
 import { useSyncExternalStore } from "react";
@@ -26,7 +26,7 @@ export const PATHS: Record<Screen, string> = {
 };
 
 /** Screens that take an id segment. */
-const WITH_ID = new Set<Screen>(["messages", "schedule", "postings"]);
+const WITH_ID = new Set<Screen>(["hub", "messages", "schedule", "postings"]);
 
 export interface Route {
   /** null = unknown path; the app sends it to the role's start screen */

@@ -2,8 +2,7 @@
 
 The signed-in workspace at portal.niltv.com (portal-dev.niltv.com on dev) for
 athletes, guest collaborators and staff: messaging, schedule, internal
-postings, page change requests and help. Asks and claims are a preview screen
-for now.
+postings, the Content Hub, page change requests and help.
 
 | Piece | Where |
 |---|---|
@@ -249,6 +248,32 @@ reminder once a day while notifications are on. Locking a time marks everyone wh
 it as going, and they can change that. Reopen takes the set time off, clears replies and
 keeps picks. Adding a time asks everyone again with their picks kept. Once every time has
 passed the event leaves members' screens, and staff find it under Times passed.
+
+## Content Hub
+
+Staff post an ask with a format, a description, a target (every athlete, one
+campus or one sport) and an optional approval step. Asks have no spots and stay
+open until staff close them. Nothing on an ask is paid.
+
+| Claim status | Label | Next |
+|---|---|---|
+| `requested` | Needs approval | staff approve or decline |
+| `claimed` | Claimed | the athlete uploads and sends, or gives it back |
+| `submitted` | In review | staff accept or send back; files are locked |
+| `changes` | Needs changes | the athlete sends again, with the staff note on the card |
+| `delivered` | Delivered | final |
+| `declined` | Not approved | staff can still approve it |
+
+Rows live in one partition: `ASK#{id}` holds `META`, `CLAIM#{sub}` and
+`FILE#{sub}#{fileId}`. Moves are conditional on the current status, so two
+people acting at once get a 409, not a lost update.
+
+Files go to their own bucket, `niltv-{stage}-portal-submissions-{account}`, under
+`submissions/`. Nothing there reaches the transcoder or the public site. Video,
+audio and photos only, 2 GB per file, 10 files per claim. Browsers upload
+16 MB parts with short-lived links, and the API checks the bucket's own part
+list before a file counts as landed. Picking the same file again carries on
+from the parts that arrived. Unfinished uploads clear after 7 days.
 
 ## Test accounts on dev
 

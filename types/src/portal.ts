@@ -78,6 +78,10 @@ export const PORTAL_PERMISSIONS = {
   managePostings: ["staff", "admin"],
   /** see postings and mark interest */
   viewPostings: ["athlete", "staff", "admin"],
+  /** post asks, decide on claims, review submissions */
+  manageHub: ["staff", "admin"],
+  /** see the Content Hub */
+  viewHub: ["athlete", "staff", "admin"],
   /** athlete list with contact details, onboarding state and Stripe status */
   viewRoster: ["staff", "admin"],
   /** add and remove guests */
@@ -152,7 +156,7 @@ export const NOTIFY_TOPIC_CADENCES: Record<NotifyTopic, readonly NotifyCadence[]
 };
 
 const NotifyPrefsShape = z.object({
-  /** desk replies, @mentions of you, posting decisions */
+  /** desk replies, @mentions of you, posting and claim decisions */
   direct: NotifyCadence.default("now"),
   groups: NotifyCadence.default("now"),
   announcements: NotifyCadence.default("now"),
@@ -160,7 +164,7 @@ const NotifyPrefsShape = z.object({
   channels: NotifyCadence.default("off"),
   /** time polls, set times, changes and cancellations */
   schedule: NotifyCadence.default("now"),
-  /** new internal postings */
+  /** new internal postings and content asks */
   postings: NotifyCadence.default("daily"),
   /** push notifications show the first line of the message */
   previews: z.boolean().default(true),
@@ -675,6 +679,128 @@ export const PostingActionRequest = z.discriminatedUnion("action", [
   z.object({ action: z.literal("decide"), personSub: z.string(), status: z.enum(["approved", "declined"]) }),
 ]);
 export type PostingActionRequest = z.infer<typeof PostingActionRequest>;
+
+/* ── Content Hub ───────────────────────────────────────────────────────────── */
+
+export const AskFormat = z.enum(["short", "long"]);
+export type AskFormat = z.infer<typeof AskFormat>;
+
+export const ASK_FORMAT_LABELS: Record<AskFormat, string> = { short: "Short form", long: "Long form" };
+
+/** Who an ask is for. Asks go to athletes, so groups and hand-picked people do not apply. */
+export const AskAudience = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("everyone") }),
+  z.object({ type: z.literal("campus"), campus: z.string().min(1) }),
+  z.object({ type: z.literal("sport"), sport: z.string().min(1) }),
+]);
+export type AskAudience = z.infer<typeof AskAudience>;
+
+/**
+ * requested -> claimed -> submitted -> delivered, with staff able to send
+ * a submission back (changes) and to decline a request (declined).
+ */
+export const ClaimStatus = z.enum(["requested", "claimed", "submitted", "changes", "delivered", "declined"]);
+export type ClaimStatus = z.infer<typeof ClaimStatus>;
+
+export const MAX_SUBMISSION_BYTES = 2 * 1024 ** 3;
+export const MAX_SUBMISSION_FILES = 10;
+/** Upload part size: 128 parts at most, and a dropped connection loses one part. */
+export const SUBMISSION_PART_BYTES = 16 * 1024 ** 2;
+
+export const submissionParts = (size: number): number => Math.ceil(size / SUBMISSION_PART_BYTES);
+
+/** Video, audio and photos. SVG can carry script, so it is out. */
+export const submissionTypeAllowed = (type: string): boolean =>
+  /^(video|audio|image)\/[\w.+-]+$/i.test(type) && !/svg/i.test(type);
+
+export const SubmissionFile = z.object({
+  id: z.string(),
+  name: z.string(),
+  size: z.number().int().nonnegative(),
+  type: z.string(),
+  at: IsoDate,
+});
+export type SubmissionFile = z.infer<typeof SubmissionFile>;
+
+const ClaimFields = {
+  status: ClaimStatus,
+  at: IsoDate,
+  /** from the athlete, with the submission */
+  note: z.string().default(""),
+  /** from staff, with Needs changes */
+  reviewNote: z.string().default(""),
+  files: z.array(SubmissionFile).default([]),
+};
+
+export const MyClaim = z.object(ClaimFields);
+export type MyClaim = z.infer<typeof MyClaim>;
+
+export const AskClaim = z.object({ ...ClaimFields, person: PortalPerson, email: z.string().optional() });
+export type AskClaim = z.infer<typeof AskClaim>;
+
+export const Ask = z.object({
+  id: z.string(),
+  title: z.string(),
+  format: AskFormat,
+  description: z.string().default(""),
+  audience: AskAudience,
+  audienceLabel: z.string(),
+  /** on: staff approve each claim before the athlete starts */
+  requiresApproval: z.boolean().default(false),
+  status: z.enum(["open", "closed"]),
+  createdByName: z.string(),
+  createdAt: IsoDate,
+  updatedAt: IsoDate.optional(),
+  myClaim: MyClaim.optional(),
+  /** staff only */
+  claims: z.array(AskClaim).optional(),
+});
+export type Ask = z.infer<typeof Ask>;
+
+export const AsksResponse = z.object({ asks: z.array(Ask) });
+export type AsksResponse = z.infer<typeof AsksResponse>;
+
+export const AskUpsertRequest = z.object({
+  title: z.string().trim().min(1).max(100),
+  format: AskFormat,
+  description: z.string().trim().max(2000).default(""),
+  audience: AskAudience,
+  requiresApproval: z.boolean().default(false),
+  status: z.enum(["open", "closed"]).default("open"),
+});
+export type AskUpsertRequest = z.infer<typeof AskUpsertRequest>;
+
+export const AskActionRequest = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("claim") }),
+  /** give it back */
+  z.object({ action: z.literal("release") }),
+  z.object({ action: z.literal("decide"), personSub: z.string(), approved: z.boolean() }),
+  z.object({ action: z.literal("submit"), note: z.string().trim().max(1000).default("") }),
+  z.object({
+    action: z.literal("review"),
+    personSub: z.string(),
+    outcome: z.enum(["delivered", "changes"]),
+    note: z.string().trim().max(1000).default(""),
+  }),
+]);
+export type AskActionRequest = z.infer<typeof AskActionRequest>;
+
+export const UploadStartRequest = z.object({
+  name: z.string().trim().min(1).max(255),
+  size: z.number().int().positive().max(MAX_SUBMISSION_BYTES),
+  type: z.string().max(100),
+});
+export type UploadStartRequest = z.infer<typeof UploadStartRequest>;
+
+/** `doneParts` is what already arrived: an upload picked up again skips those. */
+export const UploadStartResponse = z.object({ fileId: z.string(), doneParts: z.array(z.number().int().positive()) });
+export type UploadStartResponse = z.infer<typeof UploadStartResponse>;
+
+export const UploadPartRequest = z.object({ partNumber: z.number().int().positive() });
+export type UploadPartRequest = z.infer<typeof UploadPartRequest>;
+
+export const FileUrlResponse = z.object({ url: z.string() });
+export type FileUrlResponse = z.infer<typeof FileUrlResponse>;
 
 /* ── Page change requests and Help ─────────────────────────────────────────── */
 

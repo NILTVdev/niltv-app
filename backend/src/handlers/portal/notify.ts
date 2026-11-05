@@ -12,8 +12,8 @@
  *   @mention                          direct          push, even in a muted thread
  *   announcement                      announcements   push; "important" also emails now
  *   other channel post                channels        nothing (summary only)
- *   new posting                       postings        push when they chose right away
- *   approve / decline                 direct          push
+ *   new posting, new content ask      postings        push when they chose right away
+ *   approve / decline, claim outcomes direct          push
  *   new event, time set               schedule        push
  *   cancelled, new time               schedule        push; within 48 hours also emails now
  *
@@ -23,6 +23,7 @@
  *
  * Always on, whatever those switches say (staff work queues):
  *   interest in an approval posting   the staff member who posted it
+ *   claim request, new submission     the staff member who posted the ask
  *   page change request               the Athlete support desk
  *   help form                         the support address, reply-to the sender
  *   welcome, automatic invites        their own switch (Settings: welcomeEmail)
@@ -30,6 +31,8 @@
  */
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  AskAudience,
+  ClaimStatus,
   DESK_LABELS,
   EVENT_KIND_LABELS,
   type NotifyTopic,
@@ -41,7 +44,7 @@ import {
 } from "@niltv/types";
 import type { SQSBatchItemFailure, SQSHandler } from "aws-lambda";
 import { z } from "zod";
-import { convMessageKey, getDocClient, portalEventKey, portalRequestKey, postingKey } from "../../lib/db";
+import { askClaimKey, askKey, convMessageKey, getDocClient, portalEventKey, portalRequestKey, postingKey } from "../../lib/db";
 import { claimPushSlot, queueSummary } from "../../lib/portal/activity";
 import { resolveAudience } from "../../lib/portal/audience";
 import {
@@ -302,6 +305,85 @@ async function postingNotice(notice: Extract<PortalNotice, { type: `posting.${st
   await maybePush(person, "direct", { title: approved ? "You're approved" : "Posting update", body: p.title, url: path, tag }, reach);
 }
 
+/* ── Content Hub ───────────────────────────────────────────────────────────── */
+
+const AskRow = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(["open", "closed"]),
+  audience: AskAudience,
+  createdBySub: z.string(),
+});
+
+/** What the athlete hears for each place staff can move a claim to. */
+const CLAIM_OUTCOMES: Partial<Record<ClaimStatus, { title: string; text: (ask: string) => string }>> = {
+  claimed: { title: "You're approved", text: (ask) => `You're approved for ${ask}` },
+  declined: { title: "Content Hub update", text: (ask) => `An update on ${ask}` },
+  changes: { title: "Changes requested", text: (ask) => `Changes requested on ${ask}` },
+  delivered: { title: "Accepted", text: (ask) => `Accepted: ${ask}` },
+};
+
+/** The person who posted the ask, or the Content desk when they have left. */
+async function askReviewers(createdBySub: string): Promise<string[]> {
+  const poster = await getMember(createdBySub);
+  if (poster && poster.status === "active") return [poster.email];
+  const settings = await getSettings();
+  const desk = await deskRecipients("content", settings);
+  return desk.length > 0 ? desk : [settings.supportEmail];
+}
+
+async function askNotice(notice: Extract<PortalNotice, { type: `ask.${string}` }>, reach: Reach): Promise<void> {
+  const parsed = AskRow.safeParse((await getRow(askKey(notice.askId))) ?? {});
+  if (!parsed.success) return;
+  const ask = parsed.data;
+  const path = `/content-hub/${encodeURIComponent(ask.id)}`;
+  const tag = `ask-${ask.id}`;
+
+  if (notice.type === "ask.new") {
+    if (ask.status !== "open") return;
+    if (!reach.settings.activityEmails && !reach.settings.webPush) return;
+    const athletes = await resolveAudience(ask.audience);
+    await forEachMember(athletes, async (m) => {
+      const note = { topic: "postings" as const, text: `New content ask: ${ask.title}`, path, at: reach.now.toISOString() };
+      await maybeQueue(m, "postings", reach.now, reach, note);
+      await maybePush(m, "postings", { title: "New content ask", body: ask.title, url: path, tag }, reach);
+    });
+    return;
+  }
+
+  const person = await getMember(notice.personSub);
+  if (!person) return;
+
+  if (notice.type === "ask.claim" || notice.type === "ask.submitted") {
+    // Staff work queue: always on.
+    const claim = notice.type === "ask.claim";
+    for (const address of await askReviewers(ask.createdBySub)) {
+      await sendEmail(address, {
+        subject: claim ? `${person.name} wants to claim ${ask.title}` : `${person.name} sent content for ${ask.title}`,
+        heading: claim ? "New claim request" : "Content to review",
+        lead: claim
+          ? `${person.name} asked to claim ${ask.title}. This ask needs your approval.`
+          : `${person.name} sent content for ${ask.title}. It is ready for your review.`,
+        button: { label: claim ? "Review the request" : "Review the content", path },
+        tail: "You get this because you posted this ask in the NIL TV Portal.",
+      });
+    }
+    return;
+  }
+
+  const claim = await getRow(askClaimKey(ask.id, person.sub));
+  const status = ClaimStatus.safeParse(claim?.["status"]);
+  const outcome = status.success ? CLAIM_OUTCOMES[status.data] : undefined;
+  if (!outcome || person.status !== "active") return;
+  await maybeQueue(person, "direct", reach.now, reach, {
+    topic: "direct",
+    text: outcome.text(ask.title),
+    path,
+    at: reach.now.toISOString(),
+  });
+  await maybePush(person, "direct", { title: outcome.title, body: ask.title, url: path, tag }, reach);
+}
+
 /* ── Schedule ──────────────────────────────────────────────────────────────── */
 
 const EventRow = z.object({
@@ -486,6 +568,11 @@ export async function handleNotice(notice: PortalNotice, now: Date = new Date())
     case "posting.interest":
     case "posting.decision":
       return postingNotice(notice, { settings: await getSettings(), now });
+    case "ask.new":
+    case "ask.claim":
+    case "ask.submitted":
+    case "ask.decision":
+      return askNotice(notice, { settings: await getSettings(), now });
     case "event.new":
     case "event.locked":
     case "event.changed":

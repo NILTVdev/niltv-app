@@ -12,6 +12,12 @@ export type PortalNotice =
   | { type: "posting.new"; postingId: string }
   | { type: "posting.interest"; postingId: string; personSub: string }
   | { type: "posting.decision"; postingId: string; personSub: string }
+  | { type: "ask.new"; askId: string }
+  /** an athlete asked to claim an ask that needs approval */
+  | { type: "ask.claim"; askId: string; personSub: string }
+  | { type: "ask.submitted"; askId: string; personSub: string }
+  /** staff moved a claim: approved, declined, sent back or accepted */
+  | { type: "ask.decision"; askId: string; personSub: string }
   | { type: "event.new"; eventId: string }
   | { type: "event.locked"; eventId: string }
   /** a set event's time moved (staff edited it) */

@@ -95,12 +95,12 @@ export const CADENCE_LABELS: Record<NotifyCadence, string> = {
 };
 
 export const NOTIFY_LABELS: Record<NotifyTopic, { label: string; help: string }> = {
-  direct: { label: "Messages to you", help: "Desk replies, @mentions and posting decisions." },
+  direct: { label: "Messages to you", help: "Desk replies, @mentions, and decisions on your postings and claims." },
   groups: { label: "Group chats", help: "New messages in your groups." },
   announcements: { label: "Announcements", help: "Posts from the NIL TV team." },
   channels: { label: "Campus and sport chats", help: "Every athlete, campus and sport channels. These never send a phone notification." },
   schedule: { label: "Schedule", help: "Times to pick, set times, changes and cancellations." },
-  postings: { label: "Internal postings", help: "New postings you can raise your hand for." },
+  postings: { label: "Postings and content asks", help: "New postings and asks you can raise your hand for." },
 };
 
 /** The notification topics a role picks a cadence for, in order, with that role's wording. */
@@ -143,6 +143,8 @@ export const PERMISSION_LABELS: Record<PortalPermission, string> = {
   viewAvailability: "See availability across the roster",
   managePostings: "Create postings and decide on interest",
   viewPostings: "See postings and mark interest",
+  manageHub: "Post asks, decide on claims and review content",
+  viewHub: "See the Content Hub",
   viewRoster: "See the athlete list, onboarding and Stripe status",
   manageGuests: "Add and remove guests",
   manageAccess: "Change roles, enable athletes, add staff, edit settings",
