@@ -72,7 +72,10 @@ describe("DELETE /v1/me handler (design §6.6)", () => {
   it("anonymizes votes, deletes facts with counters, unsubscribes, then deletes Cognito", async () => {
     sendMock.mockResolvedValueOnce({
       Items: [
-        { PK: "USER#u-1", SK: "META", email: "Fan@Example.com", name: "Fan" },
+        {
+          PK: "USER#u-1", SK: "META", email: "Fan@Example.com", name: "Fan",
+          favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] },
+        },
         {
           PK: "USER#u-1",
           SK: "VOTE#ev-1",

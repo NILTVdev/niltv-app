@@ -10,12 +10,10 @@ import { BatchGetCommand, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb
 import { Channel, ChannelsResponse } from "@niltv/types";
 import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { GSI1, channelContentGsi1Pk, channelKey, configKey, getDocClient } from "../lib/db";
+import { channelIdsFromConfig } from "../lib/channel-catalog";
 import { forbidden, json } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
 import type { Item } from "../lib/shape";
-
-/** Launch channels (fixtures) — used when CONFIG carries no channelIds. */
-const FALLBACK_CHANNEL_IDS = ["ch-trueblue", "ch-niltv"] as const;
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // Origin lockdown: only CloudFront (which injects x-origin-verify) may call.
@@ -25,11 +23,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   const table = process.env.TABLE_NAME ?? "";
 
   const { Item: config } = await db.send(new GetCommand({ TableName: table, Key: configKey() }));
-  const configured = config?.["channelIds"];
-  const channelIds: readonly string[] =
-    Array.isArray(configured) && configured.length > 0 && configured.every((id) => typeof id === "string")
-      ? (configured as string[])
-      : FALLBACK_CHANNEL_IDS;
+  const channelIds = channelIdsFromConfig(config);
 
   const batchOut = await db.send(
     new BatchGetCommand({
