@@ -18,3 +18,17 @@ export function athleteFilterOptions(athletes: readonly AthleteChip[], field: "s
   }
   return [...values.values()].sort((a, b) => a.localeCompare(b));
 }
+
+/** One preview per athlete, newest first; names keep timestamp ties stable. */
+export function discoverAthletes(athletes: readonly AthleteChip[]) {
+  return athletes.filter((athlete) => athlete.latestVideo).sort((a, b) =>
+    Date.parse(b.latestVideo!.publishedAt) - Date.parse(a.latestVideo!.publishedAt) ||
+    a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
+}
+
+/** Existing staff-assigned ambassador rank can supply a spotlight, when playable. */
+export function spotlightAthlete(athletes: readonly AthleteChip[]) {
+  return athletes.filter((athlete) => athlete.latestVideo && athlete.isAmbassador && athlete.ambassadorRank)
+    .sort((a, b) => a.ambassadorRank! - b.ambassadorRank! || a.id.localeCompare(b.id))[0];
+}
