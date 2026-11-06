@@ -57,6 +57,13 @@ export const AthleteChip = z.object({
   profilePublished: z.boolean().optional(),
   isAmbassador: z.boolean(),
   ambassadorRank: z.number().int().positive().optional(),
+  /** Optional directory preview, requested with include=latestVideo. */
+  latestVideo: z.object({
+    id: Id,
+    title: z.string(),
+    thumbUrl: z.string().optional(),
+    publishedAt: IsoDate,
+  }).optional(),
 });
 export type AthleteChip = z.infer<typeof AthleteChip>;
 

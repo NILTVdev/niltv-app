@@ -43,6 +43,30 @@ const storedRows = [
 ];
 
 describe("GET /v1/profiles handler", () => {
+  it("optionally includes the newest video and keeps empty athletes in the roster", async () => {
+    sendMock.mockImplementation(async (command: { input: Record<string, unknown> }) => {
+      if (command.input.IndexName === "GSI1") return { Items: storedRows };
+      const values = command.input.ExpressionAttributeValues as Record<string, string>;
+      if (values[":pk"] !== "ATHLETE#ath-maya") return { Items: [] };
+      return { Items: [{ id: "clip-1", title: "Training day", athleteId: "ath-maya", publishedAt: "2026-10-01T00:00:00Z", thumbUrl: "https://example.com/thumb.jpg" }] };
+    });
+    const res = await invoke({ queryStringParameters: { include: "latestVideo" } });
+    const body = JSON.parse(res.body ?? "");
+    expect(body.profiles).toHaveLength(4);
+    expect(body.profiles[0].latestVideo).toEqual({ id: "clip-1", title: "Training day", publishedAt: "2026-10-01T00:00:00Z", thumbUrl: "https://example.com/thumb.jpg" });
+    expect(body.profiles[1].latestVideo).toBeUndefined();
+    expect(sendMock.mock.calls[1]?.[0].input).toMatchObject({ IndexName: "GSI2", ScanIndexForward: false, Limit: 1 });
+  });
+
+  it("never queries previews for uncleared athletes or accepts another creator's video", async () => {
+    sendMock.mockResolvedValueOnce({ Items: [{ ...storedRows[0], publicVisible: false }, storedRows[1]] })
+      .mockResolvedValueOnce({ Items: [{ id: "wrong", athleteId: "ath-maya", publishedAt: "2026-10-01T00:00:00Z" }] });
+    const res = await invoke({ queryStringParameters: { include: "latestVideo" } });
+    expect(JSON.parse(res.body ?? "").profiles).toEqual([expect.objectContaining({ id: "ath-camila" })]);
+    expect(JSON.parse(res.body ?? "").profiles[0].latestVideo).toBeUndefined();
+    expect(sendMock).toHaveBeenCalledTimes(2);
+  });
+
   beforeEach(() => {
     sendMock.mockReset();
     process.env.TABLE_NAME = "niltv-test";

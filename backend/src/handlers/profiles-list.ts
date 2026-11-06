@@ -6,11 +6,13 @@
  * Only explicitly cleared people appear; the contract lives in @niltv/types.
  */
 import { ApiError, ProfilesListResponse } from "@niltv/types";
+import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { allProfiles } from "../lib/roster";
 import { forbidden, json } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
-import { directoryChips } from "../lib/shape";
+import { directoryChips, resolveThumbUrl, type Item } from "../lib/shape";
+import { athleteGsiPk, getDocClient, GSI2 } from "../lib/db";
 
 export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   // Origin lockdown: only CloudFront (which injects x-origin-verify) may call.
@@ -22,9 +24,38 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }
 
   const profiles = await allProfiles(process.env.TABLE_NAME ?? "");
+  const chips = directoryChips(profiles, filter === "ambassador");
+  if (event.queryStringParameters?.["include"] === "latestVideo") {
+    // Bound concurrency, and read only the newest published clip per cleared athlete.
+    // The sparse creator index uses the same publication gate as /v1/content.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(8, chips.length) }, async () => {
+      while (next < chips.length) {
+        const chip = chips[next++];
+        if (!chip) continue;
+        const page = await getDocClient().send(new QueryCommand({
+          TableName: process.env.TABLE_NAME ?? "",
+          IndexName: GSI2,
+          KeyConditionExpression: "GSI2PK = :pk",
+          ExpressionAttributeValues: { ":pk": athleteGsiPk(chip.id) },
+          ScanIndexForward: false,
+          Limit: 1,
+        }));
+        const clip = page.Items?.[0] as Item | undefined;
+        if (clip && clip["athleteId"] === chip.id && typeof clip["publishedAt"] === "string") {
+          chip.latestVideo = {
+            id: String(clip["id"]),
+            title: String(clip["title"] ?? "Latest video"),
+            thumbUrl: resolveThumbUrl(clip),
+            publishedAt: clip["publishedAt"],
+          };
+        }
+      }
+    }));
+  }
 
   const body = ProfilesListResponse.parse({
-    profiles: directoryChips(profiles, filter === "ambassador"),
+    profiles: chips,
   });
   return json(200, body, "no-store");
 };
