@@ -125,6 +125,12 @@ export const likeKey = (userId: string, contentId: string): TableKey => ({
   SK: `LIKE#${contentId}`,
 });
 
+/** USER#{userId} / SHARE#{contentId} — share fact row; key uniqueness makes a share count once per account per clip. */
+export const shareKey = (userId: string, contentId: string): TableKey => ({
+  PK: `USER#${userId}`,
+  SK: `SHARE#${contentId}`,
+});
+
 /** USER#{userId} / VOTE#{eventId} — vote fact row; key uniqueness IS the 1-vote/account/event rule (design §6.3). */
 export const voteKey = (userId: string, eventId: string): TableKey => ({
   PK: `USER#${userId}`,
@@ -259,6 +265,9 @@ export const NOTIF_SK_PREFIX = "NOTIF#";
 
 /** SK prefix of like rows inside a USER#{id} partition. */
 export const LIKE_SK_PREFIX = "LIKE#";
+
+/** SK prefix of share rows inside a USER#{id} partition. */
+export const SHARE_SK_PREFIX = "SHARE#";
 
 /** USER# partition: comment pointers, blocks and the comments a user reported. */
 export const COMMENT_SK_PREFIX = "COMMENT#";

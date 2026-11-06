@@ -208,6 +208,8 @@ export const Content = z.object({
   transcodeStatus: TranscodeStatus.default("uploading"),
   rightsConfirmed: z.boolean().default(false),
   likes: z.number().int().nonnegative().default(0),
+  /** Distinct accounts that shared the clip (display counter; USER#/SHARE# rows are the facts). */
+  shares: z.number().int().nonnegative().default(0),
   views: z.number().int().nonnegative().default(0),
   publishedAt: IsoDate.optional(),
   /** Set on rows ingested from a social platform (dashboard bridge): where the clip came from. */

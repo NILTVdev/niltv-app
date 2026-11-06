@@ -272,6 +272,17 @@ export const LikeAckResponse = FollowAckResponse.extend({
 });
 export type LikeAckResponse = z.infer<typeof LikeAckResponse>;
 
+/**
+ * Ack for POST /v1/me/shares/{contentId}. A share is counted once per account
+ * per clip (same fact-row model as likes), so a repeat answers ok with the
+ * unchanged count. `shares` is optional for the same reason `likes` is: the
+ * server leaves it out when the counter read-back fails after the write.
+ */
+export const ShareAckResponse = AckResponse.extend({
+  shares: z.number().int().nonnegative().optional(),
+});
+export type ShareAckResponse = z.infer<typeof ShareAckResponse>;
+
 /* ── Misc writes ───────────────────────────────────────────────────────────────── */
 
 export const NewsletterRequest = z.object({

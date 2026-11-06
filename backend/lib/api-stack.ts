@@ -99,6 +99,7 @@ export class ApiStack extends Stack {
     const meFn = apiFn("MeFn", "me", "me.ts");
     const followFn = apiFn("FollowFn", "follow", "follow.ts");
     const likeFn = apiFn("LikeFn", "like", "like.ts");
+    const shareFn = apiFn("ShareFn", "share", "share.ts");
     const commentsFn = apiFn("CommentsFn", "comments", "comments.ts");
     const blocksFn = apiFn("BlocksFn", "blocks", "blocks.ts");
     const voteFn = apiFn("VoteFn", "vote", "vote.ts");
@@ -305,6 +306,27 @@ export class ApiStack extends Stack {
       }),
     );
     likeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CONTENT#*"] },
+        },
+      }),
+    );
+
+    // share mirrors like (POST only): fact row writes in USER#*, existence
+    // check + shares counter in CONTENT#* — nothing else, nothing on the GSIs.
+    shareFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:PutItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
+        },
+      }),
+    );
+    shareFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
         resources: [table.tableArn],
@@ -691,6 +713,12 @@ export class ApiStack extends Stack {
       path: "/v1/me/likes/{contentId}",
       methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.DELETE],
       integration: new HttpLambdaIntegration("LikeIntegration", likeFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/shares/{contentId}",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration("ShareIntegration", shareFn),
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({

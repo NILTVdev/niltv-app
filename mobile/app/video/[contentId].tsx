@@ -47,10 +47,11 @@ import {
   useLike,
   useMe,
   useProfile,
+  useRecordShare,
   useUnfollow,
   useUnlike,
 } from "@/api/hooks";
-import { requireAuth } from "@/auth/store";
+import { requireAuth, useAuthStore } from "@/auth/store";
 import { AmbassadorBadge } from "@/components/AmbassadorBadge";
 import { Avatar } from "@/components/Avatar";
 import { CommentsSheet } from "@/components/CommentsSheet";
@@ -177,6 +178,7 @@ function FeedPage({
   const unfollow = useUnfollow();
   const like = useLike();
   const unlike = useUnlike();
+  const recordShare = useRecordShare();
 
   const data = detail.data;
   const isEmbed = data !== undefined && data.provider !== "hls";
@@ -337,7 +339,14 @@ function FeedPage({
     });
   const share = () => {
     // Placeholder share link — universal links (https://app.niltv.com/…) come later (design §3.2).
-    void Share.share({ message: `${card.title}: https://app.niltv.com/video/${card.id}` });
+    void Share.share({ message: `${card.title}: https://app.niltv.com/video/${card.id}` }).then((result) => {
+      // Count only a completed share, and only for a signed-in account: guests
+      // can still share, they just aren't tallied (the route is authed).
+      if (result.action === Share.sharedAction && useAuthStore.getState().status === "signedIn") {
+        recordShare.mutate(card.id);
+        track("share", { contentId: card.id });
+      }
+    });
   };
   const openCreator = () => {
     track("card_tap", { athleteId: creatorId, from: "video_creator" });
