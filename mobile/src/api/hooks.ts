@@ -18,6 +18,7 @@ import {
   type NewsletterRequest,
   type NotificationFollow,
   ProfileResponse,
+  ShareAckResponse,
   VoteResponse,
 } from "@niltv/types";
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -309,6 +310,18 @@ export function useUnlike() {
 }
 
 /**
+ * POST /v1/me/shares/{contentId} — tells the server the signed-in user shared
+ * a clip (counted once per account per clip). Fire-and-forget: the native
+ * share sheet has already done its job, so callers ignore the result.
+ */
+export function useRecordShare() {
+  return useMutation({
+    mutationFn: (contentId: string) =>
+      request(`/v1/me/shares/${contentId}`, ShareAckResponse, { method: "POST", auth: true }),
+  });
+}
+
+/**
  * PUT /v1/me/notification-follows — batch REPLACE of the ★-picker opt-ins
  * (the picker's "Done", the signup interest step, and upcoming-event "Notify
  * me" all send the full desired list). Optimistic on me.notificationFollows.
@@ -418,8 +431,11 @@ export function useComments(contentId: string, enabled: boolean) {
     queryKey: queryKeys.comments(contentId),
     queryFn: ({ pageParam }) =>
       request(
-        `/v1/content/${contentId}/comments${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ""}`,
+        `/v1/comments?contentId=${encodeURIComponent(contentId)}${
+          pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""
+        }`,
         CommentsListResponse,
+        { auth: true },
       ),
     initialPageParam: "",
     getNextPageParam: (last) => last.nextCursor,
@@ -436,9 +452,9 @@ export function usePostComment(contentId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: string) =>
-      request(`/v1/content/${contentId}/comments`, CommentCreateResponse, {
+      request("/v1/comments", CommentCreateResponse, {
         method: "POST",
-        body: { body },
+        body: { contentId, body },
         auth: true,
       }),
     onSuccess: (data) => {
