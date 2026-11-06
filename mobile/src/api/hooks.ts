@@ -125,21 +125,6 @@ export function useContentDetail(id: string, enabled = true) {
   });
 }
 
-/** Small newest-first preview for a directory card; never persisted. */
-export function useAthleteRecentVideos(athleteId: string) {
-  return useQuery({
-    queryKey: [...queryKeys.creatorContentList(athleteId), "preview", 3],
-    queryFn: () => request(
-      `/v1/content?athleteId=${encodeURIComponent(athleteId)}&limit=3`,
-      ContentListResponse,
-    ),
-    staleTime: 0,
-    gcTime: 0,
-    meta: { noPersist: true },
-    retry: false,
-    enabled: athleteId.length > 0,
-  });
-}
 /** Person profile + their content (GET /v1/profiles/{athleteId}). */
 export function useProfile(athleteId: string) {
   return useQuery({
@@ -165,10 +150,10 @@ export function useAmbassadors() {
 }
 
 /** Full athlete directory — the same endpoint unfiltered returns all cleared people. */
-export function useProfilesAll() {
+export function useProfilesAll(withLatestVideo = false) {
   return useQuery({
-    queryKey: queryKeys.profiles("public-all"),
-    queryFn: () => request("/v1/profiles", ProfilesListResponse),
+    queryKey: queryKeys.profiles(withLatestVideo ? "public-all-discovery" : "public-all"),
+    queryFn: () => request(withLatestVideo ? "/v1/profiles?include=latestVideo" : "/v1/profiles", ProfilesListResponse),
     staleTime: 0,
     gcTime: 0,
     meta: { noPersist: true },
