@@ -97,6 +97,7 @@ export class ApiStack extends Stack {
     const profileFn = apiFn("ProfileFn", "profile", "profile.ts");
     const profilesListFn = apiFn("ProfilesListFn", "profiles-list", "profiles-list.ts");
     const meFn = apiFn("MeFn", "me", "me.ts");
+    const favoritesFn = apiFn("FavoritesFn", "favorites", "favorites.ts");
     const followFn = apiFn("FollowFn", "follow", "follow.ts");
     const likeFn = apiFn("LikeFn", "like", "like.ts");
     const voteFn = apiFn("VoteFn", "vote", "vote.ts");
@@ -266,6 +267,35 @@ export class ApiStack extends Stack {
         resources: [table.tableArn],
         conditions: {
           "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
+        },
+      }),
+    );
+
+    // Favorites live on USER META; channel ids are checked against CHANNEL META rows.
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
+        },
+      }),
+    );
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:BatchGetItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CHANNEL#*"] },
+        },
+      }),
+    );
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CONFIG#app"] },
         },
       }),
     );
@@ -635,6 +665,12 @@ export class ApiStack extends Stack {
       path: "/v1/me",
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
       integration: new HttpLambdaIntegration("MeIntegration", meFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/favorites",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("FavoritesIntegration", favoritesFn),
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({
