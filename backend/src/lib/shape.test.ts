@@ -136,10 +136,12 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
     expect(body).toEqual({
       userId: "u-1",
       name: "Test Fan",
+      displayName: undefined,
       email: "fan@example.com",
       role: "fan",
       is18plus: true,
       pushEnabled: false,
+      appearance: "system",
       votes: { "evt-nilstar-s1": "ent-camila" },
       follows: ["ath-camila-garza", "ath-jordan-banks"],
       likes: ["c-floor-routine", "c-audition-camila"],

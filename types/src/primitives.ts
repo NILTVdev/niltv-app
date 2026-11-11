@@ -11,6 +11,10 @@ export type IsoDate = z.infer<typeof IsoDate>;
 export const Role = z.enum(["fan", "athlete", "brand", "ambassador"]);
 export type Role = z.infer<typeof Role>;
 
+/** User-selected app appearance; system follows the device preference. */
+export const AppearancePreference = z.enum(["light", "dark", "system"]);
+export type AppearancePreference = z.infer<typeof AppearancePreference>;
+
 /** Status flags layered on a person profile — ambassador is a flag, not a type (spec §5.9). */
 export const ProfileStatus = z.enum(["athlete", "ambassador"]);
 export type ProfileStatus = z.infer<typeof ProfileStatus>;
