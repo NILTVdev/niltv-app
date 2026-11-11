@@ -157,6 +157,14 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
     expect(mapUserPartition("u-1", [])).toBeUndefined();
   });
 
+  it("maps saved appearance and defaults legacy users to system", () => {
+    const saved = mapUserPartition("u-1", [{ ...meta, appearance: "light" }]);
+    expect(saved?.appearance).toBe("light");
+
+    const legacy = mapUserPartition("u-1", [meta]);
+    expect(legacy?.appearance).toBe("system");
+  });
+
   it("keeps '#' inside a NOTIF targetId and skips unknown target types", () => {
     const body = mapUserPartition("u-1", [
       meta,
