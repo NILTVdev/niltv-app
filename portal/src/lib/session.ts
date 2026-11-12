@@ -76,3 +76,42 @@ export function cognitoCode(err: unknown): string | undefined {
   if (typeof e.name === "string" && e.name) return e.name;
   return undefined;
 }
+
+/** A refresh that has not answered in this long gives up, so no request waits on a hung Cognito call. */
+export const REFRESH_TIMEOUT_MS = 12_000;
+
+/** What a refresh started with: the sign-out generation, the user and the refresh token. */
+export type RefreshFence = { generation: number; user: string; refreshToken: string };
+
+export type RefreshSettle = "current" | "staleClear" | "staleKeep";
+
+/**
+ * A refresh answered (or timed out). Is it still the session it started on?
+ * `current`: same generation, user and refresh token, so act on it.
+ * `staleClear`: signed out since, but the old session is somehow stored again, so clear it.
+ * `staleKeep`: someone else is stored now (a new sign-in), so leave storage alone.
+ * The caller of a stale refresh gets an error that does not end the session.
+ */
+export function settleRefresh(input: {
+  started: RefreshFence;
+  generation: number;
+  lastAuthUser: string | null;
+  storedRefreshToken: string | null;
+}): RefreshSettle {
+  const { started } = input;
+  const sameSession = input.lastAuthUser === started.user && input.storedRefreshToken === started.refreshToken;
+  if (input.generation === started.generation) return sameSession ? "current" : "staleKeep";
+  return sameSession ? "staleClear" : "staleKeep";
+}
+
+/**
+ * A refresh answered after its timeout. Its caller already has an answer.
+ * New tokens are still saved when the session is the one it started on.
+ * Anything else, a failure included, is ignored.
+ */
+export const lateRefresh = (input: { settle: RefreshSettle; ok: boolean }): "store" | "ignore" =>
+  input.settle === "current" && input.ok ? "store" : "ignore";
+
+/** A refresh timed out. It is a network failure: never a sign-out. */
+export const refreshTimeout = (input: { idExpiresAt: number | null; now: number; force?: boolean }): RefreshFailure =>
+  refreshFailure({ code: undefined, ...input });
