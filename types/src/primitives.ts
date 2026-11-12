@@ -45,6 +45,8 @@ export type VoteErrorCode = z.infer<typeof VoteErrorCode>;
 export const ApiError = z.object({
   error: z.string(),
   message: z.string().optional(),
+  /** with 429 RATE_LIMITED: seconds until the member's allowance resets */
+  retryAfterSec: z.number().int().nonnegative().optional(),
 });
 export type ApiError = z.infer<typeof ApiError>;
 

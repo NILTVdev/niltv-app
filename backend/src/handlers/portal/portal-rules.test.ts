@@ -2,7 +2,7 @@ import { PortalMember } from "@niltv/types";
 import { describe, expect, it } from "vitest";
 import { audienceIncludes } from "../../lib/portal/audience";
 import { escapeHtml, formatWhen, renderEmail } from "../../lib/portal/emails";
-import { canEdit } from "./members";
+import { canAdd, canEdit } from "./members";
 import { mergeRoster, rosterFields } from "./roster-sync";
 import { buildOptions, optionId } from "./schedule";
 
@@ -40,6 +40,26 @@ describe("who may edit a member", () => {
   it("refuses athletes and guests", () => {
     expect(canEdit(caller("athlete"), member({ role: "guest" }), { name: "X" })).toBe(false);
     expect(canEdit(caller("guest"), member(), { name: "X" })).toBe(false);
+  });
+});
+
+describe("who may add a member", () => {
+  it("lets staff add guests and admins add any role", () => {
+    expect(canAdd(caller("staff"), "guest")).toBe(true);
+    expect(canAdd(caller("staff"), "athlete")).toBe(false);
+    expect(canAdd(caller("admin"), "staff")).toBe(true);
+    expect(canAdd(caller("athlete"), "guest")).toBe(false);
+  });
+
+  it("stops staff bringing back a disabled or waiting account as a guest", () => {
+    expect(canAdd(caller("staff"), "guest", member({ status: "disabled" }))).toBe(false);
+    expect(canAdd(caller("staff"), "guest", member({ status: "ready" }))).toBe(false);
+    expect(canAdd(caller("staff"), "guest", member({ role: "staff", status: "disabled" }))).toBe(false);
+    expect(canAdd(caller("admin"), "guest", member({ status: "disabled" }))).toBe(true);
+  });
+
+  it("lets staff re-add a former guest as a guest", () => {
+    expect(canAdd(caller("staff"), "guest", member({ role: "guest", status: "disabled" }))).toBe(true);
   });
 });
 
@@ -99,6 +119,11 @@ describe("roster sync", () => {
     });
     expect(rosterFields({ ...app, campus_channel: "other", international: true })).toMatchObject({ stripe: "international" });
     expect(rosterFields({ ...app, campus_channel: "other" }).campus).toBeUndefined();
+  });
+
+  it("does not take a staff label as a roster name", () => {
+    expect(rosterFields({ ...app, first_name: "NIL TV", last_name: "Team" }).name).toBe("Jordan");
+    expect(rosterFields({ ...app, first_name: "NIL TV", last_name: "Team", email: "staff@example.com" }).name).toBe("Portal member");
   });
 
   it("never overwrites a field staff edited by hand", () => {

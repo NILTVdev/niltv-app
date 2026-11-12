@@ -386,13 +386,17 @@ export async function leaveAllGroups(sub: string): Promise<void> {
 
 export const deskConvId = (desk: Desk, sub: string): string => `desk-${desk}-${sub}`;
 
+/** Who can read a desk thread, said plainly: access is by role, not by desk (convAccess). */
+export const deskAbout = (desk: Desk): string =>
+  desk === "payments" ? "NIL TV admins can read this thread." : "Every NIL TV staff member can read this thread.";
+
 /** Find or create the thread between one person and one desk. */
 export async function openDeskThread(desk: Desk, person: PortalMember, now: string = new Date().toISOString()): Promise<ConvMeta> {
   const meta = await ensureConv({
     id: deskConvId(desk, person.sub),
     kind: "desk",
     title: DESK_LABELS[desk],
-    about: `Private between ${person.name} and the ${DESK_LABELS[desk]} desk.`,
+    about: deskAbout(desk),
     desk,
     personSub: person.sub,
     personName: person.name,
@@ -548,7 +552,7 @@ export async function sendMessage(
       mentions: [...(input.mentions ?? [])],
       important: input.important === true,
     };
-    const preview = input.body.replace(/\s+/g, " ").slice(0, 140);
+    const preview = previewOf(input.body);
     // Desk threads sort by activity, and wait on staff from the first
     // unanswered message until staff reply.
     const deskSk =
@@ -641,7 +645,9 @@ export async function listMessages(
         ? { ":pk": `CONV#${convIdValue}`, ":from": CONV_MSG_SK_PREFIX, ":to": `${CONV_MSG_SK_PREFIX}${opts.before}` }
         : { ":pk": `CONV#${convIdValue}`, ":from": CONV_MSG_SK_PREFIX },
       ScanIndexForward: false,
-      Limit: limit + 1,
+      // BETWEEN includes the `before` row itself, which is dropped below, so
+      // a `before` page needs one extra row to tell whether more exist.
+      Limit: opts.before ? limit + 2 : limit + 1,
     }),
   );
   const newestFirst = (out.Items ?? [])
@@ -657,9 +663,19 @@ export async function listMessages(
 export const teamLabel = (meta: ConvMeta): string =>
   meta.kind === "desk" && meta.desk ? DESK_LABELS[meta.desk] : "NIL TV Team";
 
-export function presentMessage(message: StoredMessage, viewer: PortalMember, meta: ConvMeta): PortalMessage {
+/**
+ * `emails` maps author sub to account email. Staff see it on desk threads, so
+ * a member who borrowed someone else's name is still plain to see.
+ */
+export function presentMessage(
+  message: StoredMessage,
+  viewer: PortalMember,
+  meta: ConvMeta,
+  emails?: ReadonlyMap<string, string>,
+): PortalMessage {
   const staffViewer = isStaffRole(viewer.role);
   const staffAuthor = isStaffRole(message.authorRole);
+  const authorEmail = staffViewer && meta.kind === "desk" ? emails?.get(message.authorSub) : undefined;
   return {
     id: message.id,
     convId: message.convId,
@@ -667,6 +683,7 @@ export function presentMessage(message: StoredMessage, viewer: PortalMember, met
     authorName: staffAuthor ? teamLabel(meta) : message.authorName,
     authorRole: message.authorRole,
     ...(staffViewer && staffAuthor ? { staffName: message.authorName } : {}),
+    ...(authorEmail ? { authorEmail } : {}),
     mine: message.authorSub === viewer.sub,
     body: message.hidden && !staffViewer ? "" : message.body,
     at: message.at,
@@ -676,9 +693,16 @@ export function presentMessage(message: StoredMessage, viewer: PortalMember, met
   };
 }
 
+/** The inbox line under a thread's name. */
+export const previewOf = (body: string): string => body.replace(/\s+/g, " ").slice(0, 140);
+
+/** What the inbox shows for a thread whose newest message is hidden. */
+export const HIDDEN_PREVIEW = "Hidden by staff";
+
 export async function setHidden(convIdValue: string, messageId: string, hidden: boolean, bySub: string): Promise<boolean> {
+  let updated: Record<string, unknown> | undefined;
   try {
-    await getDocClient().send(
+    const out = await getDocClient().send(
       new UpdateCommand({
         TableName: table(),
         Key: convMessageKey(convIdValue, messageId),
@@ -687,13 +711,34 @@ export async function setHidden(convIdValue: string, messageId: string, hidden: 
         ConditionExpression: "attribute_exists(PK)",
         ExpressionAttributeNames: { "#hidden": "hidden" },
         ExpressionAttributeValues: { ":h": hidden, ":by": bySub, ":at": new Date().toISOString() },
+        ReturnValues: "ALL_NEW",
       }),
     );
-    return true;
+    updated = out.Attributes;
   } catch (err) {
     if (isCcf(err)) return false;
     throw err;
   }
+  // The inbox preview copies the newest message's text, so hiding that
+  // message must replace it too, and unhiding puts it back. The condition
+  // skips this when a newer message has already taken over the preview.
+  const message = updated ? parseMessage(updated) : undefined;
+  if (message) {
+    try {
+      await getDocClient().send(
+        new UpdateCommand({
+          TableName: table(),
+          Key: convKey(convIdValue),
+          UpdateExpression: "SET lastPreview = :preview",
+          ConditionExpression: "seq = :seq",
+          ExpressionAttributeValues: { ":preview": hidden ? HIDDEN_PREVIEW : previewOf(message.body), ":seq": message.seq },
+        }),
+      );
+    } catch (err) {
+      if (!isCcf(err)) throw err;
+    }
+  }
+  return true;
 }
 
 /* ── Read state ────────────────────────────────────────────────────────────── */
@@ -876,7 +921,7 @@ export function summarize(meta: ConvMeta, viewer: PortalMember, membership: Memb
       person = { sub: meta.personSub ?? "", name: meta.personName ?? "Member", role: meta.personRole ?? "athlete" };
     } else {
       title = DESK_LABELS[meta.desk];
-      about = `Private between you and the NIL TV ${DESK_LABELS[meta.desk].toLowerCase()} desk.`;
+      about = deskAbout(meta.desk);
     }
   }
   // Staff who never opened a channel or group start at zero unread. Desk

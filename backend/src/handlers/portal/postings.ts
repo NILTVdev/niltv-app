@@ -24,7 +24,7 @@ import { GSI1, POSTINGS_ALL_GSI1PK, getDocClient, postingInterestKey, postingKey
 import { can, denied } from "../../lib/portal/access";
 import { newPortalId } from "../../lib/portal/ids";
 import { formerMember, getMembers, toPerson } from "../../lib/portal/members";
-import { enqueue } from "../../lib/portal/notify";
+import { enqueue, enqueueOrThrow } from "../../lib/portal/notify";
 import { badRequest, notFound, ok, portalHandler } from "../../lib/portal/router";
 
 const table = (): string => process.env.TABLE_NAME ?? "";
@@ -94,6 +94,47 @@ const present = (p: StoredPosting): Posting => {
   const { createdBySub: _by, ...rest } = p;
   return rest;
 };
+
+/**
+ * True the first time this athlete shows interest in this posting. Staff get
+ * one interest email per athlete per posting, so withdrawing and showing
+ * interest again cannot flood their inbox. The marker sits next to the
+ * interest rows: POSTING#{id} / NOTIFIED#{sub}.
+ */
+async function firstInterest(postingId: string, sub: string, at: string): Promise<boolean> {
+  try {
+    await getDocClient().send(
+      new PutCommand({
+        TableName: table(),
+        Item: { PK: `POSTING#${postingId}`, SK: `NOTIFIED#${sub}`, at },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return false;
+    throw err;
+  }
+}
+
+/**
+ * Queue the staff email for a first interest. If it cannot be queued, drop the
+ * marker so the next interest from this athlete tries again.
+ */
+async function notifyInterest(postingId: string, sub: string): Promise<void> {
+  try {
+    await enqueueOrThrow({ type: "posting.interest", postingId, personSub: sub });
+  } catch (err) {
+    console.error("portal: posting interest notice not queued", err);
+    try {
+      await getDocClient().send(
+        new DeleteCommand({ TableName: table(), Key: { PK: `POSTING#${postingId}`, SK: `NOTIFIED#${sub}` } }),
+      );
+    } catch (cleanupErr) {
+      console.error("portal: posting interest marker not cleared", cleanupErr);
+    }
+  }
+}
 
 export const handler = portalHandler({
   "GET /v1/postings": async ({ caller }) => {
@@ -190,8 +231,8 @@ export const handler = portalHandler({
             ExpressionAttributeValues: { ":one": 1 },
           }),
         );
-        if (posting.requiresApproval) {
-          await enqueue({ type: "posting.interest", postingId: posting.id, personSub: caller.sub });
+        if (posting.requiresApproval && (await firstInterest(posting.id, caller.sub, now))) {
+          await notifyInterest(posting.id, caller.sub);
         }
         return ok(PortalAck.parse({ status: "ok" }));
       }

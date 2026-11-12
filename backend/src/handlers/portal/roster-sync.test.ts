@@ -252,6 +252,29 @@ describe("matching an account", () => {
     expect(m.syncChannelMemberships).not.toHaveBeenCalled();
   });
 
+  it("finds an existing member by application id, even on another email, with no account lookup", async () => {
+    m.listMembers.mockResolvedValue([athlete({ email: "jm@other.edu", sport: "Rowing" })]);
+    const result = await syncRoster([app()], { now: NOW });
+    expect(m.lookupEmail).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ updated: 1, created: 0 });
+    expect(m.putMember).toHaveBeenCalledWith(expect.objectContaining({ sub: "u-1", sport: "Football", email: "jm@other.edu" }));
+  });
+
+  it("finds an existing member by email and links the application", async () => {
+    m.listMembers.mockResolvedValue([athlete({ applicationId: undefined })]);
+    const result = await syncRoster([app()], { now: NOW });
+    expect(m.lookupEmail).not.toHaveBeenCalled();
+    expect(result.updated).toBe(1);
+    expect(m.putMember).toHaveBeenCalledWith(expect.objectContaining({ sub: "u-1", applicationId: 7 }));
+  });
+
+  it("leaves an existing member alone when nothing changed", async () => {
+    m.listMembers.mockResolvedValue([athlete()]);
+    const result = await syncRoster([app()], { now: NOW });
+    expect(result).toMatchObject({ updated: 0, created: 0 });
+    expect(m.putMember).not.toHaveBeenCalled();
+  });
+
   it("never rewrites a member tied to a different application", async () => {
     m.listMembers.mockResolvedValue([athlete({ applicationId: 99, name: "Somebody Else", sport: "Rowing" })]);
     m.listPending.mockResolvedValue([pendingRow()]);
@@ -342,6 +365,27 @@ describe("dry run", () => {
     for (const write of [m.putMember, m.createMember, m.savePending, m.deletePending, m.claimInvite, m.enqueueOrThrow, m.syncChannelMemberships]) {
       expect(write).not.toHaveBeenCalled();
     }
+  });
+
+  it("lists who has no account, only in a dry run", async () => {
+    const dry = await syncRoster([app()], { now: NOW, dryRun: true });
+    expect(dry.unmatched).toEqual([{ applicationId: 7, name: "Jordan Miles" }]);
+    const real = await syncRoster([app()], { now: NOW });
+    expect(real.unmatched).toBeUndefined();
+  });
+
+  it("returns the names from an invoke and keeps them out of the log", async () => {
+    process.env.DASHBOARD_API_URL = "https://dashboard.test";
+    process.env.DASHBOARD_API_KEY_PARAM = "/key";
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => [app()] })));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const result = await handler({ dryRun: true });
+    const logged = log.mock.calls.map((c) => c.join(" ")).join("\n");
+    log.mockRestore();
+    vi.unstubAllGlobals();
+    expect(result.unmatched).toEqual([{ applicationId: 7, name: "Jordan Miles" }]);
+    expect(logged).toContain("noAccount");
+    expect(logged).not.toContain("Jordan");
   });
 });
 

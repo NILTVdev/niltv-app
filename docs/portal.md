@@ -71,6 +71,26 @@ The role is read from the row on every request, never from a token claim, so
 removing someone or changing a role applies on their next call. Message
 threads also check the membership row on every read and write.
 
+### Write limits
+
+`portalHandler` (`lib/portal/router.ts`) caps some writes per member, with a
+counter row at `USER#{sub}` / `LIMIT#{bucket}` (`lib/portal/limits.ts`). Over
+the cap, the API answers `429 RATE_LIMITED`: "Too many in a row. Wait a minute
+and try again."
+
+| Route | Cap |
+|---|---|
+| Send a message | 30 a minute |
+| Help | 5 an hour |
+| Page change request | 5 a day |
+| Posting action (interest, decide) | 20 a minute |
+| Ask action (claim, submit, review) | 30 a minute |
+| Start an upload | 30 a minute |
+
+Staff get one interest email per athlete per posting, however often the
+athlete withdraws and shows interest again. The notify consumer runs at most
+5 at a time, which keeps bursts under the SES send rate.
+
 ## Data model
 
 All in the stage's single table. Keys are built only in `src/lib/db.ts`.
@@ -153,8 +173,18 @@ How it flows:
 
 - Handlers put a notice on `niltv-{stage}-portal-notify`. `portal-notify`
   (`handlers/portal/notify.ts`) decides per recipient: push now, count it
-  toward their summary, or (rarely) email now. Failed notices retry three
-  times, then land in `niltv-{stage}-portal-notify-dlq`.
+  toward their summary, or (rarely) email now. A notice that throws is tried
+  three times in all, then lands in `niltv-{stage}-portal-notify-dlq`.
+- Which email failures throw: the ones that are the only copy. That is Help,
+  page change requests, welcome, invites, posting interest, and claim and
+  submission emails to staff. A retry can repeat the email to an address that
+  already got it. Emails to many people (important announcements, urgent
+  schedule changes) log a failure and move on, so one bad address cannot
+  resend to everyone.
+- Help is only stored on the queue. If the notice cannot be queued, the Help
+  form gets an error and the member is told to try again.
+- A summary counts as sent only when SES accepts it. A refused summary stays
+  due and the next sweep tries again an hour later.
 - `portal-summary` (`handlers/portal/summary.ts`) runs every 15 minutes,
   one run at a time. It sends summaries that have come due and the staff
   desk alerts.
@@ -187,6 +217,7 @@ Rules:
   to the support address (reply-to the sender), and the welcome and invite emails (their
   own switch).
 - Reserved test domains (`.invalid`, `.test`, `.example`) are never emailed.
+  A skipped test address counts as done, not as a failure.
 
 ### Web push setup
 
@@ -237,7 +268,9 @@ pool, website and test clients), so it deploys on its own. Context keys:
 `niltv:portalRosterSync:{stage}` (`on` schedules the onboarding sync outside
 prod; on dev, add athletes by hand in Team & access). Invoke
 `niltv-{stage}-portal-roster-sync` with `{"dryRun": true}` to count what it
-would create or update without writing anything.
+would create or update without writing anything. The response also lists
+who has no account yet, by application id and name, to compare with the
+dashboard. Those names are never logged.
 
 ## Pick a time
 
@@ -273,7 +306,12 @@ Files go to their own bucket, `niltv-{stage}-portal-submissions-{account}`, unde
 audio and photos only, 2 GB per file, 10 files per claim. Browsers upload
 16 MB parts with short-lived links, and the API checks the bucket's own part
 list before a file counts as landed. Picking the same file again carries on
-from the parts that arrived. Unfinished uploads clear after 7 days.
+from the parts that arrived. Unfinished uploads clear after 7 days, and one
+athlete can hold at most 20 on one ask before the API refuses a new one.
+
+Deleting an account (DELETE /v1/me, `handlers/delete-me.ts`) also deletes the
+member's claims, file rows and files on every ask (`lib/portal/hub-purge.ts`).
+It walks every ask, so it costs one listing, query and claim delete per ask.
 
 Ask descriptions are GitHub-style Markdown (`portal/src/ui/Markdown.tsx`). Raw HTML
 never renders. Staff can upload, paste or drop an image: it lands under

@@ -304,6 +304,8 @@ async function main(): Promise<void> {
     const hiddenView = await call(athlete, "GET", "/v1/conversations/ch-sport-womens-basketball/messages");
     const hiddenMsg = (hiddenView.json["messages"] ?? []).find((m: Json) => m["id"] === posted.json["id"]);
     check("staff hide a message and its text is gone for athletes", hide.status === 200 && hiddenMsg?.["hidden"] === true && hiddenMsg?.["body"] === "");
+    const hiddenRow = ((await call(athlete, "GET", "/v1/inbox")).json["conversations"] ?? []).find((c: Json) => c["id"] === "ch-sport-womens-basketball");
+    check("the inbox preview drops a hidden newest message", hiddenRow?.["lastPreview"] !== posted.json["body"]);
 
     // ── Desks ────────────────────────────────────────────────────────────
     const desk = await call(athlete, "POST", "/v1/desks", { desk: "support" });

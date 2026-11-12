@@ -8,6 +8,7 @@
  */
 import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import {
+  ApiError,
   HelpRequest,
   PortalAck,
   type PortalRequest,
@@ -20,9 +21,10 @@ import {
 } from "@niltv/types";
 import { z } from "zod";
 import { GSI1, PORTAL_REQUESTS_GSI1PK, getDocClient, portalRequestKey } from "../../lib/db";
+import { json } from "../../lib/http";
 import { can, denied } from "../../lib/portal/access";
 import { newPortalId } from "../../lib/portal/ids";
-import { enqueue } from "../../lib/portal/notify";
+import { enqueue, enqueueOrThrow } from "../../lib/portal/notify";
 import { badRequest, notFound, ok, portalHandler } from "../../lib/portal/router";
 
 const table = (): string => process.env.TABLE_NAME ?? "";
@@ -122,7 +124,14 @@ export const handler = portalHandler({
   "POST /v1/help": async ({ caller, body }) => {
     const req = body(HelpRequest);
     if (!req) return badRequest();
-    await enqueue({ type: "help", sub: caller.sub, topic: req.topic, message: req.message });
+    // The queued notice is the only copy of a Help message, so a failed
+    // enqueue must reach the member instead of showing Sent.
+    try {
+      await enqueueOrThrow({ type: "help", sub: caller.sub, topic: req.topic, message: req.message });
+    } catch (err) {
+      console.error("portal: help enqueue failed", err);
+      return json(503, ApiError.parse({ error: "UNAVAILABLE", message: "Your message did not send. Try again in a minute." }));
+    }
     return ok(PortalAck.parse({ status: "ok" }), 202);
   },
 });

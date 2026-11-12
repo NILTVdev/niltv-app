@@ -13,6 +13,7 @@ import {
   channelId,
   channelScopesFor,
   convAccess,
+  listMessages,
   presentMessage,
   sendMessage,
   setHidden,
@@ -149,6 +150,15 @@ describe("presentMessage", () => {
     expect(presentMessage(stored, member(), conv()).mentions).toEqual(["u-ath"]);
     expect(presentMessage(hidden, member(), conv()).mentions).toEqual([]);
   });
+
+  it("gives staff the author's account email on desk threads only", () => {
+    const fromAthlete = { ...stored, authorSub: "u-ath", authorName: "NIL TV Team", authorRole: "athlete" as const };
+    const emails = new Map([["u-ath", "a@example.com"]]);
+    const staff = member({ sub: "u-staff2", role: "staff" });
+    expect(presentMessage(fromAthlete, staff, deskConv("support"), emails).authorEmail).toBe("a@example.com");
+    expect(presentMessage(fromAthlete, member(), deskConv("support"), emails).authorEmail).toBeUndefined();
+    expect(presentMessage(fromAthlete, staff, conv(), emails).authorEmail).toBeUndefined();
+  });
 });
 
 describe("summarize", () => {
@@ -220,6 +230,50 @@ describe("sendMessage", () => {
   });
 });
 
+describe("listMessages", () => {
+  /** A newest-first message query over `count` stored messages, as DynamoDB answers it. */
+  function fakeThread(count: number) {
+    const rows = Array.from({ length: count }, (_, i) => {
+      const id = `01M${String(i).padStart(5, "0")}`;
+      return { PK: "CONV#ch-everyone", SK: `MSG#${id}`, id, convId: "ch-everyone", seq: i + 1, body: `m${i + 1}` };
+    });
+    sendMock.mockImplementation(async (cmd: { input: Record<string, any> }) => {
+      const { ExpressionAttributeValues: v, KeyConditionExpression: k, ScanIndexForward, Limit } = cmd.input;
+      const hits = rows.filter((r) =>
+        k.includes("BETWEEN") ? r.SK >= v[":from"] && r.SK <= v[":to"] : r.SK.startsWith(v[":from"]),
+      );
+      if (!ScanIndexForward) hits.reverse();
+      return { Items: hits.slice(0, Limit) };
+    });
+  }
+
+  beforeEach(() => {
+    sendMock.mockReset();
+  });
+
+  it("pages back through every message of a long thread", async () => {
+    fakeThread(260);
+    const seen: number[] = [];
+    let before: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const out = await listMessages("ch-everyone", { before, limit: 100 });
+      seen.unshift(...out.messages.map((m) => m.seq));
+      before = out.before;
+      if (!before) break;
+    }
+    expect(seen).toEqual(Array.from({ length: 260 }, (_, i) => i + 1));
+  });
+
+  it("reports no older page at the start of the thread", async () => {
+    fakeThread(100);
+    const first = await listMessages("ch-everyone", { limit: 50 });
+    expect(first.messages).toHaveLength(50);
+    const second = await listMessages("ch-everyone", { before: first.before, limit: 50 });
+    expect(second.messages.map((m) => m.seq)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+    expect(second.before).toBeUndefined();
+  });
+});
+
 describe("setHidden", () => {
   beforeEach(() => {
     sendMock.mockReset();
@@ -231,5 +285,35 @@ describe("setHidden", () => {
     const input = sendMock.mock.calls[0]![0].input;
     expect(input.UpdateExpression).not.toMatch(/SET hidden/);
     expect(input.ExpressionAttributeNames).toEqual({ "#hidden": "hidden" });
+  });
+
+  const row = (hidden: boolean) => ({ id: "01J", convId: "ch-everyone", seq: 5, body: "call me  at\n555", hidden });
+
+  it("replaces the inbox preview when the newest message is hidden", async () => {
+    sendMock.mockResolvedValueOnce({ Attributes: row(true) }).mockResolvedValueOnce({});
+    expect(await setHidden("ch-everyone", "01J", true, "u-staff")).toBe(true);
+    const meta = sendMock.mock.calls[1]![0].input;
+    expect(meta.Key).toEqual({ PK: "CONV#ch-everyone", SK: "META" });
+    expect(meta.ConditionExpression).toBe("seq = :seq");
+    expect(meta.ExpressionAttributeValues).toEqual({ ":preview": "Hidden by staff", ":seq": 5 });
+  });
+
+  it("restores the preview on unhide", async () => {
+    sendMock.mockResolvedValueOnce({ Attributes: row(false) }).mockResolvedValueOnce({});
+    await setHidden("ch-everyone", "01J", false, "u-staff");
+    expect(sendMock.mock.calls[1]![0].input.ExpressionAttributeValues[":preview"]).toBe("call me at 555");
+  });
+
+  it("leaves the preview alone when a newer message owns it", async () => {
+    const ccf = Object.assign(new Error("ccf"), { name: "ConditionalCheckFailedException" });
+    sendMock.mockResolvedValueOnce({ Attributes: { ...row(true), seq: 3 } }).mockRejectedValueOnce(ccf);
+    expect(await setHidden("ch-everyone", "01J", true, "u-staff")).toBe(true);
+  });
+
+  it("reports a missing message", async () => {
+    const ccf = Object.assign(new Error("ccf"), { name: "ConditionalCheckFailedException" });
+    sendMock.mockRejectedValueOnce(ccf);
+    expect(await setHidden("ch-everyone", "nope", true, "u-staff")).toBe(false);
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 });

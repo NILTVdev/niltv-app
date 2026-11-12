@@ -6,6 +6,7 @@
  */
 import { SUBMISSION_PART_BYTES, type SubmissionFile, submissionParts } from "@niltv/types";
 import { api } from "../api";
+import { rateLimitWaitMs } from "./ratelimit";
 
 const WORKERS = 3;
 const ATTEMPTS = 5;
@@ -59,7 +60,20 @@ export async function uploadFile(
   onProgress: (fraction: number) => void,
   signal: AbortSignal,
 ): Promise<SubmissionFile> {
-  const { fileId, doneParts } = await api.startUpload(askId, { name: file.name, size: file.size, type: file.type });
+  const start = async () => {
+    // A 429 is refused before anything is stored, so waiting it out and starting again is safe.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await api.startUpload(askId, { name: file.name, size: file.size, type: file.type });
+      } catch (err) {
+        const waitMs = rateLimitWaitMs(err);
+        if (waitMs === undefined || attempt >= 2 || signal.aborted) throw err;
+        await wait(waitMs / 1000, signal);
+        if (signal.aborted) throw new DOMException("Stopped", "AbortError");
+      }
+    }
+  };
+  const { fileId, doneParts } = await start();
   const sent = new Map<number, number>();
   for (const n of doneParts) {
     const { start, end } = partRange(file.size, n);

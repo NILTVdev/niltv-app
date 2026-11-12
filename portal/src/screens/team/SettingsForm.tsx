@@ -92,7 +92,7 @@ export function SettingsForm() {
         <h3 id="settings-h">Settings</h3>
         <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="lbl">Desk emails</legend>
-          <p className="hint">Who gets an email when a message lands in each desk, on top of staff who picked that desk. Separate addresses with commas.</p>
+          <p className="hint">Who gets desk alert and page change emails for each desk. Addresses here replace the staff who picked that desk. Leave it empty to email those staff. Separate addresses with commas.</p>
           {DeskEnum.options.map((d) => (
             <div className="field" key={d}>
               <label htmlFor={`set-desk-${d}`}>{DESK_LABELS[d]}</label>

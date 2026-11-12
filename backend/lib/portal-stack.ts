@@ -253,7 +253,8 @@ export class PortalStack extends Stack {
     notifyFn.addToRolePolicy(sesPolicy);
     notifyFn.addToRolePolicy(ssmRead(vapidPublicParam, vapidPrivateParam));
     notifyFn.addEventSource(
-      new SqsEventSource(notifyQueue, { batchSize: 10, reportBatchItemFailures: true }),
+      // maxConcurrency keeps a burst of notices under the SES send rate.
+      new SqsEventSource(notifyQueue, { batchSize: 10, reportBatchItemFailures: true, maxConcurrency: 5 }),
     );
 
     // ── Summary emails and desk alerts (every 15 minutes, one run at a time) ─

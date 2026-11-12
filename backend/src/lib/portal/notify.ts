@@ -2,7 +2,9 @@
  * Portal notices: request handlers drop a small notice on an SQS queue and
  * return; the portal-notify Lambda (handlers/portal/notify.ts) resolves who
  * should hear about it and how (push, summary email, or an email now). Keeps SES out of the request
- * path and gives failed sends a retry and a dead-letter queue.
+ * path. Emails that are the only copy (Help, requests, welcome, staff work
+ * queues) throw on failure there, so SQS retries them and the dead-letter
+ * queue keeps them.
  */
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { HelpTopic } from "@niltv/types";

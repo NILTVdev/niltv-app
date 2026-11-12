@@ -152,11 +152,10 @@ export function Thread({
               </p>
             ) : (
               <>
-                <p className="meta">
-                  {conv.kind === "group"
-                    ? `${plural(members.length, "person", "people")} plus staff.`
-                    : "Private. Everyone on this desk can read and reply."}
-                </p>
+                {/* Desk threads: the about line above (also in the header) says who can read them. */}
+                {conv.kind === "group" ? (
+                  <p className="meta">{plural(members.length, "person", "people")} plus staff.</p>
+                ) : null}
                 {detail.isPending ? <Loading what="Loading members" /> : null}
                 {members.length ? (
                   <ul aria-label="Members">
@@ -310,6 +309,7 @@ function MessageRow({
             </button>
           ) : null}
         </div>
+        {staffViewer && m.authorEmail ? <p className="author-email">{m.authorEmail}</p> : null}
         {m.hidden && !staffViewer ? (
           <p className="hidden">Hidden by staff</p>
         ) : (
@@ -333,7 +333,14 @@ function PendingRow({ p, thread }: { p: PendingMessage; thread: ReturnType<typeo
           <span>{isStaffRole(member.role) ? "You" : member.name}</span>
         </div>
         <p>{p.body}</p>
-        {p.state === "sending" ? (
+        {p.state === "sending" && p.error ? (
+          <div className="state" role="status">
+            {p.error} It sends on its own when the wait is over.
+            <button type="button" className="linkbtn" onClick={() => thread.discard(p.clientMsgId)}>
+              Discard
+            </button>
+          </div>
+        ) : p.state === "sending" ? (
           <div className="state">Sending…</div>
         ) : (
           <div className="state failed" role="alert">

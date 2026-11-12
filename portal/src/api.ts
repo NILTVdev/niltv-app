@@ -73,6 +73,8 @@ export class PortalApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** with 429: seconds until the server takes this write again */
+    readonly retryAfterSec?: number,
   ) {
     super(message);
     this.name = "PortalApiError";
@@ -104,6 +106,8 @@ function messageFor(status: number, code: string, serverMessage: string | undefi
       return "Check the form and try again.";
     case "CONFLICT":
       return "Someone else changed this first. Refresh and try again.";
+    case "RATE_LIMITED":
+      return "Too many in a row. Wait a minute and try again.";
     default:
       return status >= 500 ? "Something went wrong on our side. Try again." : `Request failed (${status}).`;
   }
@@ -141,16 +145,18 @@ async function call(method: Method, path: string, body?: unknown): Promise<Respo
   if (!res.ok) {
     let code = `HTTP_${res.status}`;
     let message: string | undefined;
+    let retryAfterSec: number | undefined;
     try {
       const parsed = ApiErrorBody.safeParse(await res.json());
       if (parsed.success) {
         code = parsed.data.error;
         message = parsed.data.message;
+        retryAfterSec = parsed.data.retryAfterSec;
       }
     } catch {
       /* non-JSON error body: keep the fallback */
     }
-    throw new PortalApiError(res.status, code, messageFor(res.status, code, message));
+    throw new PortalApiError(res.status, code, messageFor(res.status, code, message), retryAfterSec);
   }
   return res;
 }
