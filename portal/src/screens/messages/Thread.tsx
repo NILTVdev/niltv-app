@@ -88,6 +88,13 @@ export function Thread({
   const canPost = staff || !conv.staffOnly;
   const muted = detail.data?.muted ?? conv.muted;
   const members = detail.data?.members ?? [];
+  // Desk access is by role, not by desk: say exactly who can read it.
+  const deskAccess =
+    conv.kind === "desk"
+      ? conv.desk === "payments"
+        ? "NIL TV admins can read this thread."
+        : "Every NIL TV staff member can read this thread."
+      : undefined;
 
   let hint: string | undefined;
   if (staff && conv.kind === "channel") hint = `Posts as NIL TV Team to ${plural(conv.memberCount, "member")}.`;
@@ -108,7 +115,7 @@ export function Thread({
             {channelish ? "#" : ""}
             {conv.title}
           </h2>
-          <p>{conv.about}</p>
+          <p>{deskAccess ?? conv.about}</p>
         </div>
         <div className="row">
           {staff && conv.kind === "desk" && conv.person ? (
@@ -144,7 +151,7 @@ export function Thread({
       <div>
         {infoOpen ? (
           <div className="convo-info" id={`info-${convId}`}>
-            <p className="note">{conv.about || "No description."}</p>
+            {deskAccess ? null : <p className="note">{conv.about || "No description."}</p>}
             {conv.kind === "channel" ? (
               <p className="meta">
                 {plural(conv.memberCount, "member")}. Staff see and post in every channel.
@@ -155,7 +162,7 @@ export function Thread({
                 <p className="meta">
                   {conv.kind === "group"
                     ? `${plural(members.length, "person", "people")} plus staff.`
-                    : "Private. Everyone on this desk can read and reply."}
+                    : deskAccess}
                 </p>
                 {detail.isPending ? <Loading what="Loading members" /> : null}
                 {members.length ? (
