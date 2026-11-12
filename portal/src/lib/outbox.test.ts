@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type PendingMessage,
   clearOutbox,
+  discardPending,
+  forgetResend,
+  holdForResend,
+  isHeld,
   outboxEpoch,
   draftFor,
   failedNotice,
@@ -94,5 +98,112 @@ describe("failedNotice", () => {
   it("names the thread", () => {
     expect(failedNotice("Payments")).toBe("A message to Payments was not sent. Open it to retry.");
     expect(failedNotice(undefined)).toBe("A message was not sent. Open the thread to retry.");
+  });
+});
+
+describe("held resends", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    clearOutbox();
+  });
+  afterEach(() => {
+    clearOutbox();
+    vi.useRealTimers();
+  });
+
+  const hold = (resend: () => void, epoch = outboxEpoch(), max = 3) =>
+    holdForResend("c1", "a", { waitMs: 1000, epoch, max, resend });
+
+  it("resends once after the wait, with no thread on screen", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    expect(hold(resend)).toBe("held");
+    expect(isHeld("c1", "a")).toBe(true);
+    vi.advanceTimersByTime(999);
+    expect(resend).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(resend).toHaveBeenCalledTimes(1);
+    expect(isHeld("c1", "a")).toBe(false);
+    vi.advanceTimersByTime(10_000);
+    expect(resend).toHaveBeenCalledTimes(1);
+  });
+
+  it("never resends after discard", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    hold(resend);
+    discardPending("c1", "a");
+    vi.advanceTimersByTime(5000);
+    expect(resend).not.toHaveBeenCalled();
+    expect(pendingFor("c1")).toEqual([]);
+  });
+
+  it("drops the resend when the message left the outbox another way", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    hold(resend);
+    updatePending("c1", (l) => removePending(l, "a"));
+    vi.advanceTimersByTime(5000);
+    expect(resend).not.toHaveBeenCalled();
+  });
+
+  it("never resends after sign-out", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    hold(resend);
+    clearOutbox();
+    // The next member queues a message with the same id; it is still not theirs to resend.
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    vi.advanceTimersByTime(5000);
+    expect(resend).not.toHaveBeenCalled();
+  });
+
+  it("refuses to hold a send from an earlier epoch", () => {
+    const old = outboxEpoch();
+    clearOutbox();
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    expect(hold(resend, old)).toBe("gone");
+    vi.advanceTimersByTime(5000);
+    expect(resend).not.toHaveBeenCalled();
+  });
+
+  it("refuses to hold a message already discarded", () => {
+    expect(hold(vi.fn())).toBe("gone");
+  });
+
+  it("is spent after max holds of the same message", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    for (let i = 0; i < 3; i++) {
+      expect(hold(resend)).toBe("held");
+      vi.advanceTimersByTime(1000);
+    }
+    expect(resend).toHaveBeenCalledTimes(3);
+    expect(hold(resend)).toBe("spent");
+    expect(isHeld("c1", "a")).toBe(false);
+  });
+
+  it("starts the count over after forgetResend", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    const resend = vi.fn();
+    hold(resend, undefined, 1);
+    forgetResend("c1", "a");
+    vi.advanceTimersByTime(5000);
+    expect(resend).not.toHaveBeenCalled();
+    expect(hold(resend, undefined, 1)).toBe("held");
+  });
+
+  it("keeps the same id in another thread separate", () => {
+    updatePending("c1", (l) => upsertPending(l, msg("a")));
+    updatePending("c2", (l) => upsertPending(l, msg("a")));
+    const r1 = vi.fn();
+    const r2 = vi.fn();
+    hold(r1);
+    holdForResend("c2", "a", { waitMs: 1000, epoch: outboxEpoch(), max: 3, resend: r2 });
+    discardPending("c1", "a");
+    vi.advanceTimersByTime(1000);
+    expect(r1).not.toHaveBeenCalled();
+    expect(r2).toHaveBeenCalledTimes(1);
   });
 });
