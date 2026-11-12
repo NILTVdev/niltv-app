@@ -152,11 +152,10 @@ export function Thread({
               </p>
             ) : (
               <>
-                <p className="meta">
-                  {conv.kind === "group"
-                    ? `${plural(members.length, "person", "people")} plus staff.`
-                    : "Private. Everyone on this desk can read and reply."}
-                </p>
+                {/* Desk threads: the about line above (also in the header) says who can read them. */}
+                {conv.kind === "group" ? (
+                  <p className="meta">{plural(members.length, "person", "people")} plus staff.</p>
+                ) : null}
                 {detail.isPending ? <Loading what="Loading members" /> : null}
                 {members.length ? (
                   <ul aria-label="Members">
