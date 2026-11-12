@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ErrorFallback } from "../ui/ErrorBoundary";
-import { RELOAD_KEY, RELOAD_WINDOW_MS, claimReload, fallbackCopy, isChunkError } from "./reload";
+import { RELOAD_KEY, RELOAD_WINDOW_MS, claimReload, fallbackCopy, isChunkError, pickExport } from "./reload";
 
 const memory = () => {
   const data = new Map<string, string>();
@@ -72,5 +72,24 @@ describe("error fallback", () => {
     expect(html).toContain('class="btn"');
     expect(html).toContain(">Reload<");
     expect(html).not.toContain("boom");
+  });
+});
+
+describe("pickExport", () => {
+  it("returns the named export as the default", async () => {
+    const Screen = () => null;
+    await expect(pickExport(async () => ({ Home: Screen }), "Home")).resolves.toEqual({ default: Screen });
+  });
+
+  it("turns a swallowed chunk failure into the update screen", async () => {
+    // A prevented vite:preloadError makes the import resolve to undefined.
+    const error = await pickExport(async () => undefined, "Home").catch((e: unknown) => e);
+    expect(isChunkError(error)).toBe(true);
+    expect(fallbackCopy(error).title).toBe("The portal was updated");
+  });
+
+  it("treats a module without the export as a stale chunk", async () => {
+    const error = await pickExport(async () => ({}) as Record<"Home", unknown>, "Home").catch((e: unknown) => e);
+    expect(isChunkError(error)).toBe(true);
   });
 });

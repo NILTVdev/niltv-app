@@ -37,6 +37,22 @@ export function isChunkError(error: unknown): boolean {
   );
 }
 
+/**
+ * Picks a named export out of a lazily loaded screen module. When the chunk
+ * failed and the reload handler swallowed the error, the import resolves to
+ * undefined; that becomes a chunk error so the error screen says the portal
+ * was updated instead of showing a crash.
+ */
+export async function pickExport<K extends string, T>(
+  load: () => Promise<Record<K, T> | undefined>,
+  name: K,
+): Promise<{ default: T }> {
+  const mod = await load();
+  const picked = mod?.[name];
+  if (picked === undefined) throw new Error(`Failed to fetch dynamically imported module: ${name}`);
+  return { default: picked };
+}
+
 /** What the error screen says. */
 export function fallbackCopy(error: unknown): { title: string; text: string } {
   if (isChunkError(error)) {
