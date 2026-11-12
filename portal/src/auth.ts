@@ -4,8 +4,10 @@
  * so a signed-in tab survives a reload but not a browser restart. Opened as
  * the installed app (from the Home Screen), it keeps the session in
  * `localStorage` instead, so closing the app does not sign people out.
- * Signing out clears the session from both. `getIdToken()` refreshes an
- * expired session through the refresh token.
+ * Signing out clears the session from both. `getIdToken()` refreshes the
+ * session through the refresh token five minutes before it expires, one
+ * refresh at a time. Only Cognito refusing the refresh token signs anyone
+ * out; a network or service failure keeps the session (see lib/session.ts).
  *
  * Portal accounts are ordinary niltv.com accounts; the portal API decides
  * who gets in (403 NOT_MEMBER), not Cognito. Accounts are created here too,
@@ -16,6 +18,8 @@
  */
 import {
   AuthenticationDetails,
+  CognitoIdToken,
+  CognitoRefreshToken,
   CognitoUser,
   CognitoUserAttribute,
   CognitoUserPool,
@@ -23,6 +27,7 @@ import {
 } from "amazon-cognito-identity-js";
 import { config } from "./config";
 import { runningStandalone } from "./lib/push";
+import { cognitoCode, refreshFailure, tokenStep } from "./lib/session";
 
 let pool: CognitoUserPool | undefined;
 let store: Storage | undefined;
@@ -83,6 +88,14 @@ export class NotSignedInError extends Error {
   constructor() {
     super("Not signed in.");
     this.name = "NotSignedInError";
+  }
+}
+
+/** Sign-in could not be reached to renew the session. The session is kept; try again later. */
+export class SessionUnavailableError extends Error {
+  constructor() {
+    super("Could not reach sign-in. Check your connection and try again.");
+    this.name = "SessionUnavailableError";
   }
 }
 
@@ -230,40 +243,90 @@ export function confirmPassword(email: string, code: string, newPassword: string
   );
 }
 
-/** Restore the saved session. Resolves to the email, or null when signed out. */
-export function restoreSession(): Promise<string | null> {
-  return new Promise((resolve) => {
-    const user = getPool().getCurrentUser();
-    if (!user) {
-      resolve(null);
-      return;
-    }
-    user.getSession((err: Error | null, session: CognitoUserSession | null) => {
-      if (err || !session || !session.isValid()) {
-        resolve(null);
-        return;
-      }
-      resolve(emailOf(session, user.getUsername()));
-    });
-  });
+/** The tokens this tab has stored for the last signed-in user. Read straight from storage, so nothing refreshes. */
+function storedTokens(): { user: CognitoUser; idToken: string | null; refreshToken: string | null } | null {
+  const user = getPool().getCurrentUser();
+  if (!user) return null;
+  const prefix = `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}.${user.getUsername()}`;
+  const s = sessionStore();
+  return { user, idToken: s.getItem(`${prefix}.idToken`), refreshToken: s.getItem(`${prefix}.refreshToken`) };
 }
 
-/** Current ID-token JWT, refreshing if expired. Rejects with NotSignedInError when signed out. */
-export function getIdToken(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const user = getPool().getCurrentUser();
-    if (!user) {
-      reject(new NotSignedInError());
-      return;
-    }
-    user.getSession((err: Error | null, session: CognitoUserSession | null) => {
-      if (err || !session || !session.isValid()) {
-        reject(new NotSignedInError());
+function idPayload(idToken: string | null): Record<string, unknown> | null {
+  if (!idToken) return null;
+  try {
+    return new CognitoIdToken({ IdToken: idToken }).decodePayload() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Expiry of an ID token in ms, or null when it cannot be read. */
+function expiresAt(idToken: string | null): number | null {
+  const exp = idPayload(idToken)?.["exp"];
+  return typeof exp === "number" ? exp * 1000 : null;
+}
+
+/** One refresh at a time: every caller that needs a new token waits on the same one. */
+let refreshing: Promise<string> | null = null;
+
+function refresh(user: CognitoUser, refreshToken: string, staleToken: string | null, force: boolean): Promise<string> {
+  refreshing ??= new Promise<string>((resolve, reject) => {
+    user.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), (err: unknown, session: CognitoUserSession | null) => {
+      if (!err && session) {
+        resolve(session.getIdToken().getJwtToken());
         return;
       }
-      resolve(session.getIdToken().getJwtToken());
+      const outcome = refreshFailure({ code: cognitoCode(err), idExpiresAt: expiresAt(staleToken), now: Date.now(), force });
+      if (outcome === "signedOut") reject(new NotSignedInError());
+      else if (outcome === "useStale" && staleToken) resolve(staleToken);
+      else reject(new SessionUnavailableError());
     });
+  }).finally(() => {
+    refreshing = null;
   });
+  return refreshing;
+}
+
+/**
+ * Current ID-token JWT for `Authorization: Bearer`, refreshed five minutes
+ * before expiry, or always with `force` (after the API answers 401).
+ * Rejects with NotSignedInError only when the session is really over, and
+ * with SessionUnavailableError when sign-in cannot be reached.
+ */
+export async function getIdToken(options: { force?: boolean } = {}): Promise<string> {
+  const force = options.force ?? false;
+  const stored = storedTokens();
+  if (!stored) throw new NotSignedInError();
+  const { user, idToken, refreshToken } = stored;
+  const step = tokenStep({ idExpiresAt: expiresAt(idToken), hasRefreshToken: Boolean(refreshToken), now: Date.now(), force });
+  if (step === "use" && idToken) return idToken;
+  if (step === "refresh" && refreshToken) return refresh(user, refreshToken, idToken, force);
+  throw new NotSignedInError();
+}
+
+/**
+ * Restore the saved session on load. `email` is null when signed out;
+ * `ended` says Cognito refused the saved session, so sign-in can say why.
+ * When sign-in cannot be reached, the saved session is kept and the portal
+ * opens; its requests retry.
+ */
+export async function restoreSession(): Promise<{ email: string | null; ended: boolean }> {
+  let stored: ReturnType<typeof storedTokens>;
+  try {
+    stored = storedTokens();
+  } catch {
+    return { email: null, ended: false };
+  }
+  if (!stored || (!stored.idToken && !stored.refreshToken)) return { email: null, ended: false };
+  let token: string | null = stored.idToken;
+  try {
+    token = await getIdToken();
+  } catch (err) {
+    if (err instanceof NotSignedInError) return { email: null, ended: true };
+  }
+  const email = idPayload(token)?.["email"];
+  return { email: typeof email === "string" && email ? email : stored.user.getUsername(), ended: false };
 }
 
 /**

@@ -4,8 +4,10 @@
  * parsed with one before it reaches a screen. Error bodies ({error,
  * message}) surface as PortalApiError with the server's code and message.
  *
- * A 401 (or a session that can no longer refresh) calls the handler set
- * with onUnauthorized(), which signs the tab out.
+ * A 401 forces one token refresh and one retry. A second 401, or a session
+ * Cognito refuses to refresh, calls the handler set with onUnauthorized(),
+ * which signs the tab out. A network failure or a 429 never does: they
+ * surface as temporary errors (status 0 or 429) that reads retry.
  */
 import {
   ApiError as ApiErrorBody,
@@ -64,9 +66,10 @@ import {
   SendMessageRequest,
 } from "@niltv/types";
 import { z } from "zod";
-import { getIdToken } from "./auth";
+import { NotSignedInError, getIdToken } from "./auth";
 import { config } from "./config";
 import { describeIssues } from "./lib/format";
+import { after401 } from "./lib/session";
 
 export class PortalApiError extends Error {
   constructor(
@@ -86,7 +89,7 @@ export function onUnauthorized(handler: (() => void) | undefined): void {
   unauthorizedHandler = handler;
 }
 
-const SESSION_ENDED = "Your session ended. Sign in again.";
+export const SESSION_ENDED = "Your session ended. Sign in again.";
 
 /** Plain words for the codes the portal API returns without a message. */
 function messageFor(status: number, code: string, serverMessage: string | undefined): string {
@@ -111,16 +114,25 @@ function messageFor(status: number, code: string, serverMessage: string | undefi
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-/** Fetch with the bearer token; throws PortalApiError for any non-2xx. */
-async function call(method: Method, path: string, body?: unknown): Promise<Response> {
-  if (!config.apiBase) throw new PortalApiError(0, "NO_CONFIG", "VITE_PORTAL_API is not set.");
-  let token: string;
+function sessionEnded(): PortalApiError {
+  unauthorizedHandler?.();
+  return new PortalApiError(401, "UNAUTHORIZED", SESSION_ENDED);
+}
+
+/** A token for the request. Only a real session end signs out; anything else is a temporary network error. */
+async function tokenFor(force: boolean): Promise<string> {
   try {
-    token = await getIdToken();
-  } catch {
-    unauthorizedHandler?.();
-    throw new PortalApiError(401, "UNAUTHORIZED", SESSION_ENDED);
+    return await getIdToken({ force });
+  } catch (err) {
+    if (err instanceof NotSignedInError) throw sessionEnded();
+    throw new PortalApiError(0, "NETWORK", err instanceof Error ? err.message : "Could not reach sign-in. Try again.");
   }
+}
+
+/** Fetch with the bearer token; throws PortalApiError for any non-2xx. */
+async function call(method: Method, path: string, body?: unknown, retried = false): Promise<Response> {
+  if (!config.apiBase) throw new PortalApiError(0, "NO_CONFIG", "VITE_PORTAL_API is not set.");
+  const token = await tokenFor(retried);
   let res: Response;
   try {
     res = await fetch(config.apiBase + path, {
@@ -135,8 +147,9 @@ async function call(method: Method, path: string, body?: unknown): Promise<Respo
     throw new PortalApiError(0, "NETWORK", "Could not reach the portal. Check your connection and try again.");
   }
   if (res.status === 401) {
-    unauthorizedHandler?.();
-    throw new PortalApiError(401, "UNAUTHORIZED", SESSION_ENDED);
+    // The authorizer refuses before the handler runs, so one retry is safe for writes too.
+    if (after401(retried) === "refreshAndRetry") return call(method, path, body, true);
+    throw sessionEnded();
   }
   if (!res.ok) {
     let code = `HTTP_${res.status}`;
