@@ -76,12 +76,13 @@ export class ApiStack extends Stack {
       ORIGIN_VERIFY_SECRET: this.originVerifySecret.secretValue.unsafeUnwrap(),
     };
     const apiFns: Array<{ id: string; name: string; fn: NodejsFunction }> = [];
-    const apiFn = (fnId: string, name: string, file: string): NodejsFunction => {
+    const apiFn = (fnId: string, name: string, file: string, timeout?: Duration): NodejsFunction => {
       const fn = makeFn(this, fnId, {
         stage,
         name,
         entry: join(__dirname, "..", "src", "handlers", file),
         env: apiEnv,
+        ...(timeout ? { timeout } : {}),
       });
       apiFns.push({ id: fnId, name, fn });
       return fn;
@@ -105,7 +106,8 @@ export class ApiStack extends Stack {
     const notifFollowsFn = apiFn("NotifFollowsFn", "notification-follows", "notification-follows.ts");
     const newsletterFn = apiFn("NewsletterFn", "newsletter", "newsletter.ts");
     const newsletterConfirmFn = apiFn("NewsletterConfirmFn", "newsletter-confirm", "newsletter-confirm.ts");
-    const deleteMeFn = apiFn("DeleteMeFn", "delete-me", "delete-me.ts");
+    // 29 s: the HTTP API gives up at 30. The Content Hub purge walks every ask.
+    const deleteMeFn = apiFn("DeleteMeFn", "delete-me", "delete-me.ts", Duration.seconds(29));
 
     // ── Partner content API (/partner/v1, keyed) ───────────────────────────
     // The routes exist in every stage; PARTNER_API_ENABLED decides whether

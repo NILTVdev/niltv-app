@@ -13,7 +13,7 @@ vi.mock("@aws-sdk/client-s3", async (importOriginal) => ({
   },
 }));
 
-import { purgeHubData } from "./hub-purge";
+import { PURGE_CONCURRENCY, purgeHubData } from "./hub-purge";
 
 type Cmd = { constructor: { name: string }; input: Record<string, any> };
 const calls = (fn: typeof m.db) => fn.mock.calls.map((c) => ({ kind: (c[0] as Cmd).constructor.name, input: (c[0] as Cmd).input }));
@@ -57,16 +57,18 @@ describe("purgeHubData", () => {
     const db = calls(m.db);
     expect(db[0]).toMatchObject({ kind: "QueryCommand", input: { IndexName: "GSI1", ExpressionAttributeValues: { ":pk": "ASKS#ALL" } } });
     const deleted = db.filter((c) => c.kind === "DeleteCommand").map((c) => `${c.input.Key.PK}/${c.input.Key.SK}`);
-    expect(deleted).toEqual([
+    // Asks run side by side; within one ask the file rows go before the claim.
+    expect(deleted.filter((k) => k.startsWith("ASK#ask-1/"))).toEqual([
       "ASK#ask-1/FILE#u-1#file-a",
       "ASK#ask-1/FILE#u-1#file-b",
       "ASK#ask-1/CLAIM#u-1",
-      "ASK#ask-2/CLAIM#u-1",
     ]);
+    expect(deleted.filter((k) => k.startsWith("ASK#ask-2/"))).toEqual(["ASK#ask-2/CLAIM#u-1"]);
+    expect(deleted).toHaveLength(4);
 
     const s3 = calls(m.s3);
     expect(s3.find((c) => c.kind === "AbortMultipartUploadCommand")?.input).toMatchObject({ UploadId: "up-1" });
-    expect(s3.filter((c) => c.kind === "ListObjectsV2Command").map((c) => c.input.Prefix)).toEqual([
+    expect(s3.filter((c) => c.kind === "ListObjectsV2Command").map((c) => c.input.Prefix).sort()).toEqual([
       "submissions/ask-1/u-1/",
       "submissions/ask-2/u-1/",
     ]);
@@ -77,10 +79,36 @@ describe("purgeHubData", () => {
 
   it("deletes the files before the rows, so a retry still finds them", async () => {
     await purgeHubData("u-1", "bucket", "niltv-test");
-    const firstRowDelete = m.db.mock.calls.findIndex((c) => (c[0] as Cmd).constructor.name === "DeleteCommand");
-    // ask-1's S3 calls: abort the open upload, list, delete objects.
-    const ask1ObjectsDeleted = m.s3.mock.invocationCallOrder[2]!;
-    expect(m.db.mock.invocationCallOrder[firstRowDelete]!).toBeGreaterThan(ask1ObjectsDeleted);
+    const firstRowDelete = m.db.mock.calls.findIndex(
+      (c) => (c[0] as Cmd).constructor.name === "DeleteCommand" && (c[0] as Cmd).input.Key.PK === "ASK#ask-1",
+    );
+    const ask1ObjectsDeleted = m.s3.mock.calls.findIndex((c) => (c[0] as Cmd).constructor.name === "DeleteObjectsCommand");
+    expect(m.db.mock.invocationCallOrder[firstRowDelete]!).toBeGreaterThan(m.s3.mock.invocationCallOrder[ask1ObjectsDeleted]!);
+  });
+
+  it("works through many asks a bounded number at a time", async () => {
+    const ids = Array.from({ length: 500 }, (_, i) => ({ id: `ask-${i}` }));
+    let inFlight = 0;
+    let peak = 0;
+    m.db.mockImplementation(async (cmd: Cmd) => {
+      if (cmd.constructor.name === "QueryCommand" && cmd.input.IndexName) return { Items: ids };
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return cmd.constructor.name === "QueryCommand" ? { Items: [] } : {};
+    });
+    m.s3.mockResolvedValue({ Contents: [], IsTruncated: false });
+    const result = await purgeHubData("u-1", "bucket", "niltv-test");
+    expect(result.asks).toBe(500);
+    expect(m.s3).toHaveBeenCalledTimes(500);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(PURGE_CONCURRENCY);
+  });
+
+  it("fails the purge when one ask fails, so delete-me stops before Cognito", async () => {
+    m.s3.mockRejectedValue(Object.assign(new Error("denied"), { name: "AccessDenied" }));
+    await expect(purgeHubData("u-1", "bucket", "niltv-test")).rejects.toThrow("denied");
   });
 
   it("does nothing more than the ask listing when there are no asks", async () => {

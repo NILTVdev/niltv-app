@@ -6,8 +6,10 @@
  * Hub rows live in each ask's partition (ASK#{id}), not in USER#{sub}, so
  * this walks every ask. Cost per deletion: the ASKS#ALL index pages, then
  * for each ask one S3 list, one query and one delete for the claim, plus
- * a delete per file. That is fine at hundreds of asks. If asks grow into
- * the thousands, keep a USER#{sub} / HUBASK#{askId} pointer on claim instead.
+ * a delete per file. Asks run PURGE_CONCURRENCY at a time, so a thousand
+ * asks take a few seconds against DeleteMeFn's 29 s timeout. If asks grow
+ * into the tens of thousands, keep a USER#{sub} / HUBASK#{askId} pointer on
+ * claim and file creation and walk only those.
  */
 import {
   AbortMultipartUploadCommand,
@@ -28,6 +30,9 @@ export interface HubPurgeResult {
 }
 
 const errName = (err: unknown): string | undefined => (err as { name?: string }).name;
+
+/** Asks purged at once. Each holds up to a handful of DynamoDB and S3 calls. */
+export const PURGE_CONCURRENCY = 16;
 
 async function queryAll(input: ConstructorParameters<typeof QueryCommand>[0]): Promise<Record<string, unknown>[]> {
   const items: Record<string, unknown>[] = [];
@@ -56,6 +61,39 @@ async function deletePrefix(bucket: string, prefix: string): Promise<number> {
   return deleted;
 }
 
+/** One ask: the member's open uploads, stored files, file rows and claim. */
+async function purgeAsk(sub: string, askId: string, bucket: string, table: string, result: HubPurgeResult): Promise<void> {
+  const files = await queryAll({
+    TableName: table,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :f)",
+    ExpressionAttributeValues: { ":pk": `ASK#${askId}`, ":f": `FILE#${sub}#` },
+  });
+  // Files first, rows after, so a retry still finds what is left.
+  for (const file of files) {
+    if (typeof file["uploadId"] === "string" && typeof file["key"] === "string") {
+      await getS3()
+        .send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: file["key"], UploadId: file["uploadId"] }))
+        .catch((err: unknown) => {
+          if (errName(err) !== "NoSuchUpload") throw err;
+        });
+    }
+  }
+  try {
+    result.objects += await deletePrefix(bucket, `submissions/${askId}/${sub}/`);
+  } catch (err) {
+    // A stage without the portal has no bucket, and nothing to delete in it.
+    if (errName(err) !== "NoSuchBucket") throw err;
+  }
+  for (const file of files) {
+    await getDocClient().send(new DeleteCommand({ TableName: table, Key: { PK: file["PK"], SK: file["SK"] } }));
+    result.rows++;
+  }
+  const claim = await getDocClient().send(
+    new DeleteCommand({ TableName: table, Key: askClaimKey(askId, sub), ReturnValues: "ALL_OLD" }),
+  );
+  if (claim.Attributes) result.rows++;
+}
+
 export async function purgeHubData(sub: string, bucket: string, table: string): Promise<HubPurgeResult> {
   const result: HubPurgeResult = { asks: 0, rows: 0, objects: 0 };
   const asks = await queryAll({
@@ -65,39 +103,16 @@ export async function purgeHubData(sub: string, bucket: string, table: string): 
     ExpressionAttributeValues: { ":pk": ASKS_ALL_GSI1PK },
     ProjectionExpression: "id",
   });
-  for (const ask of asks) {
-    const askId = typeof ask["id"] === "string" ? ask["id"] : undefined;
-    if (!askId) continue;
-    result.asks++;
-    const files = await queryAll({
-      TableName: table,
-      KeyConditionExpression: "PK = :pk AND begins_with(SK, :f)",
-      ExpressionAttributeValues: { ":pk": `ASK#${askId}`, ":f": `FILE#${sub}#` },
-    });
-    // Files first, rows after, so a retry still finds what is left.
-    for (const file of files) {
-      if (typeof file["uploadId"] === "string" && typeof file["key"] === "string") {
-        await getS3()
-          .send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: file["key"], UploadId: file["uploadId"] }))
-          .catch((err: unknown) => {
-            if (errName(err) !== "NoSuchUpload") throw err;
-          });
-      }
+  const ids = asks.flatMap((ask) => (typeof ask["id"] === "string" ? [ask["id"]] : []));
+  result.asks = ids.length;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < ids.length) {
+      const askId = ids[next++]!;
+      await purgeAsk(sub, askId, bucket, table, result);
     }
-    try {
-      result.objects += await deletePrefix(bucket, `submissions/${askId}/${sub}/`);
-    } catch (err) {
-      // A stage without the portal has no bucket, and nothing to delete in it.
-      if (errName(err) !== "NoSuchBucket") throw err;
-    }
-    for (const file of files) {
-      await getDocClient().send(new DeleteCommand({ TableName: table, Key: { PK: file["PK"], SK: file["SK"] } }));
-      result.rows++;
-    }
-    const claim = await getDocClient().send(
-      new DeleteCommand({ TableName: table, Key: askClaimKey(askId, sub), ReturnValues: "ALL_OLD" }),
-    );
-    if (claim.Attributes) result.rows++;
-  }
+  };
+  // Any failure rejects the whole purge: delete-me stops before Cognito, and a retry starts over.
+  await Promise.all(Array.from({ length: Math.min(PURGE_CONCURRENCY, ids.length) }, worker));
   return result;
 }
