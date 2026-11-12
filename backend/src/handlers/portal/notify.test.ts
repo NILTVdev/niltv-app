@@ -107,6 +107,7 @@ beforeEach(() => {
   m.claimPushSlot.mockResolvedValue(true);
   m.pushTo.mockResolvedValue(1);
   m.inbox.mockResolvedValue([]);
+  m.sendEmail.mockResolvedValue(true);
 });
 
 describe("message notices", () => {
@@ -289,5 +290,40 @@ describe("staff work queues", () => {
     m.deskRecipients.mockResolvedValue(["desk@example.com"]);
     await handleNotice({ type: "request.new", requestId: "req-1" }, NOW);
     expect(m.sendEmail).toHaveBeenCalledWith("desk@example.com", expect.objectContaining({ subject: "Page change request from Person u-a" }));
+  });
+
+  it("throw when a page change request email fails, after trying every address", async () => {
+    m.getSettings.mockResolvedValue(settings());
+    m.send.mockResolvedValue({ Item: { id: "req-1", personName: "Person u-a", body: "Fix my bio." } });
+    m.deskRecipients.mockResolvedValue(["one@example.com", "two@example.com"]);
+    m.sendEmail.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(handleNotice({ type: "request.new", requestId: "req-1" }, NOW)).rejects.toThrow("required email");
+    expect(m.sendEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it("throw when the Help email fails, so the queue retries it", async () => {
+    m.getSettings.mockResolvedValue(settings());
+    m.getMember.mockResolvedValue(person("u-a"));
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "help", sub: "u-a", topic: "account", message: "Locked out." }, NOW)).rejects.toThrow();
+  });
+
+  it("throw when a welcome email fails", async () => {
+    m.getMember.mockResolvedValue(person("u-a"));
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "welcome", sub: "u-a" }, NOW)).rejects.toThrow();
+  });
+
+  it("treat a skipped test address as done", async () => {
+    m.getMember.mockResolvedValue(person("u-a", { email: "smoke@niltv.invalid" }));
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "welcome", sub: "u-a" }, NOW)).resolves.toBeUndefined();
+  });
+
+  it("throw when the interest email to the poster fails", async () => {
+    m.send.mockResolvedValue({ Item: { id: "post-1", title: "Camp", status: "open", createdBySub: "u-staff" } });
+    m.getMember.mockImplementation(async (sub: string) => person(sub, sub === "u-staff" ? { role: "staff" } : {}));
+    m.sendEmail.mockResolvedValue(false);
+    await expect(handleNotice({ type: "posting.interest", postingId: "post-1", personSub: "u-a" }, NOW)).rejects.toThrow();
   });
 });

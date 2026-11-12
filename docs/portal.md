@@ -153,8 +153,18 @@ How it flows:
 
 - Handlers put a notice on `niltv-{stage}-portal-notify`. `portal-notify`
   (`handlers/portal/notify.ts`) decides per recipient: push now, count it
-  toward their summary, or (rarely) email now. Failed notices retry three
-  times, then land in `niltv-{stage}-portal-notify-dlq`.
+  toward their summary, or (rarely) email now. A notice that throws is tried
+  three times in all, then lands in `niltv-{stage}-portal-notify-dlq`.
+- Which email failures throw: the ones that are the only copy. That is Help,
+  page change requests, welcome, invites, posting interest, and claim and
+  submission emails to staff. A retry can repeat the email to an address that
+  already got it. Emails to many people (important announcements, urgent
+  schedule changes) log a failure and move on, so one bad address cannot
+  resend to everyone.
+- Help is only stored on the queue. If the notice cannot be queued, the Help
+  form gets an error and the member is told to try again.
+- A summary counts as sent only when SES accepts it. A refused summary stays
+  due and the next sweep tries again an hour later.
 - `portal-summary` (`handlers/portal/summary.ts`) runs every 15 minutes,
   one run at a time. It sends summaries that have come due and the staff
   desk alerts.
@@ -187,6 +197,7 @@ Rules:
   to the support address (reply-to the sender), and the welcome and invite emails (their
   own switch).
 - Reserved test domains (`.invalid`, `.test`, `.example`) are never emailed.
+  A skipped test address counts as done, not as a failure.
 
 ### Web push setup
 

@@ -242,6 +242,24 @@ async function messageNotice(convId: string, messageId: string, reach: Reach): P
   });
 }
 
+/* ── Emails that must arrive ───────────────────────────────────────────────── */
+
+/**
+ * For notices whose email is the only copy (Help, page requests, welcome,
+ * staff work queues): send to every address, then throw if any failed, so
+ * SQS retries the notice and the dead-letter queue keeps it. A retry can
+ * repeat the email to an address that already got it; that beats losing it.
+ * A reserved test address is skipped, which is not a failure.
+ */
+async function sendAll(addresses: Iterable<string>, email: PortalEmail, replyTo?: string): Promise<void> {
+  let failed = 0;
+  for (const address of addresses) {
+    const sent = replyTo ? await sendEmail(address, email, replyTo) : await sendEmail(address, email);
+    if (!sent && !isTestAddress(address)) failed++;
+  }
+  if (failed > 0) throw new Error(`portal: ${failed} required email(s) failed`);
+}
+
 /* ── Postings ──────────────────────────────────────────────────────────────── */
 
 const PostingRow = z.object({
@@ -279,15 +297,13 @@ async function postingNotice(notice: Extract<PortalNotice, { type: `posting.${st
       poster && poster.status === "active"
         ? [poster.email]
         : ((await getSettings()).deskEmails.content ?? []);
-    for (const address of to) {
-      await sendEmail(address, {
-        subject: `${person.name} is interested in ${p.title}`,
-        heading: "New interest",
-        lead: `${person.name} wants to be considered for ${p.title}. This posting needs your approval.`,
-        button: { label: "Review interest", path },
-        tail: "You get this because you posted this in the NIL TV Portal with approval on.",
-      });
-    }
+    await sendAll(to, {
+      subject: `${person.name} is interested in ${p.title}`,
+      heading: "New interest",
+      lead: `${person.name} wants to be considered for ${p.title}. This posting needs your approval.`,
+      button: { label: "Review interest", path },
+      tail: "You get this because you posted this in the NIL TV Portal with approval on.",
+    });
     return;
   }
 
@@ -357,17 +373,15 @@ async function askNotice(notice: Extract<PortalNotice, { type: `ask.${string}` }
   if (notice.type === "ask.claim" || notice.type === "ask.submitted") {
     // Staff work queue: always on.
     const claim = notice.type === "ask.claim";
-    for (const address of await askReviewers(ask.createdBySub)) {
-      await sendEmail(address, {
-        subject: claim ? `${person.name} wants to claim ${ask.title}` : `${person.name} sent content for ${ask.title}`,
-        heading: claim ? "New claim request" : "Content to review",
-        lead: claim
-          ? `${person.name} asked to claim ${ask.title}. This ask needs your approval.`
-          : `${person.name} sent content for ${ask.title}. It is ready for your review.`,
-        button: { label: claim ? "Review the request" : "Review the content", path },
-        tail: "You get this because you posted this ask in the NIL TV Portal.",
-      });
-    }
+    await sendAll(await askReviewers(ask.createdBySub), {
+      subject: claim ? `${person.name} wants to claim ${ask.title}` : `${person.name} sent content for ${ask.title}`,
+      heading: claim ? "New claim request" : "Content to review",
+      lead: claim
+        ? `${person.name} asked to claim ${ask.title}. This ask needs your approval.`
+        : `${person.name} sent content for ${ask.title}. It is ready for your review.`,
+      button: { label: claim ? "Review the request" : "Review the content", path },
+      tail: "You get this because you posted this ask in the NIL TV Portal.",
+    });
     return;
   }
 
@@ -480,16 +494,14 @@ async function requestNotice(requestId: string): Promise<void> {
   const settings = await getSettings();
   const to = await deskRecipients("support", settings);
   const targets = to.length > 0 ? to : [settings.supportEmail];
-  for (const address of new Set(targets)) {
-    await sendEmail(address, {
-      subject: `Page change request from ${parsed.data.personName}`,
-      heading: "Page change request",
-      lead: `${parsed.data.personName} asked for a change to their athlete page.`,
-      paragraphs: [parsed.data.body],
-      button: { label: "Open requests", path: "/requests" },
-      tail: "You get this because you answer the Athlete support desk in the NIL TV Portal.",
-    });
-  }
+  await sendAll(new Set(targets), {
+    subject: `Page change request from ${parsed.data.personName}`,
+    heading: "Page change request",
+    lead: `${parsed.data.personName} asked for a change to their athlete page.`,
+    paragraphs: [parsed.data.body],
+    button: { label: "Open requests", path: "/requests" },
+    tail: "You get this because you answer the Athlete support desk in the NIL TV Portal.",
+  });
 }
 
 const TOPIC_LABELS: Record<string, string> = {
@@ -504,8 +516,8 @@ async function helpNotice(notice: Extract<PortalNotice, { type: "help" }>): Prom
   const member = await getMember(notice.sub);
   if (!member) return;
   const settings = await getSettings();
-  await sendEmail(
-    settings.supportEmail,
+  await sendAll(
+    [settings.supportEmail],
     {
       subject: `Portal help (${TOPIC_LABELS[notice.topic] ?? notice.topic}): ${member.name}`,
       heading: "Help request",
@@ -526,7 +538,7 @@ async function welcomeNotice(sub: string): Promise<void> {
       : member.role === "guest"
         ? "NIL TV added you to the portal so you can see the schedule and chat with the team."
         : "You now have staff access to the NIL TV Portal.";
-  await sendEmail(member.email, {
+  await sendAll([member.email], {
     subject: "Your NIL TV Portal is ready",
     heading: "Welcome in",
     lead,

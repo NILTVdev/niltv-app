@@ -84,6 +84,7 @@ beforeEach(() => {
   process.env.TABLE_NAME = "niltv-test";
   m.getSettings.mockResolvedValue(PortalSettings.parse({ activityEmails: true }));
   m.settleSummary.mockResolvedValue(true);
+  m.sendEmail.mockResolvedValue(true);
   m.deskRecipients.mockResolvedValue([]);
   m.waitingDeskThreads.mockResolvedValue([]);
 });
@@ -154,6 +155,25 @@ describe("the sweep", () => {
     expect(result.sent).toBe(1);
     expect(m.sendEmail.mock.calls[0]![0]).toBe("a@example.com");
     expect(m.settleSummary).toHaveBeenCalledWith("u-1", 3, { action: "sent", at: NOW, ignored: 0 });
+  });
+
+  it("keeps a summary SES refused due, and tries again in an hour", async () => {
+    table({ due: [dueRow], state: dueRow });
+    m.getMember.mockResolvedValue(person());
+    m.gatherSummary.mockResolvedValue(content({ threads: [{ title: "Duke crew", unread: 2, mentioned: false }] }));
+    m.sendEmail.mockResolvedValue(false);
+    const result = await sweep(NOW);
+    expect(result).toMatchObject({ sent: 0, failed: 1 });
+    expect(m.settleSummary).toHaveBeenCalledWith("u-1", 3, { action: "wait", until: new Date("2026-10-21T20:00:00.000Z") });
+  });
+
+  it("drops a summary for a reserved test address without sending", async () => {
+    table({ due: [dueRow], state: dueRow });
+    m.getMember.mockResolvedValue(person({ email: "smoke@niltv.invalid" }));
+    m.gatherSummary.mockResolvedValue(content({ threads: [{ title: "Duke crew", unread: 2, mentioned: false }] }));
+    const result = await sweep(NOW);
+    expect(result).toMatchObject({ sent: 0, dropped: 1 });
+    expect(m.sendEmail).not.toHaveBeenCalled();
   });
 
   it("drops it when the member came back after it started", async () => {

@@ -18,7 +18,7 @@ import { Desk, type PortalSettings } from "@niltv/types";
 import { GSI1, NOTIFY_DUE_GSI1PK, deskAlertKey, getDocClient } from "../../lib/db";
 import { parseState, settleSummary } from "../../lib/portal/activity";
 import { waitingDeskThreads } from "../../lib/portal/conversations";
-import { sendEmail } from "../../lib/portal/emails";
+import { isTestAddress, sendEmail } from "../../lib/portal/emails";
 import { deskRecipients, getMember, getSettings } from "../../lib/portal/members";
 import {
   DAY_MS,
@@ -40,8 +40,13 @@ const PER_RUN = 300;
 
 const isCcf = (err: unknown): boolean => (err as { name?: string }).name === "ConditionalCheckFailedException";
 
+/** How long a summary that SES refused waits before the next try. */
+const RETRY_FAILED_MS = 60 * 60 * 1000;
+
 export interface SweepResult {
   sent: number;
+  /** SES refused it; it stays due and goes again later */
+  failed: number;
   waited: number;
   dropped: number;
   deskAlerts: number;
@@ -96,7 +101,18 @@ async function sweepSummaries(settings: PortalSettings, now: Date, result: Sweep
         result.dropped++;
         continue;
       }
-      await sendEmail(member.email, summaryEmail(member, content, plan));
+      if (isTestAddress(member.email)) {
+        await settleSummary(sub, state.rev, { action: "drop" });
+        result.dropped++;
+        continue;
+      }
+      // Settle as sent only when SES took it. A failed send waits and the
+      // next sweep tries again with whatever has piled up by then.
+      if (!(await sendEmail(member.email, summaryEmail(member, content, plan)))) {
+        await settleSummary(sub, state.rev, { action: "wait", until: new Date(now.getTime() + RETRY_FAILED_MS) });
+        result.failed++;
+        continue;
+      }
       await settleSummary(sub, state.rev, { action: "sent", at: now, ignored: plan.ignored });
       result.sent++;
     } catch (err) {
@@ -161,7 +177,7 @@ async function sweepDesks(settings: PortalSettings, now: Date, result: SweepResu
 
 export async function sweep(now: Date = new Date()): Promise<SweepResult> {
   const settings = await getSettings();
-  const result: SweepResult = { sent: 0, waited: 0, dropped: 0, deskAlerts: 0 };
+  const result: SweepResult = { sent: 0, failed: 0, waited: 0, dropped: 0, deskAlerts: 0 };
   await sweepSummaries(settings, now, result);
   await sweepDesks(settings, now, result);
   return result;
