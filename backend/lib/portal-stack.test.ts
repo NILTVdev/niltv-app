@@ -68,6 +68,7 @@ describe("PortalStack", () => {
     });
     template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
       FunctionResponseTypes: ["ReportBatchItemFailures"],
+      ScalingConfig: { MaximumConcurrency: 5 },
     });
   });
 

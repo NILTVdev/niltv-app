@@ -71,6 +71,26 @@ The role is read from the row on every request, never from a token claim, so
 removing someone or changing a role applies on their next call. Message
 threads also check the membership row on every read and write.
 
+### Write limits
+
+`portalHandler` (`lib/portal/router.ts`) caps some writes per member, with a
+counter row at `USER#{sub}` / `LIMIT#{bucket}` (`lib/portal/limits.ts`). Over
+the cap, the API answers `429 RATE_LIMITED`: "Too many in a row. Wait a minute
+and try again."
+
+| Route | Cap |
+|---|---|
+| Send a message | 30 a minute |
+| Help | 5 an hour |
+| Page change request | 5 a day |
+| Posting action (interest, decide) | 20 a minute |
+| Ask action (claim, submit, review) | 30 a minute |
+| Start an upload | 30 a minute |
+
+Staff get one interest email per athlete per posting, however often the
+athlete withdraws and shows interest again. The notify consumer runs at most
+5 at a time, which keeps bursts under the SES send rate.
+
 ## Data model
 
 All in the stage's single table. Keys are built only in `src/lib/db.ts`.

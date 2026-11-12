@@ -8,6 +8,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyHandlerV2W
 import type { z } from "zod";
 import { badRequest, json, notFound, parseJsonBody } from "../http";
 import { type Caller, type Result, authorize } from "./access";
+import { RATE_LIMITED_MESSAGE, ROUTE_LIMITS, takeWrite } from "./limits";
 
 export interface RouteContext {
   event: APIGatewayProxyEventV2WithJWTAuthorizer;
@@ -36,6 +37,17 @@ export function portalHandler(routes: Record<string, Route>): APIGatewayProxyHan
     if ("response" in auth) return auth.response;
     const route = routes[event.routeKey];
     if (!route) return notFound();
+    const limit = ROUTE_LIMITS[event.routeKey];
+    if (limit) {
+      try {
+        if (!(await takeWrite(auth.caller.sub, limit))) {
+          return json(429, ApiError.parse({ error: "RATE_LIMITED", message: RATE_LIMITED_MESSAGE }));
+        }
+      } catch (err) {
+        // A counter that cannot be read must not block real work.
+        console.warn(`portal: write limit check failed for ${event.routeKey}`, err);
+      }
+    }
     const ctx: RouteContext = {
       event,
       caller: auth.caller,

@@ -95,6 +95,28 @@ const present = (p: StoredPosting): Posting => {
   return rest;
 };
 
+/**
+ * True the first time this athlete shows interest in this posting. Staff get
+ * one interest email per athlete per posting, so withdrawing and showing
+ * interest again cannot flood their inbox. The marker sits next to the
+ * interest rows: POSTING#{id} / NOTIFIED#{sub}.
+ */
+async function firstInterest(postingId: string, sub: string, at: string): Promise<boolean> {
+  try {
+    await getDocClient().send(
+      new PutCommand({
+        TableName: table(),
+        Item: { PK: `POSTING#${postingId}`, SK: `NOTIFIED#${sub}`, at },
+        ConditionExpression: "attribute_not_exists(PK)",
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name === "ConditionalCheckFailedException") return false;
+    throw err;
+  }
+}
+
 export const handler = portalHandler({
   "GET /v1/postings": async ({ caller }) => {
     if (!can(caller, "viewPostings")) return denied();
@@ -190,7 +212,7 @@ export const handler = portalHandler({
             ExpressionAttributeValues: { ":one": 1 },
           }),
         );
-        if (posting.requiresApproval) {
+        if (posting.requiresApproval && (await firstInterest(posting.id, caller.sub, now))) {
           await enqueue({ type: "posting.interest", postingId: posting.id, personSub: caller.sub });
         }
         return ok(PortalAck.parse({ status: "ok" }));
