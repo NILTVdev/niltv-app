@@ -272,8 +272,33 @@ export type PortalMeResponse = z.infer<typeof PortalMeResponse>;
  */
 export const RESERVED_NAMES: readonly string[] = ["NIL TV", "NIL TV Team", ...Object.values(DESK_LABELS), "Staff", "Admin"];
 
+/**
+ * Cyrillic, Greek and Latin letters that look like the Latin letters in the
+ * reserved names. NFKC leaves these alone, so they are mapped by hand.
+ */
+const LOOKALIKES: Readonly<Record<string, string>> = {
+  "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041a": "K", "\u041c": "M", "\u041d": "H", "\u041e": "O",
+  "\u0420": "P", "\u0421": "C", "\u0422": "T", "\u0423": "Y", "\u0425": "X", "\u0406": "I", "\u0408": "J",
+  "\u0405": "S", "\u04c0": "I", "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c",
+  "\u0443": "y", "\u0445": "x", "\u0456": "i", "\u0458": "j", "\u0455": "s", "\u0501": "d", "\u04cf": "l",
+  "\u04bb": "h", "\u051b": "q", "\u051d": "w", "\u0442": "t", "\u0391": "A", "\u0392": "B", "\u0395": "E",
+  "\u0396": "Z", "\u0397": "H", "\u0399": "I", "\u039a": "K", "\u039c": "M", "\u039d": "N", "\u039f": "O",
+  "\u03a1": "P", "\u03a4": "T", "\u03a5": "Y", "\u03a7": "X", "\u03b1": "a", "\u03b5": "e", "\u03b9": "i",
+  "\u03ba": "k", "\u03bd": "v", "\u03bf": "o", "\u03c1": "p", "\u03c4": "t", "\u03c5": "u", "\u03c7": "x",
+  "\u0131": "i", "\u0269": "i",
+};
+
+/**
+ * The comparison key for a name: NFKC, look-alike letters mapped to Latin,
+ * lower case, only letters and digits, then l and 1 read as i and 0 as o.
+ */
 export const nameKey = (name: string): string =>
-  name.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  Array.from(name.normalize("NFKC"), (c) => LOOKALIKES[c] ?? c)
+    .join("")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .replace(/[l1]/g, "i")
+    .replace(/0/g, "o");
 
 const RESERVED_KEYS = new Set(RESERVED_NAMES.map(nameKey));
 
@@ -282,6 +307,18 @@ export function displayNameProblem(name: string): string | undefined {
   if (/[\p{Cc}\p{Cf}]/u.test(name)) return "Names cannot hold line breaks or hidden characters.";
   if (RESERVED_KEYS.has(nameKey(name))) return "That name is kept for NIL TV staff posts. Use your own name.";
   return undefined;
+}
+
+/**
+ * The first name that passes the display-name rules, for names that do not
+ * come from a request body: the sign-up account, an application, an email.
+ */
+export function firstSafeName(candidates: readonly (string | null | undefined)[], fallback = "Portal member"): string {
+  for (const raw of candidates) {
+    const name = (raw ?? "").trim().slice(0, 80).trim();
+    if (name && !displayNameProblem(name)) return name;
+  }
+  return fallback;
 }
 
 /** A member's display name: 1 to 80 characters, no control or format characters, not a staff label. */

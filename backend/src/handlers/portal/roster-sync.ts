@@ -21,7 +21,7 @@
  * school, year, handle) follow the application unless staff edited that
  * field by hand.
  */
-import { CAMPUS_CHANNELS, type PortalMember, PortalMember as PortalMemberSchema } from "@niltv/types";
+import { CAMPUS_CHANNELS, type PortalMember, PortalMember as PortalMemberSchema, firstSafeName } from "@niltv/types";
 import { dashboardApiKey } from "../../lib/roster";
 import { type UnfinishedSignup, deleteUnfinished, lookupEmail, nameFromEmail } from "../../lib/portal/accounts";
 import { syncChannelMemberships } from "../../lib/portal/conversations";
@@ -58,7 +58,8 @@ export function rosterFields(app: AcceptedApplication): RosterFields {
   const name = [app.first_name, app.last_name].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const campus = app.campus_channel && CAMPUS_CHANNELS[app.campus_channel] ? app.campus_channel : undefined;
   return {
-    name: name || nameFromEmail(app.email),
+    // Typed by the athlete on the application, so it gets the display-name rules too.
+    name: firstSafeName([name, nameFromEmail(app.email)]),
     ...(campus ? { campus } : {}),
     ...(app.university ? { school: app.university } : {}),
     ...(app.sport ? { sport: app.sport } : {}),

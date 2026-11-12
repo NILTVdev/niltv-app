@@ -23,6 +23,7 @@ import {
   type PortalMember,
   PortalMember as PortalMemberSchema,
   PortalSettings,
+  firstSafeName,
   isStaffRole,
 } from "@niltv/types";
 import { json } from "../../lib/http";
@@ -98,7 +99,8 @@ export const handler = portalHandler({
       ...(existing ?? {}),
       sub: account.sub,
       email: account.email,
-      name: req.name ?? existing?.name ?? account.name ?? nameFromEmail(account.email),
+      // req.name passed DisplayName; the fallbacks were typed elsewhere and are checked here.
+      name: req.name ?? firstSafeName([existing?.name, account.name, nameFromEmail(account.email)]),
       role: req.role,
       status: "active",
       desks: isStaffRole(req.role) ? (req.desks ?? []) : [],
@@ -206,7 +208,7 @@ export const handler = portalHandler({
       ...(existing ?? {
         sub: account.sub,
         email: account.email,
-        name: row.name,
+        name: firstSafeName([row.name, nameFromEmail(account.email)]),
         ...(row.campus ? { campus: row.campus } : {}),
         ...(row.school ? { school: row.school } : {}),
         ...(row.sport ? { sport: row.sport } : {}),

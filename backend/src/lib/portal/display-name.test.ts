@@ -1,4 +1,4 @@
-import { DisplayName, MemberAddRequest, MemberUpdateRequest, PortalMeUpdate, displayNameProblem } from "@niltv/types";
+import { DisplayName, MemberAddRequest, MemberUpdateRequest, PortalMeUpdate, displayNameProblem, firstSafeName } from "@niltv/types";
 import { describe, expect, it } from "vitest";
 
 describe("display names", () => {
@@ -25,6 +25,29 @@ describe("display names", () => {
     ]) {
       expect(displayNameProblem(name), name).toBeDefined();
     }
+  });
+
+  it("refuses look-alike letters from other scripts and digits", () => {
+    for (const name of [
+      "NІL TV Team", // Cyrillic I
+      "NIL ТV", // Cyrillic T
+      "ΝΙL TV", // Greek N and I
+      "Stаff", // Cyrillic a
+      "NlL TV",
+      "N1L TV Team",
+    ]) {
+      expect(displayNameProblem(name), JSON.stringify(name)).toBeDefined();
+    }
+    for (const name of ["Анна", "Nils TV", "Neil"]) {
+      expect(displayNameProblem(name), JSON.stringify(name)).toBeUndefined();
+    }
+  });
+
+  it("picks the first safe name from names typed outside the portal", () => {
+    expect(firstSafeName(["NIL TV Team", "  Jordan Miles  "])).toBe("Jordan Miles");
+    expect(firstSafeName([undefined, null, "", "Jordan"])).toBe("Jordan");
+    expect(firstSafeName(["Pay​ments", "Staff"])).toBe("Portal member");
+    expect(firstSafeName(["x".repeat(90)])).toHaveLength(80);
   });
 
   it("refuses control and format characters", () => {

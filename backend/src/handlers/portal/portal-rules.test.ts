@@ -121,6 +121,11 @@ describe("roster sync", () => {
     expect(rosterFields({ ...app, campus_channel: "other" }).campus).toBeUndefined();
   });
 
+  it("does not take a staff label as a roster name", () => {
+    expect(rosterFields({ ...app, first_name: "NIL TV", last_name: "Team" }).name).toBe("Jordan");
+    expect(rosterFields({ ...app, first_name: "NIL TV", last_name: "Team", email: "staff@example.com" }).name).toBe("Portal member");
+  });
+
   it("never overwrites a field staff edited by hand", () => {
     const edited = member({ sport: "Football", edited: ["sport"] });
     const merged = mergeRoster(edited, rosterFields(app));
