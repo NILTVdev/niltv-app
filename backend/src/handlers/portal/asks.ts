@@ -52,6 +52,7 @@ import {
 import { ASKS_ALL_GSI1PK, GSI1, askClaimKey, askFileKey, askKey, getDocClient } from "../../lib/db";
 import { type Caller, can, conflictResult, denied } from "../../lib/portal/access";
 import { audienceIncludes, audienceLabel } from "../../lib/portal/audience";
+import { audit } from "../../lib/portal/audit";
 import {
   CLAIM_FROM,
   StoredAsk,
@@ -407,6 +408,7 @@ export const handler = portalHandler({
         { decidedAt: now, decidedBy: caller.sub },
       );
       if (!moved) return stale();
+      audit(caller.sub, "ask.decide", `${ask.id}/${req.personSub}`, { after: req.approved ? "claimed" : "declined" });
       await enqueue({ type: "ask.decision", askId: ask.id, personSub: req.personSub });
       return done();
     }
@@ -418,6 +420,7 @@ export const handler = portalHandler({
       decidedBy: caller.sub,
     });
     if (!moved) return stale();
+    audit(caller.sub, "ask.review", `${ask.id}/${req.personSub}`, { after: req.outcome });
     await enqueue({ type: "ask.decision", askId: ask.id, personSub: req.personSub });
     return done();
   },

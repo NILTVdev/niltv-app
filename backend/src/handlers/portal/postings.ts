@@ -22,6 +22,7 @@ import {
 import { z } from "zod";
 import { GSI1, POSTINGS_ALL_GSI1PK, getDocClient, postingInterestKey, postingKey } from "../../lib/db";
 import { can, denied } from "../../lib/portal/access";
+import { audit } from "../../lib/portal/audit";
 import { newPortalId } from "../../lib/portal/ids";
 import { formerMember, getMembers, toPerson } from "../../lib/portal/members";
 import { enqueue } from "../../lib/portal/notify";
@@ -228,6 +229,7 @@ export const handler = portalHandler({
       if ((err as { name?: string }).name === "ConditionalCheckFailedException") return notFound();
       throw err;
     }
+    audit(caller.sub, "posting.decide", `${posting.id}/${req.personSub}`, { after: req.status });
     await enqueue({ type: "posting.decision", postingId: posting.id, personSub: req.personSub });
     return ok(PortalAck.parse({ status: "ok" }));
   },

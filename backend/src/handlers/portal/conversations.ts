@@ -33,6 +33,7 @@ import {
   isStaffRole,
 } from "@niltv/types";
 import { type Result, can, denied } from "../../lib/portal/access";
+import { audit } from "../../lib/portal/audit";
 import {
   type ConvAccess,
   type ConvMeta,
@@ -156,6 +157,7 @@ export const handler = portalHandler({
     if (!req) return badRequest();
     const meta = await createGroup({ id: newPortalId("grp"), title: req.title, about: req.about, createdBySub: caller.sub });
     const members = await setGroupMembers(meta, req.memberSubs);
+    audit(caller.sub, "group.create", meta.id, { after: { title: req.title, about: req.about, memberSubs: req.memberSubs } });
     const fresh = (await getConv(meta.id)) ?? meta;
     return ok(
       ConversationDetail.parse({ ...summarize(fresh, caller.member, undefined), members: await peopleOf(fresh, members) }),
@@ -171,6 +173,7 @@ export const handler = portalHandler({
     if (!meta || meta.kind !== "group") return notFound();
     await updateGroupInfo(meta, req.title, req.about);
     const members = await setGroupMembers(meta, req.memberSubs);
+    audit(caller.sub, "group.update", meta.id, { before: { title: meta.title, about: meta.about }, after: { title: req.title, about: req.about, memberSubs: req.memberSubs } });
     const fresh = (await getConv(meta.id)) ?? meta;
     return ok(ConversationDetail.parse({ ...summarize(fresh, caller.member, undefined), members: await peopleOf(fresh, members) }));
   },
@@ -257,6 +260,7 @@ export const handler = portalHandler({
     const req = ctx.body(HideMessageRequest);
     if (!req) return badRequest();
     if (!(await setHidden(thread.meta.id, ctx.param("messageId"), req.hidden, ctx.caller.sub))) return notFound();
+    audit(ctx.caller.sub, req.hidden ? "message.hide" : "message.unhide", `${thread.meta.id}/${ctx.param("messageId")}`);
     return ok(PortalAck.parse({ status: "ok" }));
   },
 });

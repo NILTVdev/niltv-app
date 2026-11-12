@@ -28,6 +28,7 @@ import {
 import { json } from "../../lib/http";
 import { type Caller, can, conflictResult, denied } from "../../lib/portal/access";
 import { deleteUnfinished, findAccountByEmail, lookupEmail, nameFromEmail } from "../../lib/portal/accounts";
+import { audit } from "../../lib/portal/audit";
 import { leaveAllGroups, syncChannelMemberships } from "../../lib/portal/conversations";
 import { createMember, getMember, getSettings, listMembers, putMember, putSettings } from "../../lib/portal/members";
 import { portalUrl } from "../../lib/portal/emails";
@@ -99,6 +100,7 @@ export const handler = portalHandler({
     });
     if (existing) await putMember(member);
     else if (!(await createMember(member))) return conflictResult("CONFLICT", "That account was just added. Refresh the list.");
+    audit(caller.sub, "member.add", member.sub, { before: existing, after: member });
 
     await syncChannelMemberships(member);
     if ((await getSettings()).welcomeEmail) await enqueue({ type: "welcome", sub: member.sub });
@@ -132,6 +134,7 @@ export const handler = portalHandler({
     });
     if (!isStaffRole(next.role)) next.desks = [];
     await putMember(next);
+    audit(caller.sub, "member.update", next.sub, { before: target, after: next });
 
     await syncChannelMemberships(next);
     if (next.status === "disabled" && target.status !== "disabled") await leaveAllGroups(next.sub);
@@ -210,6 +213,7 @@ export const handler = portalHandler({
     if (existing) await putMember(member);
     else if (!(await createMember(member))) return conflictResult("CONFLICT", "That account was just added. Refresh the list.");
     await deletePending(id);
+    audit(caller.sub, "member.link", member.sub, { before: existing, after: member });
     return ok(member);
   },
 
@@ -222,6 +226,7 @@ export const handler = portalHandler({
     if (!can(caller, "manageAccess")) return denied();
     const settings = body(PortalSettings);
     if (!settings) return badRequest();
+    audit(caller.sub, "settings.update", "settings", { before: await getSettings(), after: settings });
     await putSettings(settings);
     return ok(settings);
   },
