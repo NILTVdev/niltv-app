@@ -128,6 +128,9 @@ describe("PortalStack", () => {
     template.hasResourceProperties("AWS::Logs::MetricFilter", {
       FilterPattern: Match.stringLikeRegexp("one summary failed"),
     });
+    template.hasResourceProperties("AWS::Logs::MetricFilter", {
+      FilterPattern: Match.stringLikeRegexp("push failed"),
+    });
   });
 
   it("adds the SES reputation alarms on prod only", () => {

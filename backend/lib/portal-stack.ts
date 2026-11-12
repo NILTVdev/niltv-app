@@ -454,6 +454,7 @@ export class PortalStack extends Stack {
     const swallowedMetric = { namespace: "NILTV/Portal", name: `${stage}-swallowed-errors` };
     const swallowedPattern = logs.FilterPattern.anyTerm(
       "email failed",
+      "push failed",
       "one recipient failed",
       "one summary failed",
       "desk alert failed",
