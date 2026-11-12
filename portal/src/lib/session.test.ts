@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { REFRESH_MARGIN_MS, after401, cognitoCode, parseClockDrift, refreshFailure, serverNow, tokenStep } from "./session";
+import {
+  REFRESH_MARGIN_MS,
+  REFRESH_TIMEOUT_MS,
+  after401,
+  cognitoCode,
+  lateRefresh,
+  parseClockDrift,
+  refreshFailure,
+  refreshTimeout,
+  serverNow,
+  settleRefresh,
+  tokenStep,
+} from "./session";
 
 const now = 1_800_000_000_000;
 const min = 60_000;
@@ -94,5 +106,56 @@ describe("clock drift", () => {
     const device = now - 60 * min;
     const idExpiresAt = now - min;
     expect(tokenStep({ idExpiresAt, hasRefreshToken: true, now: serverNow(drift, device) })).toBe("refresh");
+  });
+});
+
+describe("settleRefresh", () => {
+  const started = { generation: 3, user: "ana", refreshToken: "r1" };
+
+  it("acts on a refresh whose session is unchanged", () => {
+    expect(settleRefresh({ started, generation: 3, lastAuthUser: "ana", storedRefreshToken: "r1" })).toBe("current");
+  });
+
+  it("leaves a different session alone in the same generation", () => {
+    expect(settleRefresh({ started, generation: 3, lastAuthUser: "ben", storedRefreshToken: "r1" })).toBe("staleKeep");
+    expect(settleRefresh({ started, generation: 3, lastAuthUser: "ana", storedRefreshToken: "r2" })).toBe("staleKeep");
+  });
+
+  it("clears only the old session after a sign-out", () => {
+    expect(settleRefresh({ started, generation: 4, lastAuthUser: "ana", storedRefreshToken: "r1" })).toBe("staleClear");
+  });
+
+  it("leaves a new sign-in alone after a sign-out", () => {
+    expect(settleRefresh({ started, generation: 4, lastAuthUser: "ana", storedRefreshToken: "r2" })).toBe("staleKeep");
+    expect(settleRefresh({ started, generation: 4, lastAuthUser: "ben", storedRefreshToken: "b1" })).toBe("staleKeep");
+    expect(settleRefresh({ started, generation: 4, lastAuthUser: null, storedRefreshToken: null })).toBe("staleKeep");
+  });
+});
+
+describe("lateRefresh", () => {
+  it("stores new tokens only for an unchanged session", () => {
+    expect(lateRefresh({ settle: "current", ok: true })).toBe("store");
+    expect(lateRefresh({ settle: "staleKeep", ok: true })).toBe("ignore");
+    expect(lateRefresh({ settle: "staleClear", ok: true })).toBe("ignore");
+  });
+
+  it("ignores a late failure", () => {
+    expect(lateRefresh({ settle: "current", ok: false })).toBe("ignore");
+  });
+});
+
+describe("refreshTimeout", () => {
+  it("waits 12 seconds", () => {
+    expect(REFRESH_TIMEOUT_MS).toBe(12_000);
+  });
+
+  it("keeps a token that is still valid", () => {
+    expect(refreshTimeout({ idExpiresAt: now + 2 * min, now })).toBe("useStale");
+  });
+
+  it("reports sign-in as unreachable once the token lapses, or after a 401", () => {
+    expect(refreshTimeout({ idExpiresAt: now - min, now })).toBe("unavailable");
+    expect(refreshTimeout({ idExpiresAt: null, now })).toBe("unavailable");
+    expect(refreshTimeout({ idExpiresAt: now + 30 * min, now, force: true })).toBe("unavailable");
   });
 });

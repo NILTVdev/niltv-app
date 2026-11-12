@@ -6,8 +6,10 @@
  * `localStorage` instead, so closing the app does not sign people out.
  * Signing out clears the session from both. `getIdToken()` refreshes the
  * session through the refresh token five minutes before it expires, one
- * refresh at a time. Only Cognito refusing the refresh token signs anyone
- * out; a network or service failure keeps the session (see lib/session.ts).
+ * refresh at a time, and gives up after 12 seconds. Only Cognito refusing the
+ * refresh token signs anyone out; a network or service failure keeps the
+ * session (see lib/session.ts). A refresh writes its tokens only while the
+ * session it started on is still the stored one.
  *
  * Portal accounts are ordinary niltv.com accounts; the portal API decides
  * who gets in (403 NOT_MEMBER), not Cognito. Accounts are created here too,
@@ -27,7 +29,18 @@ import {
 } from "amazon-cognito-identity-js";
 import { config } from "./config";
 import { runningStandalone } from "./lib/push";
-import { cognitoCode, parseClockDrift, refreshFailure, serverNow, tokenStep } from "./lib/session";
+import {
+  REFRESH_TIMEOUT_MS,
+  type RefreshFence,
+  cognitoCode,
+  lateRefresh,
+  parseClockDrift,
+  refreshFailure,
+  refreshTimeout,
+  serverNow,
+  settleRefresh,
+  tokenStep,
+} from "./lib/session";
 
 let pool: CognitoUserPool | undefined;
 let store: Storage | undefined;
@@ -96,6 +109,17 @@ export class SessionUnavailableError extends Error {
   constructor() {
     super("Could not reach sign-in. Check your connection and try again.");
     this.name = "SessionUnavailableError";
+  }
+}
+
+/**
+ * A refresh outlived the session it started on: a sign-out, or a sign-in
+ * since. Storage now belongs to someone else, so this is not a session end.
+ */
+export class StaleRefreshError extends Error {
+  constructor() {
+    super("The session changed while it was being renewed. Try again.");
+    this.name = "StaleRefreshError";
   }
 }
 
@@ -287,6 +311,55 @@ const refreshing: Record<"plain" | "forced", Promise<string> | null> = { plain: 
 /** Bumped by signOut(), so a refresh still in flight cannot bring the session back. */
 let signOutGeneration = 0;
 
+const keyPrefix = (): string => `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}`;
+
+/** Who is stored now, read straight from storage. Blocked storage reads as nobody. */
+function storedSession(user: string): { lastAuthUser: string | null; storedRefreshToken: string | null } {
+  try {
+    const s = sessionStore();
+    return {
+      lastAuthUser: s.getItem(`${keyPrefix()}.LastAuthUser`),
+      storedRefreshToken: s.getItem(`${keyPrefix()}.${user}.refreshToken`),
+    };
+  } catch {
+    return { lastAuthUser: null, storedRefreshToken: null };
+  }
+}
+
+/**
+ * In-memory storage for one refresh. The library caches the new tokens here,
+ * and clears them here on a refusal, so it never writes over a newer session.
+ * `keepTokens` copies them to the real store once the session checks out.
+ */
+function scratchStore(user: string): Storage {
+  const data = new Map<string, string>();
+  const real = sessionStore();
+  const lastUserKey = `${keyPrefix()}.LastAuthUser`;
+  const deviceKey = `${keyPrefix()}.${user}.deviceKey`;
+  data.set(lastUserKey, user);
+  const device = real.getItem(deviceKey);
+  if (device) data.set(deviceKey, device);
+  return {
+    get length() {
+      return data.size;
+    },
+    key: (i: number) => [...data.keys()][i] ?? null,
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, String(v)),
+    removeItem: (k: string) => void data.delete(k),
+    clear: () => data.clear(),
+  };
+}
+
+function keepTokens(user: string, scratch: Storage): void {
+  const real = sessionStore();
+  for (const name of ["idToken", "accessToken", "refreshToken", "clockDrift"]) {
+    const value = scratch.getItem(`${keyPrefix()}.${user}.${name}`);
+    if (value !== null) real.setItem(`${keyPrefix()}.${user}.${name}`, value);
+  }
+  real.setItem(`${keyPrefix()}.LastAuthUser`, user);
+}
+
 function refresh(
   user: CognitoUser,
   refreshToken: string,
@@ -295,31 +368,66 @@ function refresh(
   clockDrift: number,
 ): Promise<string> {
   const slot = force ? "forced" : "plain";
-  const generation = signOutGeneration;
-  const pending =
-    refreshing[slot] ??
-    new Promise<string>((resolve, reject) => {
-      user.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), (err: unknown, session: CognitoUserSession | null) => {
-        if (generation !== signOutGeneration) {
-          // Signed out while this ran: the library just cached the tokens again.
-          clearStoredTokens();
-          reject(new NotSignedInError());
-          return;
-        }
-        if (!err && session) {
+  const existing = refreshing[slot];
+  if (existing) return existing;
+  const fence: RefreshFence = { generation: signOutGeneration, user: user.getUsername(), refreshToken };
+  const settle = () => settleRefresh({ started: fence, generation: signOutGeneration, ...storedSession(fence.user) });
+  const scratch = scratchStore(fence.user);
+  const worker = new CognitoUser({ Username: fence.user, Pool: getPool(), Storage: scratch });
+  let pending: Promise<string> | undefined;
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  pending = new Promise<string>((resolve, reject) => {
+    // The first answer wins: the Cognito callback or the timeout. Either frees the slot.
+    const finish = (act: () => void): void => {
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (pending && refreshing[slot] === pending) refreshing[slot] = null;
+      act();
+    };
+    /** The session changed under this refresh: clear only what is still its own, then tell the caller. */
+    const staleOut = (state: ReturnType<typeof settle>): boolean => {
+      if (state === "current") return false;
+      if (state === "staleClear") clearStoredTokens();
+      reject(new StaleRefreshError());
+      return true;
+    };
+    timer = setTimeout(() => {
+      if (settled) return;
+      finish(() => {
+        if (staleOut(settle())) return;
+        const outcome = refreshTimeout({ idExpiresAt: expiresAt(staleToken), now: serverNow(clockDrift), force });
+        if (outcome === "useStale" && staleToken) resolve(staleToken);
+        else reject(new SessionUnavailableError());
+      });
+    }, REFRESH_TIMEOUT_MS);
+    worker.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), (err: unknown, session: CognitoUserSession | null) => {
+      const state = settle();
+      const ok = !err && Boolean(session);
+      if (settled) {
+        // Too late for the caller. New tokens still help the next request if the session is unchanged.
+        if (lateRefresh({ settle: state, ok }) === "store") keepTokens(fence.user, scratch);
+        return;
+      }
+      finish(() => {
+        if (staleOut(state)) return;
+        if (ok && session) {
+          keepTokens(fence.user, scratch);
           resolve(session.getIdToken().getJwtToken());
           return;
         }
         const now = serverNow(clockDrift);
         const outcome = refreshFailure({ code: cognitoCode(err), idExpiresAt: expiresAt(staleToken), now, force });
-        if (outcome === "signedOut") reject(new NotSignedInError());
-        else if (outcome === "useStale" && staleToken) resolve(staleToken);
+        if (outcome === "signedOut") {
+          clearStoredTokens();
+          reject(new NotSignedInError());
+        } else if (outcome === "useStale" && staleToken) resolve(staleToken);
         else reject(new SessionUnavailableError());
       });
-    }).finally(() => {
-      if (refreshing[slot] === pending) refreshing[slot] = null;
     });
-  refreshing[slot] = pending;
+  });
+  // The callback can only free the slot once `pending` is set, so an answer before this line leaves it empty.
+  if (!settled) refreshing[slot] = pending;
   return pending;
 }
 
@@ -382,7 +490,7 @@ export function signOut(): void {
 }
 
 function clearStoredTokens(): void {
-  const prefix = `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}.`;
+  const prefix = `${keyPrefix()}.`;
   for (const pick of [() => window.localStorage, () => window.sessionStorage]) {
     try {
       const s = pick();
