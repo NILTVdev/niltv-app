@@ -27,7 +27,7 @@ import {
 } from "amazon-cognito-identity-js";
 import { config } from "./config";
 import { runningStandalone } from "./lib/push";
-import { cognitoCode, refreshFailure, tokenStep } from "./lib/session";
+import { cognitoCode, parseClockDrift, refreshFailure, serverNow, tokenStep } from "./lib/session";
 
 let pool: CognitoUserPool | undefined;
 let store: Storage | undefined;
@@ -244,12 +244,22 @@ export function confirmPassword(email: string, code: string, newPassword: string
 }
 
 /** The tokens this tab has stored for the last signed-in user. Read straight from storage, so nothing refreshes. */
-function storedTokens(): { user: CognitoUser; idToken: string | null; refreshToken: string | null } | null {
+function storedTokens(): {
+  user: CognitoUser;
+  idToken: string | null;
+  refreshToken: string | null;
+  clockDrift: number;
+} | null {
   const user = getPool().getCurrentUser();
   if (!user) return null;
   const prefix = `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}.${user.getUsername()}`;
   const s = sessionStore();
-  return { user, idToken: s.getItem(`${prefix}.idToken`), refreshToken: s.getItem(`${prefix}.refreshToken`) };
+  return {
+    user,
+    idToken: s.getItem(`${prefix}.idToken`),
+    refreshToken: s.getItem(`${prefix}.refreshToken`),
+    clockDrift: parseClockDrift(s.getItem(`${prefix}.clockDrift`)),
+  };
 }
 
 function idPayload(idToken: string | null): Record<string, unknown> | null {
@@ -267,25 +277,50 @@ function expiresAt(idToken: string | null): number | null {
   return typeof exp === "number" ? exp * 1000 : null;
 }
 
-/** One refresh at a time: every caller that needs a new token waits on the same one. */
-let refreshing: Promise<string> | null = null;
+/**
+ * One refresh at a time: every caller that needs a new token waits on the
+ * same one. Forced and unforced callers wait on separate refreshes, so a
+ * caller that just got a 401 never receives the refused token back.
+ */
+const refreshing: Record<"plain" | "forced", Promise<string> | null> = { plain: null, forced: null };
 
-function refresh(user: CognitoUser, refreshToken: string, staleToken: string | null, force: boolean): Promise<string> {
-  refreshing ??= new Promise<string>((resolve, reject) => {
-    user.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), (err: unknown, session: CognitoUserSession | null) => {
-      if (!err && session) {
-        resolve(session.getIdToken().getJwtToken());
-        return;
-      }
-      const outcome = refreshFailure({ code: cognitoCode(err), idExpiresAt: expiresAt(staleToken), now: Date.now(), force });
-      if (outcome === "signedOut") reject(new NotSignedInError());
-      else if (outcome === "useStale" && staleToken) resolve(staleToken);
-      else reject(new SessionUnavailableError());
+/** Bumped by signOut(), so a refresh still in flight cannot bring the session back. */
+let signOutGeneration = 0;
+
+function refresh(
+  user: CognitoUser,
+  refreshToken: string,
+  staleToken: string | null,
+  force: boolean,
+  clockDrift: number,
+): Promise<string> {
+  const slot = force ? "forced" : "plain";
+  const generation = signOutGeneration;
+  const pending =
+    refreshing[slot] ??
+    new Promise<string>((resolve, reject) => {
+      user.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), (err: unknown, session: CognitoUserSession | null) => {
+        if (generation !== signOutGeneration) {
+          // Signed out while this ran: the library just cached the tokens again.
+          clearStoredTokens();
+          reject(new NotSignedInError());
+          return;
+        }
+        if (!err && session) {
+          resolve(session.getIdToken().getJwtToken());
+          return;
+        }
+        const now = serverNow(clockDrift);
+        const outcome = refreshFailure({ code: cognitoCode(err), idExpiresAt: expiresAt(staleToken), now, force });
+        if (outcome === "signedOut") reject(new NotSignedInError());
+        else if (outcome === "useStale" && staleToken) resolve(staleToken);
+        else reject(new SessionUnavailableError());
+      });
+    }).finally(() => {
+      if (refreshing[slot] === pending) refreshing[slot] = null;
     });
-  }).finally(() => {
-    refreshing = null;
-  });
-  return refreshing;
+  refreshing[slot] = pending;
+  return pending;
 }
 
 /**
@@ -298,10 +333,11 @@ export async function getIdToken(options: { force?: boolean } = {}): Promise<str
   const force = options.force ?? false;
   const stored = storedTokens();
   if (!stored) throw new NotSignedInError();
-  const { user, idToken, refreshToken } = stored;
-  const step = tokenStep({ idExpiresAt: expiresAt(idToken), hasRefreshToken: Boolean(refreshToken), now: Date.now(), force });
+  const { user, idToken, refreshToken, clockDrift } = stored;
+  const now = serverNow(clockDrift);
+  const step = tokenStep({ idExpiresAt: expiresAt(idToken), hasRefreshToken: Boolean(refreshToken), now, force });
   if (step === "use" && idToken) return idToken;
-  if (step === "refresh" && refreshToken) return refresh(user, refreshToken, idToken, force);
+  if (step === "refresh" && refreshToken) return refresh(user, refreshToken, idToken, force, clockDrift);
   throw new NotSignedInError();
 }
 
@@ -334,11 +370,18 @@ export async function restoreSession(): Promise<{ email: string | null; ended: b
  * session saved by the installed app must not outlive a sign-out in a tab.
  */
 export function signOut(): void {
+  signOutGeneration += 1;
+  refreshing.plain = null;
+  refreshing.forced = null;
   try {
     getPool().getCurrentUser()?.signOut();
   } catch {
     /* not configured: nothing to sign out of */
   }
+  clearStoredTokens();
+}
+
+function clearStoredTokens(): void {
   const prefix = `CognitoIdentityServiceProvider.${config.cognito.clientId ?? ""}.`;
   for (const pick of [() => window.localStorage, () => window.sessionStorage]) {
     try {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REFRESH_MARGIN_MS, after401, cognitoCode, refreshFailure, tokenStep } from "./session";
+import { REFRESH_MARGIN_MS, after401, cognitoCode, parseClockDrift, refreshFailure, serverNow, tokenStep } from "./session";
 
 const now = 1_800_000_000_000;
 const min = 60_000;
@@ -68,5 +68,31 @@ describe("cognitoCode", () => {
     expect(cognitoCode(new TypeError("Failed to fetch"))).toBe("TypeError");
     expect(cognitoCode(null)).toBeUndefined();
     expect(cognitoCode("x")).toBeUndefined();
+  });
+});
+
+describe("clock drift", () => {
+  it("reads the stored drift, or none", () => {
+    expect(parseClockDrift("3600")).toBe(3600);
+    expect(parseClockDrift("-120")).toBe(-120);
+    expect(parseClockDrift(null)).toBe(0);
+    expect(parseClockDrift("junk")).toBe(0);
+  });
+
+  it("judges a token on the server's time when the device clock runs fast", () => {
+    // Device clock is an hour ahead; the token has 30 minutes left on the server.
+    const drift = 3600;
+    const device = now + 60 * min;
+    const idExpiresAt = now + 30 * min;
+    expect(tokenStep({ idExpiresAt, hasRefreshToken: true, now: device })).toBe("refresh");
+    expect(tokenStep({ idExpiresAt, hasRefreshToken: true, now: serverNow(drift, device) })).toBe("use");
+    expect(refreshFailure({ code: "NetworkError", idExpiresAt, now: serverNow(drift, device) })).toBe("useStale");
+  });
+
+  it("refreshes an expired token when the device clock runs slow", () => {
+    const drift = -3600;
+    const device = now - 60 * min;
+    const idExpiresAt = now - min;
+    expect(tokenStep({ idExpiresAt, hasRefreshToken: true, now: serverNow(drift, device) })).toBe("refresh");
   });
 });

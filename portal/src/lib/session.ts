@@ -51,6 +51,19 @@ export function refreshFailure(input: {
   return "unavailable";
 }
 
+/**
+ * The clock drift Cognito stored at sign-in, in seconds (device clock minus
+ * the server's). Missing or junk reads as no drift.
+ */
+export function parseClockDrift(raw: string | null): number {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** The device clock corrected by the stored drift, so token expiry is judged on the server's time. */
+export const serverNow = (clockDriftSeconds: number, deviceNow: number = Date.now()): number =>
+  deviceNow - clockDriftSeconds * 1000;
+
 /** A 401 from the API: refresh and retry the request once; a second 401 ends the session. */
 export const after401 = (alreadyRetried: boolean): "refreshAndRetry" | "signOut" =>
   alreadyRetried ? "signOut" : "refreshAndRetry";
