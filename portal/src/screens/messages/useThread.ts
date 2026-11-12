@@ -13,10 +13,14 @@ import { lastId, mergeMessages, newClientMsgId, newestSeq } from "../../lib/mess
 import { rateLimitWaitMs } from "../../lib/ratelimit";
 import {
   type Draft,
+  discardPending,
   failedNotice,
+  forgetResend,
+  holdForResend,
   isOnScreen,
   markFailed,
   outboxEpoch,
+  pendingFor,
   removePending,
   showThread,
   updatePending,
@@ -59,30 +63,6 @@ export function useThread(convId: string, title?: string) {
   const pending = usePending(convId);
   const [pollError, setPollError] = useState<unknown>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  // Held sends after a 429: the timer that sends again, and how many times it has.
-  const resendTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const resends = useRef(new Map<string, number>());
-  const sendRef = useRef<((draft: Draft, clientMsgId: string) => Promise<void>) | undefined>(undefined);
-  useEffect(() => {
-    const timers = resendTimers.current;
-    const counts = resends.current;
-    return () => {
-      const held = [...timers.keys()];
-      for (const t of timers.values()) clearTimeout(t);
-      timers.clear();
-      for (const id of held) counts.delete(id);
-      if (held.length > 0) {
-        updatePending(convId, (list) =>
-          held.reduce((acc, id) => markFailed(acc, id, "Not sent yet. Try again."), list),
-        );
-      }
-    };
-  }, [convId]);
-  const cancelResend = useCallback((clientMsgId: string) => {
-    const t = resendTimers.current.get(clientMsgId);
-    if (t !== undefined) clearTimeout(t);
-    resendTimers.current.delete(clientMsgId);
-  }, []);
 
   const merge = useCallback(
     (incoming: PortalMessage[]) => {
@@ -147,69 +127,70 @@ export function useThread(convId: string, title?: string) {
 
   /** Send a draft; a retry passes the failed message back with its clientMsgId. */
   const send = useCallback(
-    async (draft: Draft, clientMsgId: string = newClientMsgId()) => {
-      cancelResend(clientMsgId);
-      const at = new Date().toISOString();
+    (draft: Draft, clientMsgId: string = newClientMsgId()): Promise<void> => {
       const { body, mentions, important } = draft;
-      updatePending(convId, (list) =>
-        upsertPending(list, { clientMsgId, body, mentions, important, at, state: "sending" }),
-      );
       // The thread may be closed by the time this settles: everything below
       // goes to the outbox and the query cache, never to component state.
       const sendTitle = titleRef.current;
-      // A sign-out while this runs wipes the outbox; the result then belongs to nobody.
-      const epoch = outboxEpoch();
-      const signedOut = () => outboxEpoch() !== epoch;
-      let sent = false;
-      try {
-        const result = await api.sendMessage(convId, { clientMsgId, body, mentions, important });
+      const stillListed = () => pendingFor(convId).some((p) => p.clientMsgId === clientMsgId);
+
+      // One try. `epoch` is fixed when the member pressed Send, so a held
+      // resend after a sign-out sees a new epoch and does nothing.
+      const attempt = async (epoch: number): Promise<void> => {
+        const signedOut = () => outboxEpoch() !== epoch;
         if (signedOut()) return;
-        sent = true;
-        if (!result.duplicate) merge([result.message]);
-        else await poll();
-        resends.current.delete(clientMsgId);
-      } catch (err) {
-        if (signedOut()) return;
-        if (!sent) {
-          const waitMs = rateLimitWaitMs(err);
-          const tries = resends.current.get(clientMsgId) ?? 0;
-          if (waitMs !== undefined && tries < AUTO_RESENDS) {
-            // Refused before it was stored: hold it and send the same clientMsgId again.
-            resends.current.set(clientMsgId, tries + 1);
-            resendTimers.current.set(
-              clientMsgId,
-              setTimeout(() => {
-                resendTimers.current.delete(clientMsgId);
-                void sendRef.current?.(draft, clientMsgId);
-              }, waitMs),
-            );
-            updatePending(convId, (list) =>
-              list.map((p) => (p.clientMsgId === clientMsgId ? { ...p, state: "sending", error: errorText(err) } : p)),
-            );
+        const at = new Date().toISOString();
+        updatePending(convId, (list) =>
+          upsertPending(list, { clientMsgId, body, mentions, important, at, state: "sending" }),
+        );
+        let sent = false;
+        try {
+          const result = await api.sendMessage(convId, { clientMsgId, body, mentions, important });
+          if (signedOut()) return;
+          sent = true;
+          if (!result.duplicate) merge([result.message]);
+          else await poll();
+        } catch (err) {
+          if (signedOut()) return;
+          if (!sent) {
+            const waitMs = rateLimitWaitMs(err);
+            if (waitMs !== undefined) {
+              // Refused before it was stored: hold it and send the same clientMsgId again.
+              const hold = holdForResend(convId, clientMsgId, {
+                waitMs,
+                epoch,
+                max: AUTO_RESENDS,
+                resend: () => void attempt(epoch),
+              });
+              if (hold === "gone") return;
+              if (hold === "held") {
+                updatePending(convId, (list) =>
+                  list.map((p) => (p.clientMsgId === clientMsgId ? { ...p, state: "sending", error: errorText(err) } : p)),
+                );
+                return;
+              }
+            }
+            forgetResend(convId, clientMsgId);
+            if (!stillListed()) return;
+            updatePending(convId, (list) => markFailed(list, clientMsgId, errorText(err)));
+            if (!isOnScreen(convId)) toast(failedNotice(sendTitle), "bad");
             return;
           }
-          resends.current.delete(clientMsgId);
-          updatePending(convId, (list) => markFailed(list, clientMsgId, errorText(err)));
-          if (!isOnScreen(convId)) toast(failedNotice(sendTitle), "bad");
-          return;
         }
-      }
-      if (signedOut()) return;
-      updatePending(convId, (list) => removePending(list, clientMsgId));
-      void qc.invalidateQueries({ queryKey: qk.inbox });
-    },
-    [convId, merge, poll, qc, toast, cancelResend],
-  );
-  sendRef.current = send;
+        if (signedOut()) return;
+        forgetResend(convId, clientMsgId);
+        updatePending(convId, (list) => removePending(list, clientMsgId));
+        void qc.invalidateQueries({ queryKey: qk.inbox });
+      };
 
-  const discard = useCallback(
-    (clientMsgId: string) => {
-      cancelResend(clientMsgId);
-      resends.current.delete(clientMsgId);
-      updatePending(convId, (list) => removePending(list, clientMsgId));
+      // A send from the screen starts over: any held resend and its count go.
+      forgetResend(convId, clientMsgId);
+      return attempt(outboxEpoch());
     },
-    [convId, cancelResend],
+    [convId, merge, poll, qc, toast],
   );
+
+  const discard = useCallback((clientMsgId: string) => discardPending(convId, clientMsgId), [convId]);
 
   const setHiddenLocal = useCallback(
     (messageId: string, hidden: boolean) => {

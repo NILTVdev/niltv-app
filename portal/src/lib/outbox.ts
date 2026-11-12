@@ -120,9 +120,85 @@ export const isOnScreen = (convId: string): boolean => (onScreen.get(convId) ?? 
 let epoch = 0;
 export const outboxEpoch = (): number => epoch;
 
+/* ── held resends after a 429 ──────────────────────────────────────────── */
+
+/**
+ * A send refused with 429 waits here, not in the thread screen, so the
+ * timer outlives an unmount and still answers to Discard and sign-out.
+ * Keyed by conversation and clientMsgId.
+ */
+interface Held {
+  timer?: ReturnType<typeof setTimeout>;
+  tries: number;
+}
+const held = new Map<string, Held>();
+const heldKey = (convId: string, clientMsgId: string) => `${convId}\u0000${clientMsgId}`;
+const isPending = (convId: string, clientMsgId: string) => pendingFor(convId).some((p) => p.clientMsgId === clientMsgId);
+
+/** What holdForResend did: held it, found it discarded or signed out, or ran out of resends. */
+export type HoldResult = "held" | "gone" | "spent";
+
+/**
+ * Hold a send refused with 429 and run `resend` after `waitMs`. `epoch` is
+ * the outbox epoch the send started in. The resend is dropped if the member
+ * signs out or discards the message first. After `max` holds it is "spent"
+ * and the caller marks it failed.
+ */
+export function holdForResend(
+  convId: string,
+  clientMsgId: string,
+  opts: { waitMs: number; epoch: number; max: number; resend: () => void },
+): HoldResult {
+  const key = heldKey(convId, clientMsgId);
+  const prev = held.get(key);
+  if (prev?.timer !== undefined) clearTimeout(prev.timer);
+  if (opts.epoch !== epoch || !isPending(convId, clientMsgId)) {
+    held.delete(key);
+    return "gone";
+  }
+  const tries = prev?.tries ?? 0;
+  if (tries >= opts.max) {
+    held.delete(key);
+    return "spent";
+  }
+  const entry: Held = { tries: tries + 1 };
+  entry.timer = setTimeout(() => {
+    if (held.get(key) !== entry) return;
+    // Keep the count for the next refusal; the timer itself is done.
+    entry.timer = undefined;
+    if (opts.epoch !== epoch || !isPending(convId, clientMsgId)) {
+      held.delete(key);
+      return;
+    }
+    opts.resend();
+  }, opts.waitMs);
+  held.set(key, entry);
+  return "held";
+}
+
+/** Stop any held resend and forget its count. Call on success, final failure, or a fresh send. */
+export function forgetResend(convId: string, clientMsgId: string): void {
+  const key = heldKey(convId, clientMsgId);
+  const h = held.get(key);
+  if (h?.timer !== undefined) clearTimeout(h.timer);
+  held.delete(key);
+}
+
+/** True while a resend timer is waiting for this message. */
+export const isHeld = (convId: string, clientMsgId: string): boolean =>
+  held.get(heldKey(convId, clientMsgId))?.timer !== undefined;
+
+/** The member discards an unsent message: it leaves the outbox and is never sent again. */
+export function discardPending(convId: string, clientMsgId: string): void {
+  forgetResend(convId, clientMsgId);
+  updatePending(convId, (list) => removePending(list, clientMsgId));
+}
+
 /** Sign-out: nothing typed or unsent may carry over to the next account in this tab. */
 export function clearOutbox(): void {
   epoch++;
+  for (const h of held.values()) if (h.timer !== undefined) clearTimeout(h.timer);
+  held.clear();
   pendingByConv.clear();
   drafts.clear();
   notify();
