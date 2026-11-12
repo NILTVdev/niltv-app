@@ -239,6 +239,73 @@ prod; on dev, add athletes by hand in Team & access). Invoke
 `niltv-{stage}-portal-roster-sync` with `{"dryRun": true}` to count what it
 would create or update without writing anything.
 
+The web app deploys with `python portal/scripts/deploy.py --stage dev`.
+Prod (`--stage prod --confirm-prod`) refuses a dirty tree and any HEAD that
+is not on `origin/main`. Each build carries `/version.json` with the commit,
+branch, build time and stage, so `curl https://portal.niltv.com/version.json`
+shows what is live. Before each deploy the script sets the Amplify app's
+response headers from `portal/customHttp.yml` (CSP, HSTS, framing, caching).
+Change headers in that file only. The prod runbook is kept with the team's
+internal docs.
+
+## Alarms, logs and redrive
+
+Every alarm pages `niltv-{stage}-alerts`, the topic the api stack owns.
+
+| Alarm | Fires when |
+|---|---|
+| `niltv-{stage}-portal-api-5xx` | The portal API served a 5xx in 5 minutes. The router turns a thrown route into a 500, so this is the only signal for API handlers. |
+| `niltv-{stage}-portal-notify-errors`, `-portal-summary-errors`, `-portal-roster-sync-errors` | That function threw in 5 minutes. |
+| `niltv-{stage}-portal-notify-dlq` | A notice used up its 3 tries and sits in the dead-letter queue. |
+| `niltv-{stage}-portal-notify-queue-age` | The oldest notice has waited 15 minutes. The notifier is stuck. |
+| `niltv-{stage}-portal-swallowed-errors` | A path that logs and carries on failed: `email failed`, `one recipient failed`, `one summary failed`, `desk alert failed`, `notice enqueue failed`. |
+| `niltv-prod-ses-bounce-rate`, `niltv-prod-ses-complaint-rate` | SES reputation reached 4% bounces or 0.08% complaints. AWS reviews the account at 5% and 0.1%. Prod only, because dev and prod share the account. |
+
+Logs:
+
+- API access log: `/aws/apigateway/niltv-{stage}-portal-access`, one JSON
+  line per request with request id, time, route, path, status, source IP and
+  the caller's Cognito sub. No headers and no bodies. Kept one month.
+- Audit lines: every member, settings, hide, group, posting decision and
+  ask decision write logs one line with `"audit":"portal"`, the actor's sub,
+  the action, the target and the fields that changed. Find them in Logs
+  Insights over the portal log groups with
+  `filter audit = "portal" | sort @timestamp desc`.
+
+Redrive the notify dead-letter queue (messages stay 14 days). Fix the cause
+first, or the notices fail again and return to the DLQ.
+
+```
+STAGE=prod
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+DLQ_URL=$(aws sqs get-queue-url --queue-name niltv-$STAGE-portal-notify-dlq --query QueueUrl --output text)
+
+# Look without removing (they reappear after 30 seconds)
+aws sqs receive-message --queue-url "$DLQ_URL" --max-number-of-messages 10 --visibility-timeout 30
+
+# Move them all back to the notify queue
+aws sqs start-message-move-task \
+  --source-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify-dlq \
+  --destination-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify
+aws sqs list-message-move-tasks --source-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify-dlq
+```
+
+Bounce and complaint events: the `niltv-transactional` configuration set
+sends them to the SNS topic `niltv-ses-events`. That topic was made by hand
+and no stack owns it, so nothing in this repo subscribes to it. Subscribe a
+team inbox once, then confirm from the email:
+
+```
+aws sns subscribe --topic-arn arn:aws:sns:us-east-1:$ACCOUNT:niltv-ses-events \
+  --protocol email --notification-endpoint <team inbox>
+aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:$ACCOUNT:niltv-ses-events
+```
+
+Each event arrives as one JSON email. Check that an address is not
+suppressed with `aws sesv2 get-suppressed-destination --email-address <address>`
+and clear it with `aws sesv2 delete-suppressed-destination --email-address <address>`
+once the cause is fixed.
+
 ## Pick a time
 
 Two or more times make a Pick a time event (`poll` in the code). Invitees tick every
