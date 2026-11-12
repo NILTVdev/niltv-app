@@ -243,9 +243,11 @@ The web app deploys with `python portal/scripts/deploy.py --stage dev`.
 Prod (`--stage prod --confirm-prod`) refuses a dirty tree and any HEAD that
 is not on `origin/main`. Each build carries `/version.json` with the commit,
 branch, build time and stage, so `curl https://portal.niltv.com/version.json`
-shows what is live. Before each deploy the script sets the Amplify app's
-response headers from `portal/customHttp.yml` (CSP, HSTS, framing, caching).
-Change headers in that file only. The prod runbook is kept with the team's
+shows what is live. Response headers (CSP, HSTS, framing, caching) live in
+`portal/customHttp.yml`. Amplify keeps them at app level, so dev and prod
+share them. Only a prod deploy from main sets them. A dev deploy leaves them
+alone and warns when the file differs from what is live. Change headers in
+that file only. The prod runbook is kept with the team's
 internal docs.
 
 ## Alarms, logs and redrive

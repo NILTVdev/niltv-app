@@ -12,9 +12,11 @@ prod serves portal.niltv.com. Manual zip deploys, no Amplify build.
 
 Prod ships only a clean tree whose HEAD is on origin/main. Every build
 carries /version.json (commit, branch, build time, stage), so anyone can see
-what is live. Before each deploy the app's response headers are set from
-portal/customHttp.yml (app-level, so both branches get them). --check runs
-the git gate and prints the version stamp without building or deploying.
+what is live. Response headers are app-level in Amplify, so both branches
+share them. Only a prod deploy sets them from portal/customHttp.yml, after
+the git gate. A dev deploy never touches them; it warns when the local file
+differs from what is live. --check runs the git gate and prints the version
+stamp without building or deploying.
 """
 
 from __future__ import annotations
@@ -99,12 +101,24 @@ def build(stage: str, version: dict[str, object]) -> None:
     (DIST / "version.json").write_text(json.dumps(version, indent=2) + "\n", encoding="utf-8")
 
 
-def apply_headers(app: str) -> None:
-    """Set the app-level custom headers from customHttp.yml when they differ."""
+def headers_differ(app: str) -> tuple[bool, str]:
+    """Compare portal/customHttp.yml with the app's live custom headers."""
     wanted = HEADERS.read_text(encoding="utf-8").replace("\r\n", "\n")
     current = (aws("amplify", "get-app", "--app-id", app)["app"].get("customHeaders") or "").replace("\r\n", "\n")
-    if current.strip() == wanted.strip():
+    return current.strip() != wanted.strip(), wanted
+
+
+def apply_headers(app: str, stage: str) -> None:
+    """Set the app-level custom headers. Prod only: they also serve portal.niltv.com."""
+    differ, wanted = headers_differ(app)
+    if not differ:
         print("response headers: unchanged")
+        return
+    if stage != "prod":
+        print(
+            "response headers: portal/customHttp.yml differs from what is live. Left as is.\n"
+            "  Headers are shared with prod and change only through a prod deploy from main."
+        )
         return
     aws("amplify", "update-app", "--app-id", app, "--custom-headers", wanted)
     print("response headers: updated from portal/customHttp.yml")
@@ -156,7 +170,7 @@ def main() -> None:
         return
     build(args.stage, version)
     app = app_id()
-    apply_headers(app)
+    apply_headers(app, args.stage)
     publish(app, args.stage, zip_dist())
     print("https://portal-dev.niltv.com/" if args.stage == "dev" else "https://portal.niltv.com/")
 
