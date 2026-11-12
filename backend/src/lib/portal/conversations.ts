@@ -548,7 +548,7 @@ export async function sendMessage(
       mentions: [...(input.mentions ?? [])],
       important: input.important === true,
     };
-    const preview = input.body.replace(/\s+/g, " ").slice(0, 140);
+    const preview = previewOf(input.body);
     // Desk threads sort by activity, and wait on staff from the first
     // unanswered message until staff reply.
     const deskSk =
@@ -687,9 +687,16 @@ export function presentMessage(
   };
 }
 
+/** The inbox line under a thread's name. */
+export const previewOf = (body: string): string => body.replace(/\s+/g, " ").slice(0, 140);
+
+/** What the inbox shows for a thread whose newest message is hidden. */
+export const HIDDEN_PREVIEW = "Hidden by staff";
+
 export async function setHidden(convIdValue: string, messageId: string, hidden: boolean, bySub: string): Promise<boolean> {
+  let updated: Record<string, unknown> | undefined;
   try {
-    await getDocClient().send(
+    const out = await getDocClient().send(
       new UpdateCommand({
         TableName: table(),
         Key: convMessageKey(convIdValue, messageId),
@@ -698,13 +705,34 @@ export async function setHidden(convIdValue: string, messageId: string, hidden: 
         ConditionExpression: "attribute_exists(PK)",
         ExpressionAttributeNames: { "#hidden": "hidden" },
         ExpressionAttributeValues: { ":h": hidden, ":by": bySub, ":at": new Date().toISOString() },
+        ReturnValues: "ALL_NEW",
       }),
     );
-    return true;
+    updated = out.Attributes;
   } catch (err) {
     if (isCcf(err)) return false;
     throw err;
   }
+  // The inbox preview copies the newest message's text, so hiding that
+  // message must replace it too, and unhiding puts it back. The condition
+  // skips this when a newer message has already taken over the preview.
+  const message = updated ? parseMessage(updated) : undefined;
+  if (message) {
+    try {
+      await getDocClient().send(
+        new UpdateCommand({
+          TableName: table(),
+          Key: convKey(convIdValue),
+          UpdateExpression: "SET lastPreview = :preview",
+          ConditionExpression: "seq = :seq",
+          ExpressionAttributeValues: { ":preview": hidden ? HIDDEN_PREVIEW : previewOf(message.body), ":seq": message.seq },
+        }),
+      );
+    } catch (err) {
+      if (!isCcf(err)) throw err;
+    }
+  }
+  return true;
 }
 
 /* ── Read state ────────────────────────────────────────────────────────────── */

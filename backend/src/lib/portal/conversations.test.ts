@@ -241,4 +241,34 @@ describe("setHidden", () => {
     expect(input.UpdateExpression).not.toMatch(/SET hidden/);
     expect(input.ExpressionAttributeNames).toEqual({ "#hidden": "hidden" });
   });
+
+  const row = (hidden: boolean) => ({ id: "01J", convId: "ch-everyone", seq: 5, body: "call me  at\n555", hidden });
+
+  it("replaces the inbox preview when the newest message is hidden", async () => {
+    sendMock.mockResolvedValueOnce({ Attributes: row(true) }).mockResolvedValueOnce({});
+    expect(await setHidden("ch-everyone", "01J", true, "u-staff")).toBe(true);
+    const meta = sendMock.mock.calls[1]![0].input;
+    expect(meta.Key).toEqual({ PK: "CONV#ch-everyone", SK: "META" });
+    expect(meta.ConditionExpression).toBe("seq = :seq");
+    expect(meta.ExpressionAttributeValues).toEqual({ ":preview": "Hidden by staff", ":seq": 5 });
+  });
+
+  it("restores the preview on unhide", async () => {
+    sendMock.mockResolvedValueOnce({ Attributes: row(false) }).mockResolvedValueOnce({});
+    await setHidden("ch-everyone", "01J", false, "u-staff");
+    expect(sendMock.mock.calls[1]![0].input.ExpressionAttributeValues[":preview"]).toBe("call me at 555");
+  });
+
+  it("leaves the preview alone when a newer message owns it", async () => {
+    const ccf = Object.assign(new Error("ccf"), { name: "ConditionalCheckFailedException" });
+    sendMock.mockResolvedValueOnce({ Attributes: { ...row(true), seq: 3 } }).mockRejectedValueOnce(ccf);
+    expect(await setHidden("ch-everyone", "01J", true, "u-staff")).toBe(true);
+  });
+
+  it("reports a missing message", async () => {
+    const ccf = Object.assign(new Error("ccf"), { name: "ConditionalCheckFailedException" });
+    sendMock.mockRejectedValueOnce(ccf);
+    expect(await setHidden("ch-everyone", "nope", true, "u-staff")).toBe(false);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
 });
