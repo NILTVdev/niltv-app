@@ -109,6 +109,11 @@ export interface SyncResult {
   /** applications that threw; the rest of the run still finishes */
   failed: number;
   dryRun: boolean;
+  /**
+   * Dry run only: who has no account yet, to compare with the dashboard. It
+   * goes back to whoever invoked the run and is never logged.
+   */
+  unmatched?: { applicationId: number; name: string }[];
 }
 
 /** A confirmation code lasts 24 hours, so an older unfinished sign-up can never finish. */
@@ -176,6 +181,7 @@ export async function syncRoster(
       !known?.sentAt &&
       (!known?.invitedAt || at.getTime() - Date.parse(known.invitedAt) >= INVITE_COOLDOWN_MS);
     if (dryRun) {
+      (result.unmatched ??= []).push({ applicationId: app.id, name: fields.name });
       result.cleared += stale.length;
       if (due) result.invited++;
       return;
@@ -288,14 +294,19 @@ export async function syncRoster(
   return result;
 }
 
-/** Scheduled with no payload; invoke with {"dryRun": true} to count without writing. */
+/**
+ * Scheduled with no payload. Invoke with {"dryRun": true} to count without
+ * writing; the response then also lists who has no account yet.
+ */
 export const handler = async (event?: { dryRun?: boolean }): Promise<SyncResult> => {
   const baseUrl = process.env.DASHBOARD_API_URL;
   const keyParam = process.env.DASHBOARD_API_KEY_PARAM;
   if (!baseUrl || !keyParam) throw new Error("DASHBOARD_API_URL / DASHBOARD_API_KEY_PARAM unset");
   const apps = await fetchAccepted(baseUrl, await dashboardApiKey(keyParam));
   const result = await syncRoster(apps, { dryRun: event?.dryRun === true });
-  console.log("portal-roster-sync", JSON.stringify(result));
+  // Counts only: names stay out of the logs.
+  const { unmatched: _names, ...counts } = result;
+  console.log("portal-roster-sync", JSON.stringify(counts));
   // Every step is safe to repeat, and the failed run has to show on the Errors metric.
   if (result.failed > 0) throw new Error(`${result.failed} of ${result.accepted} applications failed`);
   return result;

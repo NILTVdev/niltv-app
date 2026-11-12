@@ -268,7 +268,9 @@ pool, website and test clients), so it deploys on its own. Context keys:
 `niltv:portalRosterSync:{stage}` (`on` schedules the onboarding sync outside
 prod; on dev, add athletes by hand in Team & access). Invoke
 `niltv-{stage}-portal-roster-sync` with `{"dryRun": true}` to count what it
-would create or update without writing anything.
+would create or update without writing anything. The response also lists
+who has no account yet, by application id and name, to compare with the
+dashboard. Those names are never logged.
 
 ## Pick a time
 
