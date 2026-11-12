@@ -44,7 +44,7 @@ export function Thread({
   const qc = useQueryClient();
   const toast = useToast();
   const detail = useQuery({ queryKey: qk.conv(convId), queryFn: () => api.conversation(convId) });
-  const thread = useThread(convId);
+  const thread = useThread(convId, (detail.data ?? summary)?.title);
   const [infoOpen, setInfoOpen] = useState(false);
 
   const conv: Conv | undefined = detail.data ?? summary;

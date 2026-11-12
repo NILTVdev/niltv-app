@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SESSION_ENDED, api, isApiError, onUnauthorized } from "./api";
 import { restoreSession, signOut } from "./auth";
 import { missingConfig } from "./config";
+import { clearOutbox } from "./lib/outbox";
 import { Portal } from "./Portal";
 import { ME_POLL_MS, qk } from "./queries";
 import { NoAccess } from "./screens/NoAccess";
@@ -69,6 +70,7 @@ function AuthGate() {
 
   const signOutNow = useCallback(() => {
     signOut();
+    clearOutbox();
     qc.clear();
     setEnded(false);
     setEmail(null);
@@ -76,6 +78,7 @@ function AuthGate() {
 
   const sessionEnded = useCallback(() => {
     signOut();
+    clearOutbox();
     qc.clear();
     setEnded(true);
     setEmail(null);
