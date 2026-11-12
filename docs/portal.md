@@ -87,6 +87,13 @@ and try again."
 | Ask action (claim, submit, review) | 30 a minute |
 | Start an upload | 30 a minute |
 
+The write is counted before the route runs, with a conditional update, so
+concurrent writes cannot pass the cap. When the route then answers 400 or
+above, the router gives the write back in the same window row. The count never
+goes below zero. A 429 is not given back, because nothing was taken. A failed
+refund only logs `write limit refund failed`, which the swallowed-errors alarm
+matches.
+
 Staff get one interest email per athlete per posting, however often the
 athlete withdraws and shows interest again. The notify consumer runs at most
 5 at a time, which keeps bursts under the SES send rate.

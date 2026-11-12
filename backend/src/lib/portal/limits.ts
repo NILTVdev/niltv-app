@@ -100,3 +100,24 @@ export async function takeWrite(sub: string, limit: WriteLimit, now: number = Da
   // Another write started this window between our two updates. Count against it.
   return addOne();
 }
+
+/**
+ * Give back one write taken by takeWrite with the same `now`. Only touches the
+ * window that was charged and never goes below zero, so a refund that lands
+ * after the window rolled over does nothing.
+ */
+export async function refundWrite(sub: string, limit: WriteLimit, now: number = Date.now()): Promise<void> {
+  try {
+    await getDocClient().send(
+      new UpdateCommand({
+        TableName: table(),
+        Key: limitKey(sub, limit.bucket),
+        UpdateExpression: "ADD n :minus",
+        ConditionExpression: "win = :win AND n > :zero",
+        ExpressionAttributeValues: { ":minus": -1, ":win": Math.floor(now / limit.windowMs), ":zero": 0 },
+      }),
+    );
+  } catch (err) {
+    if (!isCcf(err)) throw err;
+  }
+}
