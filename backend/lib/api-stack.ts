@@ -420,6 +420,40 @@ export class ApiStack extends Stack {
       }),
     );
 
+    // ── delete-me, portal Content Hub part (lib/portal/hub-purge.ts) ────────
+    // A member's claims, file rows and files live under each ask. The bucket
+    // belongs to the portal stack; it is named here, not referenced, so the
+    // two stacks still deploy on their own.
+    const submissionsBucketName = `niltv-${stage}-portal-submissions-${this.account}`;
+    deleteMeFn.addEnvironment("SUBMISSIONS_BUCKET", submissionsBucketName);
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${table.tableArn}/index/GSI1`],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ASKS#ALL"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:DeleteItem"],
+        resources: [table.tableArn],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ASK#*"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [`arn:${this.partition}:s3:::${submissionsBucketName}`],
+        conditions: { StringLike: { "s3:prefix": ["submissions/*"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:DeleteObject", "s3:AbortMultipartUpload"],
+        resources: [`arn:${this.partition}:s3:::${submissionsBucketName}/submissions/*`],
+      }),
+    );
+
     // ── Push fanout off the table stream (design §6.4) ─────────────────────
     // Content publish edge → ★-picker audiences → Expo Push. Retries bisect
     // around the failing record; what still fails after 3 attempts lands in

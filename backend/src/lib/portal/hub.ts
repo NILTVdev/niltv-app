@@ -55,6 +55,12 @@ export const CLAIM_FROM = {
   release: ["requested", "claimed", "changes"],
 } as const satisfies Record<string, readonly ClaimStatus[]>;
 
+/**
+ * Unfinished uploads one athlete may hold on one ask. Each is a row and an
+ * open multipart upload until it lands, is removed, or the bucket clears it.
+ */
+export const MAX_OPEN_UPLOADS = 20;
+
 /** Files can be added and removed while the athlete still holds the work. */
 export const canChangeFiles = (status: ClaimStatus): boolean => status === "claimed" || status === "changes";
 

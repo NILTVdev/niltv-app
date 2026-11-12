@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMock = vi.hoisted(() => vi.fn());
+const purgeHubMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../lib/portal/hub-purge", () => ({ purgeHubData: purgeHubMock }));
 const cognitoSendMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../lib/db", async (importOriginal) => {
@@ -60,6 +63,32 @@ describe("DELETE /v1/me handler (design §6.6)", () => {
     process.env.TABLE_NAME = "niltv-test";
     process.env.USER_POOL_ID = "us-east-1_test";
     delete process.env.ORIGIN_VERIFY_SECRET;
+    delete process.env.SUBMISSIONS_BUCKET;
+    purgeHubMock.mockReset();
+    purgeHubMock.mockResolvedValue({ asks: 0, rows: 0, objects: 0 });
+  });
+
+  it("clears the portal Content Hub files before deleting the Cognito user", async () => {
+    process.env.SUBMISSIONS_BUCKET = "niltv-test-portal-submissions-1";
+    sendMock.mockResolvedValueOnce({ Items: [] });
+    const res = await invoke(makeEvent());
+    expect(res.statusCode).toBe(200);
+    expect(purgeHubMock).toHaveBeenCalledWith("u-1", "niltv-test-portal-submissions-1", "niltv-test");
+    expect(purgeHubMock.mock.invocationCallOrder[0]!).toBeLessThan(cognitoSendMock.mock.invocationCallOrder[0]!);
+  });
+
+  it("keeps the Cognito user when the Hub purge fails, so the member can retry", async () => {
+    process.env.SUBMISSIONS_BUCKET = "niltv-test-portal-submissions-1";
+    sendMock.mockResolvedValueOnce({ Items: [] });
+    purgeHubMock.mockRejectedValue(new Error("s3 down"));
+    await expect(invoke(makeEvent())).rejects.toThrow("s3 down");
+    expect(cognitoSendMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the Hub purge where the portal has no bucket", async () => {
+    sendMock.mockResolvedValueOnce({ Items: [] });
+    await invoke(makeEvent());
+    expect(purgeHubMock).not.toHaveBeenCalled();
   });
 
   it("returns 401 when the JWT sub claim is missing", async () => {

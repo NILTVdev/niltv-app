@@ -54,6 +54,7 @@ import { type Caller, can, conflictResult, denied } from "../../lib/portal/acces
 import { audienceIncludes, audienceLabel } from "../../lib/portal/audience";
 import {
   CLAIM_FROM,
+  MAX_OPEN_UPLOADS,
   StoredAsk,
   StoredClaim,
   StoredFile,
@@ -444,6 +445,10 @@ export const handler = portalHandler({
     // Landed files only: an upload someone walked away from must not lock them out.
     if (existing.filter((f) => f.state === "ready").length >= MAX_SUBMISSION_FILES) {
       return badRequest(`You can send up to ${MAX_SUBMISSION_FILES} files.`);
+    }
+    // But abandoned uploads still cost rows and open multipart uploads, so cap them.
+    if (existing.filter((f) => f.state === "uploading").length >= MAX_OPEN_UPLOADS) {
+      return conflictResult("TOO_MANY_UPLOADS", "Finish or remove the uploads you started before adding more.");
     }
 
     const id = newPortalId("file");

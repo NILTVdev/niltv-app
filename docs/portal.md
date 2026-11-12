@@ -306,7 +306,12 @@ Files go to their own bucket, `niltv-{stage}-portal-submissions-{account}`, unde
 audio and photos only, 2 GB per file, 10 files per claim. Browsers upload
 16 MB parts with short-lived links, and the API checks the bucket's own part
 list before a file counts as landed. Picking the same file again carries on
-from the parts that arrived. Unfinished uploads clear after 7 days.
+from the parts that arrived. Unfinished uploads clear after 7 days, and one
+athlete can hold at most 20 on one ask before the API refuses a new one.
+
+Deleting an account (DELETE /v1/me, `handlers/delete-me.ts`) also deletes the
+member's claims, file rows and files on every ask (`lib/portal/hub-purge.ts`).
+It walks every ask, so it costs one listing, query and claim delete per ask.
 
 Ask descriptions are GitHub-style Markdown (`portal/src/ui/Markdown.tsx`). Raw HTML
 never renders. Staff can upload, paste or drop an image: it lands under
