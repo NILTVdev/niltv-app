@@ -52,20 +52,24 @@ export async function takeWrite(sub: string, limit: WriteLimit, now: number = Da
   const db = getDocClient();
   const win = Math.floor(now / limit.windowMs);
   const Key = limitKey(sub, limit.bucket);
-  try {
-    await db.send(
-      new UpdateCommand({
-        TableName: table(),
-        Key,
-        UpdateExpression: "ADD n :one",
-        ConditionExpression: "win = :win AND n < :max",
-        ExpressionAttributeValues: { ":one": 1, ":win": win, ":max": limit.max },
-      }),
-    );
-    return true;
-  } catch (err) {
-    if (!isCcf(err)) throw err;
-  }
+  const addOne = async (): Promise<boolean> => {
+    try {
+      await db.send(
+        new UpdateCommand({
+          TableName: table(),
+          Key,
+          UpdateExpression: "ADD n :one",
+          ConditionExpression: "win = :win AND n < :max",
+          ExpressionAttributeValues: { ":one": 1, ":win": win, ":max": limit.max },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isCcf(err)) return false;
+      throw err;
+    }
+  };
+  if (await addOne()) return true;
   try {
     // First write of a new window (or ever).
     await db.send(
@@ -79,7 +83,8 @@ export async function takeWrite(sub: string, limit: WriteLimit, now: number = Da
     );
     return true;
   } catch (err) {
-    if (isCcf(err)) return false;
-    throw err;
+    if (!isCcf(err)) throw err;
   }
+  // Another write started this window between our two updates. Count against it.
+  return addOne();
 }

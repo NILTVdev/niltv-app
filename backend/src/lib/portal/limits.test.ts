@@ -57,8 +57,16 @@ describe("takeWrite", () => {
   });
 
   it("refuses once the window's allowance is spent", async () => {
-    m.send.mockRejectedValueOnce(ccf).mockRejectedValueOnce(ccf);
+    m.send.mockRejectedValueOnce(ccf).mockRejectedValueOnce(ccf).mockRejectedValueOnce(ccf);
     expect(await takeWrite("u-1", limit, now)).toBe(false);
+    expect(m.send).toHaveBeenCalledTimes(3);
+  });
+
+  it("counts the loser of a race to open the window", async () => {
+    // Both callers miss the old window; the other one wins the reset.
+    m.send.mockRejectedValueOnce(ccf).mockRejectedValueOnce(ccf).mockResolvedValueOnce({});
+    expect(await takeWrite("u-1", limit, now)).toBe(true);
+    expect(m.send.mock.calls[2]![0].input.UpdateExpression).toBe("ADD n :one");
   });
 
   it("sets the caps the launch list asks for", () => {
