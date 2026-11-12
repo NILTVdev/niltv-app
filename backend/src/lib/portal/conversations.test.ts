@@ -149,6 +149,15 @@ describe("presentMessage", () => {
     expect(presentMessage(stored, member(), conv()).mentions).toEqual(["u-ath"]);
     expect(presentMessage(hidden, member(), conv()).mentions).toEqual([]);
   });
+
+  it("gives staff the author's account email on desk threads only", () => {
+    const fromAthlete = { ...stored, authorSub: "u-ath", authorName: "NIL TV Team", authorRole: "athlete" as const };
+    const emails = new Map([["u-ath", "a@example.com"]]);
+    const staff = member({ sub: "u-staff2", role: "staff" });
+    expect(presentMessage(fromAthlete, staff, deskConv("support"), emails).authorEmail).toBe("a@example.com");
+    expect(presentMessage(fromAthlete, member(), deskConv("support"), emails).authorEmail).toBeUndefined();
+    expect(presentMessage(fromAthlete, staff, conv(), emails).authorEmail).toBeUndefined();
+  });
 });
 
 describe("summarize", () => {

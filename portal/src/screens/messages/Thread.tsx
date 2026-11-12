@@ -310,6 +310,7 @@ function MessageRow({
             </button>
           ) : null}
         </div>
+        {staffViewer && m.authorEmail ? <p className="author-email">{m.authorEmail}</p> : null}
         {m.hidden && !staffViewer ? (
           <p className="hidden">Hidden by staff</p>
         ) : (

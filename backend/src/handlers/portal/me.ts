@@ -53,9 +53,9 @@ function labelFrom(userAgent: string | undefined): string {
 export const handler = portalHandler({
   "GET /v1/me": async ({ caller }) => ok(await meResponse(caller.member)),
 
-  "PATCH /v1/me": async ({ caller, body }) => {
+  "PATCH /v1/me": async ({ caller, body, rejectBody }) => {
     const update = body(PortalMeUpdate);
-    if (!update) return badRequest();
+    if (!update) return rejectBody(PortalMeUpdate);
     const current = caller.member;
     const allowedDesks = new Set(desksFor(current.role));
     const member = {

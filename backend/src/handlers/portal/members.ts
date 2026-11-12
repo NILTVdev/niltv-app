@@ -69,9 +69,9 @@ export const handler = portalHandler({
     return ok(MemberListResponse.parse({ members: await listMembers() }));
   },
 
-  "POST /v1/members": async ({ caller, body }) => {
+  "POST /v1/members": async ({ caller, body, rejectBody }) => {
     const req = body(MemberAddRequest);
-    if (!req) return badRequest();
+    if (!req) return rejectBody(MemberAddRequest);
     if (!can(caller, req.role === "guest" ? "manageGuests" : "manageAccess")) return denied();
 
     const account = await findAccountByEmail(req.email);
@@ -105,9 +105,9 @@ export const handler = portalHandler({
     return ok(member, 201);
   },
 
-  "PATCH /v1/members/{sub}": async ({ caller, param, body }) => {
+  "PATCH /v1/members/{sub}": async ({ caller, param, body, rejectBody }) => {
     const update = body(MemberUpdateRequest);
-    if (!update) return badRequest();
+    if (!update) return rejectBody(MemberUpdateRequest);
     const target = await getMember(param("sub"));
     if (!target) return notFound();
     if (!canEdit(caller, target, update)) return denied();

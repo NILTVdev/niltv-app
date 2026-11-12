@@ -263,8 +263,40 @@ export const PortalMeResponse = z.object({
 });
 export type PortalMeResponse = z.infer<typeof PortalMeResponse>;
 
+/* ── Display names ─────────────────────────────────────────────────────────── */
+
+/**
+ * Names staff posts are signed with, so nobody else may take them. Compared
+ * after NFKC, lower case, and with spaces and punctuation removed, so
+ * "N.I.L. TV  team" counts as "NIL TV Team".
+ */
+export const RESERVED_NAMES: readonly string[] = ["NIL TV", "NIL TV Team", ...Object.values(DESK_LABELS), "Staff", "Admin"];
+
+export const nameKey = (name: string): string =>
+  name.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+const RESERVED_KEYS = new Set(RESERVED_NAMES.map(nameKey));
+
+/** Why a display name is refused, or undefined when it is fine. */
+export function displayNameProblem(name: string): string | undefined {
+  if (/[\p{Cc}\p{Cf}]/u.test(name)) return "Names cannot hold line breaks or hidden characters.";
+  if (RESERVED_KEYS.has(nameKey(name))) return "That name is kept for NIL TV staff posts. Use your own name.";
+  return undefined;
+}
+
+/** A member's display name: 1 to 80 characters, no control or format characters, not a staff label. */
+export const DisplayName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .superRefine((name, ctx) => {
+    const problem = displayNameProblem(name);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+
 export const PortalMeUpdate = z.object({
-  name: z.string().trim().min(1).max(80).optional(),
+  name: DisplayName.optional(),
   timezone: z.string().max(64).optional(),
   notify: NotifyPrefsUpdate.optional(),
   /** staff and admins only */
@@ -306,7 +338,7 @@ export type PendingLinkRequest = z.infer<typeof PendingLinkRequest>;
 export const MemberAddRequest = z.object({
   email: z.string().trim().toLowerCase().email(),
   role: PortalRole,
-  name: z.string().trim().min(1).max(80).optional(),
+  name: DisplayName.optional(),
   note: z.string().trim().max(120).optional(),
   desks: z.array(Desk).optional(),
   campus: z.string().optional(),
@@ -317,7 +349,7 @@ export type MemberAddRequest = z.infer<typeof MemberAddRequest>;
 export const MemberUpdateRequest = z.object({
   role: PortalRole.optional(),
   status: PortalMemberStatus.optional(),
-  name: z.string().trim().min(1).max(80).optional(),
+  name: DisplayName.optional(),
   note: z.string().trim().max(120).optional(),
   desks: z.array(Desk).optional(),
   campus: z.string().nullable().optional(),
@@ -450,6 +482,8 @@ export const PortalMessage = z.object({
   authorRole: PortalRole,
   /** staff viewers only: the person behind a team or desk post */
   staffName: z.string().optional(),
+  /** staff viewers on desk threads only: the author's account email, so a borrowed name cannot hide who wrote */
+  authorEmail: z.string().optional(),
   mine: z.boolean(),
   body: z.string(),
   at: IsoDate,

@@ -472,6 +472,8 @@ div.mini { cursor: default; }
 .msg .when { font-size: 11px; color: var(--faint); font-weight: 400; }
 .msg.mention .when { color: var(--dim); }
 .msg .by { font-size: 11px; color: var(--dim); font-weight: 500; }
+/* staff only, desk threads: the account email behind the name */
+.msg .author-email { margin: 1px 0 0; font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
 .msg .tag { --tag-bg: var(--black); --tag-fg: var(--gold); --tag-edge: var(--gold-edge); font-size: 9.5px; padding: 0 8px; }
 .msg .tag.guest { --tag-fg: var(--on-black-dim); --tag-edge: var(--border); }
 .msg .tag.important, .msg .tag.mention { --tag-bg: var(--gold); --tag-fg: var(--on-gold); --tag-edge: transparent; }

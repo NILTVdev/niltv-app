@@ -657,9 +657,19 @@ export async function listMessages(
 export const teamLabel = (meta: ConvMeta): string =>
   meta.kind === "desk" && meta.desk ? DESK_LABELS[meta.desk] : "NIL TV Team";
 
-export function presentMessage(message: StoredMessage, viewer: PortalMember, meta: ConvMeta): PortalMessage {
+/**
+ * `emails` maps author sub to account email. Staff see it on desk threads, so
+ * a member who borrowed someone else's name is still plain to see.
+ */
+export function presentMessage(
+  message: StoredMessage,
+  viewer: PortalMember,
+  meta: ConvMeta,
+  emails?: ReadonlyMap<string, string>,
+): PortalMessage {
   const staffViewer = isStaffRole(viewer.role);
   const staffAuthor = isStaffRole(message.authorRole);
+  const authorEmail = staffViewer && meta.kind === "desk" ? emails?.get(message.authorSub) : undefined;
   return {
     id: message.id,
     convId: message.convId,
@@ -667,6 +677,7 @@ export function presentMessage(message: StoredMessage, viewer: PortalMember, met
     authorName: staffAuthor ? teamLabel(meta) : message.authorName,
     authorRole: message.authorRole,
     ...(staffViewer && staffAuthor ? { staffName: message.authorName } : {}),
+    ...(authorEmail ? { authorEmail } : {}),
     mine: message.authorSub === viewer.sub,
     body: message.hidden && !staffViewer ? "" : message.body,
     at: message.at,

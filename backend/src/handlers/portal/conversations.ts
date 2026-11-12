@@ -86,6 +86,13 @@ async function peopleOf(meta: ConvMeta, known?: readonly string[]): Promise<Port
   });
 }
 
+/** Desk threads, staff viewers only: each author's account email (see presentMessage). */
+async function authorEmails(meta: ConvMeta, viewer: PortalMember, subs: readonly string[]): Promise<Map<string, string>> {
+  if (meta.kind !== "desk" || !isStaffRole(viewer.role) || subs.length === 0) return new Map();
+  const found = await getMembers([...new Set(subs)]);
+  return new Map([...found.values()].map((m) => [m.sub, m.email]));
+}
+
 /** People offered in the @ list: those who can read the thread. Staff only show to staff, who sign as the team. */
 const PEOPLE_LIMIT = 20;
 
@@ -193,9 +200,10 @@ export const handler = portalHandler({
       after: ctx.query("after"),
       limit: Number.isFinite(limit) ? limit : 50,
     });
+    const emails = await authorEmails(thread.meta, ctx.caller.member, page.messages.map((m) => m.authorSub));
     return ok(
       MessagesResponse.parse({
-        messages: page.messages.map((m) => presentMessage(m, ctx.caller.member, thread.meta)),
+        messages: page.messages.map((m) => presentMessage(m, ctx.caller.member, thread.meta, emails)),
         ...(page.before ? { before: page.before } : {}),
         lastSeq: thread.meta.seq,
       }),
@@ -222,7 +230,8 @@ export const handler = portalHandler({
       console.warn("portal: mention markers failed", err),
     );
     await enqueue({ type: "message", convId: thread.meta.id, messageId: sent.message.id, seq: sent.message.seq });
-    return ok(presentMessage(sent.message, ctx.caller.member, thread.meta), 201);
+    const self = new Map([[ctx.caller.sub, ctx.caller.member.email]]);
+    return ok(presentMessage(sent.message, ctx.caller.member, thread.meta, self), 201);
   },
 
   "GET /v1/conversations/{id}/people": async (ctx) => {

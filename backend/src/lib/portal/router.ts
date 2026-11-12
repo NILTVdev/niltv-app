@@ -18,6 +18,8 @@ export interface RouteContext {
   query: (name: string) => string | undefined;
   /** the JSON body parsed with a contract schema; undefined when invalid */
   body: <T extends z.ZodTypeAny>(schema: T) => z.infer<T> | undefined;
+  /** the 400 for a body that failed `schema`, carrying a refinement's own message (a refused name) */
+  rejectBody: (schema: z.ZodTypeAny) => Result;
 }
 
 export type Route = (ctx: RouteContext) => Promise<Result>;
@@ -42,6 +44,11 @@ export function portalHandler(routes: Record<string, Route>): APIGatewayProxyHan
       body: (schema) => {
         const parsed = schema.safeParse(parseJsonBody(event.body, event.isBase64Encoded === true));
         return parsed.success ? parsed.data : undefined;
+      },
+      rejectBody: (schema) => {
+        const parsed = schema.safeParse(parseJsonBody(event.body, event.isBase64Encoded === true));
+        const custom = parsed.success ? undefined : parsed.error.issues.find((issue) => issue.code === "custom");
+        return badRequest(custom?.message);
       },
     };
     try {
