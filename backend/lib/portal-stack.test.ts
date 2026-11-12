@@ -108,4 +108,53 @@ describe("PortalStack", () => {
     expect(readers).toHaveLength(1);
     expect(JSON.stringify(readers[0]!["Properties"]["Roles"])).toMatch(/NotifyFn/);
   });
+
+  // ── Alarms and access log ────────────────────────────────────────────────
+  it("alarms on 5xx, function errors, the dead-letter queue, queue age and swallowed errors", () => {
+    const names = Object.values(template.findResources("AWS::CloudWatch::Alarm")).map(
+      (alarm) => alarm["Properties"]["AlarmName"] as string,
+    );
+    expect(names.sort()).toEqual(
+      [
+        "niltv-test-portal-api-5xx",
+        "niltv-test-portal-notify-errors",
+        "niltv-test-portal-summary-errors",
+        "niltv-test-portal-roster-sync-errors",
+        "niltv-test-portal-notify-dlq",
+        "niltv-test-portal-notify-queue-age",
+        "niltv-test-portal-swallowed-errors",
+      ].sort(),
+    );
+    template.resourceCountIs("AWS::Logs::MetricFilter", 11);
+    template.hasResourceProperties("AWS::Logs::MetricFilter", {
+      FilterPattern: Match.stringLikeRegexp("one summary failed"),
+    });
+    template.hasResourceProperties("AWS::Logs::MetricFilter", {
+      FilterPattern: Match.stringLikeRegexp("push failed"),
+    });
+  });
+
+  it("adds the SES reputation alarms on prod only", () => {
+    const prod = synth("prod");
+    prod.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "Reputation.BounceRate", Threshold: 0.04 });
+    prod.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "Reputation.ComplaintRate" });
+    const ses = Object.values(template.findResources("AWS::CloudWatch::Alarm")).filter(
+      (alarm) => alarm["Properties"]["Namespace"] === "AWS/SES",
+    );
+    expect(ses).toHaveLength(0);
+  });
+
+  it("writes an access log with the caller's sub and never the Authorization header", () => {
+    const stages = Object.values(template.findResources("AWS::ApiGatewayV2::Stage"));
+    expect(stages).toHaveLength(1);
+    const format = stages[0]!["Properties"]["AccessLogSettings"]["Format"] as string;
+    const fields = JSON.parse(format) as Record<string, string>;
+    expect(fields["sub"]).toBe("$context.authorizer.claims.sub");
+    expect(fields["path"]).toBe("$context.path");
+    expect(format.toLowerCase()).not.toMatch(/authorization/);
+    template.hasResourceProperties("AWS::Logs::LogGroup", {
+      LogGroupName: "/aws/apigateway/niltv-test-portal-access",
+      RetentionInDays: 30,
+    });
+  });
 });

@@ -22,6 +22,7 @@ import {
 import { z } from "zod";
 import { GSI1, POSTINGS_ALL_GSI1PK, getDocClient, postingInterestKey, postingKey } from "../../lib/db";
 import { can, denied } from "../../lib/portal/access";
+import { audit } from "../../lib/portal/audit";
 import { newPortalId } from "../../lib/portal/ids";
 import { formerMember, getMembers, toPerson } from "../../lib/portal/members";
 import { enqueue, enqueueOrThrow } from "../../lib/portal/notify";
@@ -184,6 +185,7 @@ export const handler = portalHandler({
       interestCount: 0,
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: postingItem(posting) }));
+    audit(caller.sub, "posting.create", posting.id, { after: req });
     if (posting.status === "open") await enqueue({ type: "posting.new", postingId: posting.id });
     return ok(present(posting), 201);
   },
@@ -196,6 +198,7 @@ export const handler = portalHandler({
     if (!current) return notFound();
     const posting: StoredPosting = { ...current, ...req, updatedAt: new Date().toISOString() };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: postingItem(posting) }));
+    audit(caller.sub, "posting.update", posting.id, { before: current, after: posting });
     return ok(present(posting));
   },
 
@@ -269,6 +272,7 @@ export const handler = portalHandler({
       if ((err as { name?: string }).name === "ConditionalCheckFailedException") return notFound();
       throw err;
     }
+    audit(caller.sub, "posting.decide", `${posting.id}/${req.personSub}`, { after: req.status });
     await enqueue({ type: "posting.decision", postingId: posting.id, personSub: req.personSub });
     return ok(PortalAck.parse({ status: "ok" }));
   },

@@ -3,6 +3,8 @@ import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpJwtAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatch_actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import type * as cognito from "aws-cdk-lib/aws-cognito";
 import type * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
@@ -11,7 +13,9 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import type * as lambda from "aws-cdk-lib/aws-lambda";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import type { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as sns from "aws-cdk-lib/aws-sns";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
 import { makeFn } from "./fn";
@@ -116,6 +120,31 @@ export class PortalStack extends Stack {
     // well past this is a stolen token or a runaway client.
     const defaultStage = this.httpApi.defaultStage?.node.defaultChild as apigwv2.CfnStage;
     defaultStage.defaultRouteSettings = { throttlingRateLimit: 50, throttlingBurstLimit: 100 };
+
+    // ── Access log: who called what (one JSON line per request) ───────────
+    // The path is logged because routeKey is only the template; it carries
+    // conversation ids. Never the Authorization header or any body.
+    const accessLogGroup = new logs.LogGroup(this, "AccessLogGroup", {
+      logGroupName: `/aws/apigateway/niltv-${stage}-portal-access`,
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: stage === "dev" ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN,
+    });
+    defaultStage.accessLogSettings = {
+      destinationArn: accessLogGroup.logGroupArn,
+      format: JSON.stringify({
+        requestId: "$context.requestId",
+        requestTime: "$context.requestTime",
+        routeKey: "$context.routeKey",
+        path: "$context.path",
+        status: "$context.status",
+        sourceIp: "$context.identity.sourceIp",
+        userAgent: "$context.identity.userAgent",
+        sub: "$context.authorizer.claims.sub",
+        latencyMs: "$context.responseLatency",
+        error: "$context.error.message",
+        integrationError: "$context.integrationErrorMessage",
+      }),
+    };
 
     // ── Notice queue ──────────────────────────────────────────────────────
     const notifyDlq = new sqs.Queue(this, "NotifyDlq", {
@@ -368,7 +397,128 @@ export class PortalStack extends Stack {
       this.httpApi.addRoutes({ path, methods, integration });
     }
 
+    // ── Alarms → the api stack's alerts topic ──────────────────────────────
+    // The router turns a thrown route into a 500, so Lambda Errors stays at 0
+    // for API handlers and the API 5xx metric is their only signal.
+    const alertsTopic = sns.Topic.fromTopicArn(
+      this,
+      "AlertsTopic",
+      this.formatArn({ service: "sns", resource: `niltv-${stage}-alerts` }),
+    );
+    const alarmAction = new cloudwatch_actions.SnsAction(alertsTopic);
+    const alarm = (id: string, name: string, description: string, metric: cloudwatch.IMetric, threshold = 1): void => {
+      new cloudwatch.Alarm(this, id, {
+        alarmName: `niltv-${stage}-${name}`,
+        alarmDescription: description,
+        metric,
+        threshold,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      }).addAlarmAction(alarmAction);
+    };
+    const fiveMin = { period: Duration.minutes(5) };
+    alarm(
+      "Api5xxAlarm",
+      "portal-api-5xx",
+      "Portal API served at least one 5xx in 5 minutes",
+      this.httpApi.metricServerError({ ...fiveMin, statistic: "sum" }),
+    );
+    for (const [fnId, name, fn] of [
+      ["NotifyFn", "portal-notify", notifyFn],
+      ["SummaryFn", "portal-summary", summaryFn],
+      ["RosterSyncFn", "portal-roster-sync", rosterSyncFn],
+    ] as const) {
+      alarm(
+        `${fnId}ErrorsAlarm`,
+        `${name}-errors`,
+        `niltv-${stage}-${name} reported at least one invocation error in 5 minutes`,
+        fn.metricErrors({ ...fiveMin, statistic: "sum" }),
+      );
+    }
+    alarm(
+      "NotifyDlqAlarm",
+      "portal-notify-dlq",
+      "A portal notice used up its retries and is in the dead-letter queue. Redrive steps are in docs/portal.md.",
+      notifyDlq.metricApproximateNumberOfMessagesVisible({ ...fiveMin, statistic: "max" }),
+    );
+    alarm(
+      "NotifyQueueAgeAlarm",
+      "portal-notify-queue-age",
+      "The oldest portal notice has waited 15 minutes or more. The notifier is stuck or failing.",
+      notifyQueue.metricApproximateAgeOfOldestMessage({ ...fiveMin, statistic: "max" }),
+      Duration.minutes(15).toSeconds(),
+    );
+
+    // Paths that log and carry on (a failed email, push or enqueue). One
+    // metric across every portal function, so a quiet failure still pages.
+    const swallowedMetric = { namespace: "NILTV/Portal", name: `${stage}-swallowed-errors` };
+    const swallowedPattern = logs.FilterPattern.anyTerm(
+      "email failed",
+      "push failed",
+      "one recipient failed",
+      "one summary failed",
+      "desk alert failed",
+      "notice enqueue failed",
+    );
+    const allFns: [string, NodejsFunction][] = [
+      ["MeFn", meFn],
+      ["MembersFn", membersFn],
+      ["ConversationsFn", conversationsFn],
+      ["ScheduleFn", scheduleFn],
+      ["PostingsFn", postingsFn],
+      ["RequestsFn", requestsFn],
+      ["AsksFn", asksFn],
+      ["PostsFn", postsFn],
+      ["NotifyFn", notifyFn],
+      ["SummaryFn", summaryFn],
+      ["RosterSyncFn", rosterSyncFn],
+    ];
+    for (const [fnId, fn] of allFns) {
+      new logs.MetricFilter(this, `${fnId}SwallowedErrors`, {
+        logGroup: fn.logGroup,
+        filterPattern: swallowedPattern,
+        metricNamespace: swallowedMetric.namespace,
+        metricName: swallowedMetric.name,
+        metricValue: "1",
+      });
+    }
+    alarm(
+      "SwallowedErrorsAlarm",
+      "portal-swallowed-errors",
+      "A portal email, push or notice failed and the code carried on. Search the portal log groups for 'failed'.",
+      new cloudwatch.Metric({
+        namespace: swallowedMetric.namespace,
+        metricName: swallowedMetric.name,
+        ...fiveMin,
+        statistic: "sum",
+      }),
+    );
+
+    // SES sending reputation is account-wide, and dev and prod share the
+    // account, so only the prod stack owns these. AWS reviews an account at
+    // a 5% bounce rate or a 0.1% complaint rate; these page before that.
+    if (stage === "prod") {
+      const reputation = (metricName: string) =>
+        new cloudwatch.Metric({ namespace: "AWS/SES", metricName, period: Duration.hours(1), statistic: "max" });
+      alarm(
+        "SesBounceRateAlarm",
+        "ses-bounce-rate",
+        "SES bounce rate reached 4%. AWS reviews the account at 5%.",
+        reputation("Reputation.BounceRate"),
+        0.04,
+      );
+      alarm(
+        "SesComplaintRateAlarm",
+        "ses-complaint-rate",
+        "SES complaint rate reached 0.08%. AWS reviews the account at 0.1%.",
+        reputation("Reputation.ComplaintRate"),
+        0.0008,
+      );
+    }
+
     new CfnOutput(this, "PortalApiUrl", { value: this.httpApi.apiEndpoint });
+    new CfnOutput(this, "AccessLogGroupName", { value: accessLogGroup.logGroupName });
     new CfnOutput(this, "NotifyDlqName", { value: notifyDlq.queueName });
   }
 }
