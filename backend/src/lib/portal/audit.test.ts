@@ -28,6 +28,42 @@ describe("audit", () => {
     });
   });
 
+  it("diffs a new row against nothing and keeps contact details out", () => {
+    const entry = auditEntry("admin-1", "member.add", "u-2", {
+      after: {
+        sub: "u-2",
+        email: "athlete@example.com",
+        name: "A Person",
+        instagram: "handle",
+        role: "athlete",
+        status: "active",
+        stripe: { status: "active" },
+      },
+    });
+    expect(entry.changes).toEqual({
+      sub: { after: "u-2" },
+      role: { after: "athlete" },
+      status: { after: "active" },
+      email: "<changed>",
+      name: "<changed>",
+      instagram: "<changed>",
+      stripe: "<changed>",
+    });
+    expect(JSON.stringify(entry)).not.toMatch(/athlete@example\.com|handle|A Person/);
+  });
+
+  it("never logs desk or support addresses", () => {
+    const entry = auditEntry("admin-1", "settings.update", "settings", {
+      before: { supportEmail: "a@niltv.com", deskEmails: {}, webPush: false },
+      after: { supportEmail: "b@niltv.com", deskEmails: { help: ["c@niltv.com"] }, webPush: true },
+    });
+    expect(entry.changes).toEqual({
+      supportEmail: "<changed>",
+      deskEmails: "<changed>",
+      webPush: { before: false, after: true },
+    });
+  });
+
   it("writes one JSON line", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     audit("admin-1", "settings.update", "settings", { before: { a: 1 }, after: { a: 2 } });
