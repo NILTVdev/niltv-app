@@ -166,6 +166,7 @@ export const handler = portalHandler({
       await releaseInvite(id, at);
       return json(503, ApiError.parse({ error: "TRY_AGAIN", message: "The invite did not go out. Try again in a minute." }));
     }
+    audit(caller.sub, "member.invite", String(id));
     return ok(next);
   },
 
@@ -226,8 +227,9 @@ export const handler = portalHandler({
     if (!can(caller, "manageAccess")) return denied();
     const settings = body(PortalSettings);
     if (!settings) return badRequest();
-    audit(caller.sub, "settings.update", "settings", { before: await getSettings(), after: settings });
+    const before = await getSettings();
     await putSettings(settings);
+    audit(caller.sub, "settings.update", "settings", { before, after: settings });
     return ok(settings);
   },
 });

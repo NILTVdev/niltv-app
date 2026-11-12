@@ -144,6 +144,7 @@ export const handler = portalHandler({
       interestCount: 0,
     };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: postingItem(posting) }));
+    audit(caller.sub, "posting.create", posting.id, { after: req });
     if (posting.status === "open") await enqueue({ type: "posting.new", postingId: posting.id });
     return ok(present(posting), 201);
   },
@@ -156,6 +157,7 @@ export const handler = portalHandler({
     if (!current) return notFound();
     const posting: StoredPosting = { ...current, ...req, updatedAt: new Date().toISOString() };
     await getDocClient().send(new PutCommand({ TableName: table(), Item: postingItem(posting) }));
+    audit(caller.sub, "posting.update", posting.id, { before: current, after: posting });
     return ok(present(posting));
   },
 

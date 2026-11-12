@@ -268,9 +268,11 @@ Logs:
 - API access log: `/aws/apigateway/niltv-{stage}-portal-access`, one JSON
   line per request with request id, time, route, path, status, source IP and
   the caller's Cognito sub. No headers and no bodies. Kept one month.
-- Audit lines: every member, settings, hide, group, posting decision and
+- Audit lines: every member, invite, settings, hide, group, posting and
   ask decision write logs one line with `"audit":"portal"`, the actor's sub,
-  the action, the target and the fields that changed. Find them in Logs
+  the action, the target and the fields that changed. Contact details,
+  payment state, desk addresses and long text show only as `"<changed>"`.
+  The line is written after the write succeeds. Find them in Logs
   Insights over the portal log groups with
   `filter audit = "portal" | sort @timestamp desc`.
 
