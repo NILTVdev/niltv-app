@@ -8,6 +8,7 @@ import { type ChannelScope, type ConversationSummary, DESK_LABELS, type Desk, de
 import { Fragment, useState } from "react";
 import { errorText } from "../api";
 import { plural, ROLE_LABELS } from "../lib/format";
+import { hasFailed, useOutboxVersion } from "../lib/outbox";
 import { go, pathFor } from "../lib/router";
 import type { ScreenProps } from "../Portal";
 import { useInbox, useOpenDesk } from "../queries";
@@ -32,6 +33,8 @@ export function Messages({ id }: ScreenProps) {
   const { member, can } = useMe();
   const staff = isStaffRole(member.role);
   const inbox = useInbox(true);
+  // Threads with a failed send say so in the list.
+  useOutboxVersion();
   const openDesk = useOpenDesk();
   const [panel, setPanel] = useState<Panel>(null);
 
@@ -105,6 +108,7 @@ export function Messages({ id }: ScreenProps) {
           </span>
         </span>
         {c.muted ? <span className="muteicon">Muted</span> : null}
+        {hasFailed(c.id) ? <span className="muteicon">Not sent</span> : null}
         {c.mentioned ? (
           <span className="at" title="Mentions you">
             <span aria-hidden="true">@</span>

@@ -10,7 +10,7 @@ import { campusName } from "../lib/format";
 import { type NavItem, type Screen, moreItems, navFor } from "../lib/nav";
 import { pathFor } from "../lib/router";
 import { useAsks, useEvents } from "../queries";
-import { Avatar } from "./bits";
+import { Avatar, PolicyLinks } from "./bits";
 import { Mark } from "./Brand";
 import { Icon, type IconName } from "./Icon";
 import { Link } from "./Link";
@@ -155,6 +155,7 @@ export function Shell({ screen, children }: { screen: Screen; children: ReactNod
               {nav.footer.map(navLink)}
             </nav>
           ) : null}
+          <PolicyLinks />
         </aside>
         <main id="main" ref={mainRef} tabIndex={-1}>
           {children}
@@ -163,6 +164,7 @@ export function Shell({ screen, children }: { screen: Screen; children: ReactNod
       {moreOpen ? (
         <div className="sheet" id="more-sheet" ref={sheetRef}>
           {extra.map(navLink)}
+          <PolicyLinks />
         </div>
       ) : null}
       <nav className="bnav" aria-label="Tabs">

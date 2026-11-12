@@ -20,6 +20,7 @@ import {
 import { api } from "../../api";
 import { campusName, plural, ROLE_LABELS } from "../../lib/format";
 import { insertMention, type Mention, mentionAt, mentionsIn } from "../../lib/mentions";
+import { draftFor, saveDraft } from "../../lib/outbox";
 import { qk } from "../../queries";
 import { Avatar, Check } from "../../ui/bits";
 import { useMe } from "../../ui/me";
@@ -66,14 +67,16 @@ export function Composer({
   onSend: (draft: Draft) => void;
 }) {
   const { member, notifications } = useMe();
-  const [text, setText] = useState("");
-  const [caret, setCaret] = useState(0);
+  // Text typed here before leaving the thread comes back on return.
+  const [saved] = useState(() => draftFor(convId));
+  const [text, setText] = useState(saved?.text ?? "");
+  const [caret, setCaret] = useState(saved?.text.length ?? 0);
   const [focused, setFocused] = useState(false);
-  const [picked, setPicked] = useState<Mention[]>([]);
+  const [picked, setPicked] = useState<Mention[]>(saved?.picked ?? []);
   /** the "@" (by position) whose list was closed by Escape or a pick; a new "@" opens again */
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [active, setActive] = useState(0);
-  const [important, setImportant] = useState(false);
+  const [important, setImportant] = useState(saved?.important ?? false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nextCaret = useRef<number | null>(null);
   const blurTimer = useRef<number | undefined>(undefined);
@@ -103,6 +106,8 @@ export function Composer({
   }, [q]);
 
   useEffect(() => () => window.clearTimeout(blurTimer.current), []);
+
+  useEffect(() => saveDraft(convId, { text, picked, important }), [convId, text, picked, important]);
 
   // Put the caret after an inserted "@Full Name ".
   useLayoutEffect(() => {

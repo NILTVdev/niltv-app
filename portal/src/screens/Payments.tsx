@@ -1,14 +1,10 @@
 /** Payments: payouts run through Stripe; this page points there and to the Payments desk. */
 import { errorText } from "../api";
-import { STRIPE_STATUS } from "../lib/format";
 import { useOpenDesk } from "../queries";
-import { PageHead, Pill } from "../ui/bits";
-import { useMe } from "../ui/me";
+import { PageHead } from "../ui/bits";
 
 export function Payments() {
-  const { member } = useMe();
   const openDesk = useOpenDesk();
-  const stripe = member.stripe ? STRIPE_STATUS[member.stripe] : undefined;
 
   return (
     <>
@@ -19,10 +15,7 @@ export function Payments() {
       />
       <div className="split">
         <section className="panel stack" aria-labelledby="stripe-h">
-          <div className="row">
-            <h3 id="stripe-h">Stripe</h3>
-            {stripe ? <Pill tone={stripe.tone}>{stripe.label}</Pill> : null}
-          </div>
+          <h3 id="stripe-h">Stripe</h3>
           <p className="note">
             Payouts land in the bank account you added in Stripe, usually within two business days. Stripe sends your
             tax form.

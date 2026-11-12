@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api, errorText } from "../api";
 import { describeIssues, HELP_TOPICS } from "../lib/format";
-import { PageHead } from "../ui/bits";
+import { PageHead, PolicyLinks } from "../ui/bits";
 import { useMe } from "../ui/me";
 
 export function Help() {
@@ -77,6 +77,7 @@ export function Help() {
           </div>
         </form>
       </div>
+      <PolicyLinks />
     </>
   );
 }

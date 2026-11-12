@@ -9,7 +9,8 @@ type Mode = "signin" | "forgot" | "reset" | "create" | "confirm";
 
 const PASSWORD_HINT = "At least 8 characters with a number, an uppercase and a lowercase letter.";
 
-export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) {
+/** `notice` explains why sign-in is showing, such as a session that ended. */
+export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (email: string) => void; notice?: string }) {
   const [invite] = useState(() => inviteFromUrl(window.location.pathname, window.location.search));
   const [mode, setMode] = useState<Mode>(invite.create ? "create" : "signin");
   const [email, setEmail] = useState(invite.email);
@@ -20,7 +21,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) 
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const titles: Record<Mode, string> = {

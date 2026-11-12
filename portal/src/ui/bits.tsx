@@ -38,6 +38,19 @@ export const LegalLinks = () => (
   </p>
 );
 
+/** Privacy Policy and Terms of Use, for the sidebar, the More sheet, Account and Help. */
+export const PolicyLinks = () => (
+  <p className="policy">
+    <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+      Privacy Policy
+    </a>{" "}
+    ·{" "}
+    <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+      Terms of Use
+    </a>
+  </p>
+);
+
 export const Pill = ({ tone, children }: { tone: Tone; children: ReactNode }) => (
   <span className={`pill ${tone}`}>{children}</span>
 );

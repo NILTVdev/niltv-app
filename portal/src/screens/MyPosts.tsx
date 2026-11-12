@@ -15,6 +15,8 @@ export function MyPosts() {
   const list = posts.data?.posts ?? [];
   const views = list.reduce((sum, p) => sum + p.views, 0);
   const top = list.reduce((max, p) => Math.max(max, p.views), 0);
+  // Nothing records views yet; a row of zeros would read as no reach at all.
+  const hasViews = views > 0;
 
   return (
     <>
@@ -37,14 +39,18 @@ export function MyPosts() {
               <b>{list.length}</b>
               <span>{list.length === 1 ? "Post" : "Posts"}</span>
             </div>
-            <div className="stat">
-              <b>{compactNumber(views)}</b>
-              <span>Views</span>
-            </div>
-            <div className="stat">
-              <b>{compactNumber(top)}</b>
-              <span>Top post</span>
-            </div>
+            {hasViews ? (
+              <>
+                <div className="stat">
+                  <b>{compactNumber(views)}</b>
+                  <span>Views</span>
+                </div>
+                <div className="stat">
+                  <b>{compactNumber(top)}</b>
+                  <span>Top post</span>
+                </div>
+              </>
+            ) : null}
           </div>
           <ul className="posters" style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {list.map((p) => (
@@ -55,7 +61,7 @@ export function MyPosts() {
                 </div>
                 <div className="meta">
                   <span>{p.publishedAt ? formatShortDate(p.publishedAt, zone) : "Not dated"}</span>
-                  <b aria-label={plural(p.views, "view")}>{compactNumber(p.views)}</b>
+                  {hasViews ? <b aria-label={plural(p.views, "view")}>{compactNumber(p.views)}</b> : null}
                 </div>
               </li>
             ))}

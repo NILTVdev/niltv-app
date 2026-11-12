@@ -27,7 +27,7 @@ import { CADENCE_LABELS, campusName, describeIssues, notifyTopicsFor, ROLE_LABEL
 import { thisDeviceId } from "../lib/push";
 import { browserZone, formatShortDate, listTimeZones, zoneAbbr } from "../lib/time";
 import { qk, useOpenDesk } from "../queries";
-import { Check, ErrorNote, Loading, PageHead, Switch } from "../ui/bits";
+import { Check, ErrorNote, Loading, PageHead, PolicyLinks, Switch } from "../ui/bits";
 import { useMe } from "../ui/me";
 import { useToast } from "../ui/Toast";
 import { usePush } from "../ui/usePush";
@@ -259,6 +259,7 @@ export function Account() {
           </button>
         </div>
       </form>
+      <PolicyLinks />
     </>
   );
 }

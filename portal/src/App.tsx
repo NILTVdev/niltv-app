@@ -1,12 +1,14 @@
 /**
  * Setup check → session → portal membership (GET /v1/me) → the portal.
- * A 403 NOT_MEMBER at any point shows the no-access screen; a 401 signs out.
+ * A 403 NOT_MEMBER at any point shows the no-access screen. A session that
+ * really ended signs out and sign-in says so; a plain Sign out says nothing.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
-import { api, isApiError, onUnauthorized } from "./api";
+import { SESSION_ENDED, api, isApiError, onUnauthorized } from "./api";
 import { restoreSession, signOut } from "./auth";
 import { missingConfig } from "./config";
+import { clearOutbox } from "./lib/outbox";
 import { Portal } from "./Portal";
 import { ME_POLL_MS, qk } from "./queries";
 import { NoAccess } from "./screens/NoAccess";
@@ -62,25 +64,45 @@ function Splash({ text = "Loading" }: { text?: string }) {
 function AuthGate() {
   /** undefined = restoring the saved session, null = signed out */
   const [email, setEmail] = useState<string | null | undefined>(undefined);
+  /** The session ended on its own (not a Sign out), so sign-in explains why. */
+  const [ended, setEnded] = useState(false);
   const qc = useQueryClient();
 
   const signOutNow = useCallback(() => {
     signOut();
+    clearOutbox();
     qc.clear();
+    setEnded(false);
+    setEmail(null);
+  }, [qc]);
+
+  const sessionEnded = useCallback(() => {
+    signOut();
+    clearOutbox();
+    qc.clear();
+    setEnded(true);
     setEmail(null);
   }, [qc]);
 
   useEffect(() => {
-    onUnauthorized(signOutNow);
+    onUnauthorized(sessionEnded);
     return () => onUnauthorized(undefined);
-  }, [signOutNow]);
+  }, [sessionEnded]);
 
   useEffect(() => {
-    void restoreSession().then(setEmail);
+    void restoreSession().then((restored) => {
+      if (restored.ended) sessionEnded();
+      else setEmail(restored.email);
+    });
+  }, [sessionEnded]);
+
+  const signedIn = useCallback((next: string) => {
+    setEnded(false);
+    setEmail(next);
   }, []);
 
   if (email === undefined) return <Splash />;
-  if (email === null) return <SignIn onSignedIn={setEmail} />;
+  if (email === null) return <SignIn onSignedIn={signedIn} notice={ended ? SESSION_ENDED : undefined} />;
   return <MemberGate email={email} signOut={signOutNow} />;
 }
 

@@ -7,6 +7,7 @@
  */
 import { type ComponentType, lazy, Suspense, useEffect } from "react";
 import { unreadTitle } from "./lib/format";
+import { pickExport } from "./lib/reload";
 import { canOpen, navItem, type Screen, startScreen } from "./lib/nav";
 import { showAppBadge } from "./lib/push";
 import { go, parsePath, usePathname } from "./lib/router";
@@ -21,7 +22,7 @@ export interface ScreenProps {
 }
 
 const screen = <K extends string>(load: () => Promise<Record<K, ComponentType<ScreenProps>>>, name: K) =>
-  lazy(async () => ({ default: (await load())[name] }));
+  lazy(() => pickExport(load, name));
 
 const SCREENS: Record<Screen, ComponentType<ScreenProps>> = {
   home: screen(() => import("./screens/Home"), "Home"),

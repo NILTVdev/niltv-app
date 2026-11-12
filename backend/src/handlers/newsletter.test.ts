@@ -89,7 +89,7 @@ describe("POST /v1/newsletter handler (design §6.7 + double opt-in)", () => {
     expect(mail["FromEmailAddress"]).toBe("NILTV <no-reply@niltv.com>");
     // the shared shell: branded mark from the CDN, the link on the gold button, plain-text twin
     const html = mail["Content"].Simple.Body.Html.Data as string;
-    expect(html).toContain('src="https://cdn.test/video/brand/email/niltv-email@2x.png"');
+    expect(html).toContain('src="https://cdn.test/video/brand/email/niltv-email-gold@2x.png"');
     expect(html).toContain(`href="https://api.test/v1/newsletter/confirm?token=${token}"`);
     expect(html).toContain(">Confirm my email<");
     expect(mail["Content"].Simple.Body.Text.Data).toContain(`https://api.test/v1/newsletter/confirm?token=${token}`);
