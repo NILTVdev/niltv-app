@@ -95,8 +95,10 @@ export async function sendEmail(to: string, email: PortalEmail, replyTo?: string
     ...(replyTo && !isTestAddress(replyTo) ? { ReplyToAddresses: [replyTo] } : {}),
     Content: {
       Simple: {
-        Subject: { Data: email.subject },
-        Body: { Text: { Data: text }, Html: { Data: html } },
+        // SES assumes 7-bit ASCII without a charset: accented names and curly
+        // apostrophes would arrive garbled.
+        Subject: { Data: email.subject, Charset: "UTF-8" },
+        Body: { Text: { Data: text, Charset: "UTF-8" }, Html: { Data: html, Charset: "UTF-8" } },
       },
     },
   });
