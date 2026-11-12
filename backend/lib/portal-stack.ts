@@ -434,8 +434,8 @@ export class PortalStack extends Stack {
       this.formatArn({ service: "sns", resource: `niltv-${stage}-alerts` }),
     );
     const alarmAction = new cloudwatch_actions.SnsAction(alertsTopic);
-    const alarm = (id: string, name: string, description: string, metric: cloudwatch.IMetric, threshold = 1): void => {
-      new cloudwatch.Alarm(this, id, {
+    const alarm = (id: string, name: string, description: string, metric: cloudwatch.IMetric, threshold = 1): cloudwatch.Alarm => {
+      const created = new cloudwatch.Alarm(this, id, {
         alarmName: `niltv-${stage}-${name}`,
         alarmDescription: description,
         metric,
@@ -443,7 +443,9 @@ export class PortalStack extends Stack {
         evaluationPeriods: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      }).addAlarmAction(alarmAction);
+      });
+      created.addAlarmAction(alarmAction);
+      return created;
     };
     const fiveMin = { period: Duration.minutes(5) };
     alarm(
@@ -464,11 +466,28 @@ export class PortalStack extends Stack {
         fn.metricErrors({ ...fiveMin, statistic: "sum" }),
       );
     }
+    // Two DLQ alarms. Presence stays in ALARM while the queue holds anything,
+    // so it pages once; its OK action says the queue was redriven or purged,
+    // and it can page again after that. Growth pages for each new dead letter
+    // while the queue is already in ALARM. A redrive into the DLQ does not
+    // count in NumberOfMessagesSent, so growth is the rise in visible messages.
+    const dlqVisible = notifyDlq.metricApproximateNumberOfMessagesVisible({ ...fiveMin, statistic: "max" });
     alarm(
       "NotifyDlqAlarm",
       "portal-notify-dlq",
-      "A portal notice used up its retries and is in the dead-letter queue. Redrive steps are in docs/portal.md.",
-      notifyDlq.metricApproximateNumberOfMessagesVisible({ ...fiveMin, statistic: "max" }),
+      "At least one portal notice is in the dead-letter queue. This stays in ALARM until the queue is redriven or purged. Steps are in docs/portal.md.",
+      dlqVisible,
+    ).addOkAction(alarmAction);
+    alarm(
+      "NotifyDlqNewAlarm",
+      "portal-notify-dlq-new",
+      "A new portal notice used up its retries and reached the dead-letter queue. Redrive steps are in docs/portal.md.",
+      new cloudwatch.MathExpression({
+        expression: "DIFF(m1)",
+        usingMetrics: { m1: dlqVisible },
+        label: "New dead letters",
+        ...fiveMin,
+      }),
     );
     alarm(
       "NotifyQueueAgeAlarm",

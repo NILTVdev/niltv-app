@@ -298,7 +298,8 @@ Every alarm pages `niltv-{stage}-alerts`, the topic the api stack owns.
 |---|---|
 | `niltv-{stage}-portal-api-5xx` | The portal API served a 5xx in 5 minutes. The router turns a thrown route into a 500, so this is the only signal for API handlers. |
 | `niltv-{stage}-portal-notify-errors`, `-portal-summary-errors`, `-portal-roster-sync-errors` | That function threw in 5 minutes. |
-| `niltv-{stage}-portal-notify-dlq` | A notice used up its 3 tries and sits in the dead-letter queue. |
+| `niltv-{stage}-portal-notify-dlq` | At least one notice sits in the dead-letter queue. It stays in ALARM, without paging again, until the queue is redriven or purged. It sends an OK notice then, and can page again. |
+| `niltv-{stage}-portal-notify-dlq-new` | A new notice used up its 3 tries and reached the dead-letter queue in the last 5 minutes. Pages for each new dead letter, even while the queue is already in ALARM. Reading the DLQ with `receive-message` can trip it when the messages reappear. |
 | `niltv-{stage}-portal-notify-queue-age` | The oldest notice has waited 15 minutes. The notifier is stuck. |
 | `niltv-{stage}-portal-swallowed-errors` | A path that logs and carries on failed: `email failed`, `push failed`, `one recipient failed`, `one summary failed`, `desk alert failed`, `enqueue failed`, `not queued`, `not cleared`, `limit check failed`, `limit refund failed`, `abort failed`, `mention markers failed`, `read marker failed`, `last-seen write failed`, `audit line failed`, `application failed`, `unreadable`. The list is `SWALLOWED_TERMS` in `backend/lib/portal-stack.ts`. A test fails when a portal `console.error` or `console.warn` matches none of them. |
 | `niltv-prod-ses-bounce-rate`, `niltv-prod-ses-complaint-rate` | SES reputation reached 4% bounces or 0.08% complaints. AWS reviews the account at 5% and 0.1%. Prod only, because dev and prod share the account. |
@@ -317,7 +318,10 @@ Logs:
   `filter audit = "portal" | sort @timestamp desc`.
 
 Redrive the notify dead-letter queue (messages stay 14 days). Fix the cause
-first, or the notices fail again and return to the DLQ.
+first, or the notices fail again and return to the DLQ. The
+`portal-notify-dlq` alarm only resets once the DLQ is empty, so redrive or
+purge it after every incident. A DLQ left full keeps that alarm in ALARM, and
+only `portal-notify-dlq-new` pages for later dead letters.
 
 ```
 STAGE=prod
@@ -332,6 +336,9 @@ aws sqs start-message-move-task \
   --source-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify-dlq \
   --destination-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify
 aws sqs list-message-move-tasks --source-arn arn:aws:sqs:us-east-1:$ACCOUNT:niltv-$STAGE-portal-notify-dlq
+
+# Or drop them all, once no one needs them
+aws sqs purge-queue --queue-url "$DLQ_URL"
 ```
 
 Bounce and complaint events: the `niltv-transactional` configuration set

@@ -123,6 +123,7 @@ describe("PortalStack", () => {
         "niltv-test-portal-summary-errors",
         "niltv-test-portal-roster-sync-errors",
         "niltv-test-portal-notify-dlq",
+        "niltv-test-portal-notify-dlq-new",
         "niltv-test-portal-notify-queue-age",
         "niltv-test-portal-swallowed-errors",
       ].sort(),
@@ -137,6 +138,24 @@ describe("PortalStack", () => {
     for (const term of ["not queued", "limit check failed", "limit refund failed", "not cleared"]) {
       template.hasResourceProperties("AWS::Logs::MetricFilter", { FilterPattern: Match.stringLikeRegexp(term) });
     }
+  });
+
+  it("pages on each new dead letter, and clears the presence alarm after a redrive", () => {
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm")).map((a) => a["Properties"]);
+    const presence = alarms.find((p) => p["AlarmName"] === "niltv-test-portal-notify-dlq")!;
+    expect(presence["MetricName"]).toBe("ApproximateNumberOfMessagesVisible");
+    expect(presence["OKActions"]).toHaveLength(1);
+    expect(presence["OKActions"]).toEqual(presence["AlarmActions"]);
+
+    const growth = alarms.find((p) => p["AlarmName"] === "niltv-test-portal-notify-dlq-new")!;
+    expect(growth["Threshold"]).toBe(1);
+    expect(growth["ComparisonOperator"]).toBe("GreaterThanOrEqualToThreshold");
+    const metrics = growth["Metrics"] as { Id: string; Expression?: string; ReturnData?: boolean; MetricStat?: { Metric: { MetricName: string } } }[];
+    expect(metrics.find((m) => m.Expression)?.Expression).toBe("DIFF(m1)");
+    const m1 = metrics.find((m) => m.Id === "m1")!;
+    expect(m1.MetricStat?.Metric.MetricName).toBe("ApproximateNumberOfMessagesVisible");
+    expect(m1.ReturnData).toBe(false);
+    expect(JSON.stringify(growth)).not.toContain("NumberOfMessagesSent");
   });
 
   it("matches every swallowed failure the portal code logs", () => {
