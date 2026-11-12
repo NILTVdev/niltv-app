@@ -1,20 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { PortalApiError } from "./api";
 import { App } from "./App";
+import { retryDelay, shouldRetryRead } from "./lib/retry";
 import { ToastProvider } from "./ui/Toast";
 import "./styles.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // A 4xx (signed out, no access, not found) will not fix itself. Network
-      // drops (status 0) and 5xx get two more tries.
-      retry: (failureCount, error) =>
-        !(error instanceof PortalApiError && error.status >= 400 && error.status < 500) && failureCount < 2,
+      // Network drops (status 0), 5xx and 429 are temporary and retry with
+      // backoff; any other 4xx (signed out, no access, not found) will not fix itself.
+      retry: shouldRetryRead,
+      retryDelay,
       staleTime: 15_000,
     },
+    // A write that may have landed is never repeated on its own.
+    mutations: { retry: false },
   },
 });
 

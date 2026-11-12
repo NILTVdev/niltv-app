@@ -69,6 +69,7 @@ import { z } from "zod";
 import { NotSignedInError, getIdToken } from "./auth";
 import { config } from "./config";
 import { describeIssues } from "./lib/format";
+import { retryAfterMs } from "./lib/retry";
 import { after401 } from "./lib/session";
 
 export class PortalApiError extends Error {
@@ -76,6 +77,8 @@ export class PortalApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** From a 429's Retry-After header, when the server sent one. */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = "PortalApiError";
@@ -108,6 +111,7 @@ function messageFor(status: number, code: string, serverMessage: string | undefi
     case "CONFLICT":
       return "Someone else changed this first. Refresh and try again.";
     default:
+      if (status === 429) return "Too many requests right now. Wait a minute and try again.";
       return status >= 500 ? "Something went wrong on our side. Try again." : `Request failed (${status}).`;
   }
 }
@@ -163,7 +167,8 @@ async function call(method: Method, path: string, body?: unknown, retried = fals
     } catch {
       /* non-JSON error body: keep the fallback */
     }
-    throw new PortalApiError(res.status, code, messageFor(res.status, code, message));
+    const wait = res.status === 429 ? retryAfterMs(res.headers.get("retry-after")) : undefined;
+    throw new PortalApiError(res.status, code, messageFor(res.status, code, message), wait);
   }
   return res;
 }
