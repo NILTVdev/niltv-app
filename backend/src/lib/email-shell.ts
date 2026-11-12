@@ -41,6 +41,10 @@ export const EMAIL_MONO_FONT = "'SF Mono',Menlo,Consolas,'Liberation Mono','Cour
 const FONT_LINK =
   '<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@800&amp;family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet">';
 
+/** The policies every email footer links to. */
+export const PRIVACY_URL = "https://niltv.com/legal/privacy/";
+export const TERMS_URL = "https://niltv.com/legal/terms/";
+
 /** The mark from our CDN, or the text wordmark when no CDN base is configured. */
 export function brandmark(logoBase: string | undefined): string {
   if (!logoBase) {
@@ -152,7 +156,7 @@ ${hairline()}
 
 <tr><td style="padding:44px 0 0 0;">
 ${hairline()}
-<div style="font-family:${EMAIL_BODY_FONT};font-size:12px;line-height:19px;color:${EMAIL_FAINT};padding-top:16px;">NILTV &middot; <a href="https://niltv.com" style="color:${EMAIL_GOLD};text-decoration:none;">niltv.com</a></div>
+<div style="font-family:${EMAIL_BODY_FONT};font-size:12px;line-height:19px;color:${EMAIL_FAINT};padding-top:16px;">NILTV &middot; <a href="https://niltv.com" style="color:${EMAIL_GOLD};text-decoration:none;">niltv.com</a> &middot; <a href="${PRIVACY_URL}" style="color:${EMAIL_GOLD};text-decoration:none;">Privacy Policy</a> &middot; <a href="${TERMS_URL}" style="color:${EMAIL_GOLD};text-decoration:none;">Terms of Use</a></div>
 </td></tr>
 
 </table>

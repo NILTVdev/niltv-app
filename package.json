@@ -11,7 +11,8 @@
     "types",
     "backend",
     "mobile",
-    "admin"
+    "admin",
+    "portal"
   ],
   "scripts": {
     "start": "npm run start --workspace mobile",

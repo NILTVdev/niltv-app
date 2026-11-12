@@ -9,7 +9,8 @@
  *      (facts and counters move together, design §5).
  *   3. Devices, notif-follows, the newsletter subscription and finally the
  *      META row are deleted.
- *   4. Cognito AdminDeleteUser last — until it succeeds the user can retry.
+ *   4. Portal Content Hub claims, file rows and files (lib/portal/hub-purge.ts).
+ *   5. Cognito AdminDeleteUser last — until it succeeds the user can retry.
  */
 import { createHash } from "node:crypto";
 import {
@@ -34,6 +35,7 @@ import {
 } from "../lib/db";
 import { forbidden, json, unauthorized } from "../lib/http";
 import { requireOriginVerify } from "../lib/origin";
+import { purgeHubData } from "../lib/portal/hub-purge";
 import type { Item } from "../lib/shape";
 
 let cognitoClient: CognitoIdentityProviderClient | undefined;
@@ -145,6 +147,12 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
   if (meta) {
     await db.send(new DeleteCommand({ TableName: table, Key: userKey(sub) }));
   }
+
+  // Portal Content Hub: claims, file rows and the files themselves live in
+  // each ask's partition, not under USER#. Skipped where the portal has no
+  // submissions bucket.
+  const submissions = process.env.SUBMISSIONS_BUCKET;
+  if (submissions) await purgeHubData(sub, submissions, table);
 
   // Cognito last — idempotent (an already-deleted user is success, so a
   // retry after a partial failure completes cleanly).
