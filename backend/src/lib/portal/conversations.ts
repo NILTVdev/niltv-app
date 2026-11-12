@@ -386,13 +386,17 @@ export async function leaveAllGroups(sub: string): Promise<void> {
 
 export const deskConvId = (desk: Desk, sub: string): string => `desk-${desk}-${sub}`;
 
+/** Who can read a desk thread, said plainly: access is by role, not by desk (convAccess). */
+export const deskAbout = (desk: Desk): string =>
+  desk === "payments" ? "NIL TV admins can read this thread." : "Every NIL TV staff member can read this thread.";
+
 /** Find or create the thread between one person and one desk. */
 export async function openDeskThread(desk: Desk, person: PortalMember, now: string = new Date().toISOString()): Promise<ConvMeta> {
   const meta = await ensureConv({
     id: deskConvId(desk, person.sub),
     kind: "desk",
     title: DESK_LABELS[desk],
-    about: `Private between ${person.name} and the ${DESK_LABELS[desk]} desk.`,
+    about: deskAbout(desk),
     desk,
     personSub: person.sub,
     personName: person.name,
@@ -915,7 +919,7 @@ export function summarize(meta: ConvMeta, viewer: PortalMember, membership: Memb
       person = { sub: meta.personSub ?? "", name: meta.personName ?? "Member", role: meta.personRole ?? "athlete" };
     } else {
       title = DESK_LABELS[meta.desk];
-      about = `Private between you and the NIL TV ${DESK_LABELS[meta.desk].toLowerCase()} desk.`;
+      about = deskAbout(meta.desk);
     }
   }
   // Staff who never opened a channel or group start at zero unread. Desk
