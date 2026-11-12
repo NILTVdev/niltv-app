@@ -16,7 +16,9 @@ import { StarPicker } from "@/components/StarPicker";
 import { config } from "@/config";
 import { useNotifyMe } from "@/hooks/useNotifyMe";
 import { athleteParams } from "@/lib/athleteRoute";
+import { categoryRailsFor } from "@/lib/categoryRails";
 import { featuredSlides } from "@/lib/featured";
+import { posterUrl } from "@/lib/featuredRails";
 import { schoolMeta } from "@/lib/format";
 import { track, useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
@@ -100,6 +102,36 @@ export default function HomeScreen() {
     (rail) => rail.kind === "content" && campusIds.has(rail.items[0]?.channelId ?? ""),
   )?.key;
 
+  // The Timeless Category rails sit between the network rails and the
+  // Channels section, the site homepage's order. A clip the hero or a rail
+  // above already shows is skipped (one appearance per clip, the site's
+  // rule), and a category left under the floor stays hidden.
+  const heroSlides = featuredSlides(config.apiBase);
+  const campusAt = rails.findIndex((rail) => rail.key === firstCampusRailKey);
+  const claimed = new Set<string>(heroSlides.map((s) => s.key));
+  for (const rail of campusAt < 0 ? rails : rails.slice(0, campusAt)) {
+    if (rail.kind === "content") for (const c of rail.items) claimed.add(c.id);
+  }
+  const categories = categoryRailsFor(claimed);
+  // No See more tile: a category has no full-list screen yet, the same as
+  // the Featured tab's curated rails. No channel context on the card, so the
+  // feed opens on the clip's detail.
+  const categoryRails = categories.map((rail) => (
+    <Rail
+      key={`category-${rail.title}`}
+      title={rail.title}
+      items={rail.cards.map((c) => ({
+        id: c.id,
+        title: c.title,
+        imageUrl: posterUrl(config.apiBase, c.id),
+        onPress: () => {
+          track("card_tap", { contentId: c.id, rail: rail.title, from: "home_category" });
+          router.push({ pathname: "/video/[contentId]", params: { contentId: c.id } });
+        },
+      }))}
+    />
+  ));
+
   return (
     // No top safe-area edge: the hero art runs behind the status bar (Full
     // Bleed spec layer 1) and the floated bar pads itself with the inset.
@@ -121,7 +153,7 @@ export default function HomeScreen() {
           {/* The site's featured episodes, not the event list, minus the
               NIL Star reel, so the hero runs compact. */}
           <HeroCarousel
-            featured={featuredSlides(config.apiBase)}
+            featured={heroSlides}
             events={[]}
             onNotify={(eventId) => notifyMe(eventId, showNote)}
             chipTop={insets.top + 48}
@@ -155,10 +187,13 @@ export default function HomeScreen() {
             {rails.map((rail) => (
               <Fragment key={rail.key}>
                 {rail.key === firstCampusRailKey ? (
-                  <View style={styles.campusBreak}>
-                    <View style={[styles.campusRule, { backgroundColor: t.line }]} />
-                    <Text style={styles.campusHeading}>Channels</Text>
-                  </View>
+                  <>
+                    {categoryRails}
+                    <View style={styles.campusBreak}>
+                      <View style={[styles.campusRule, { backgroundColor: t.line }]} />
+                      <Text style={styles.campusHeading}>Channels</Text>
+                    </View>
+                  </>
                 ) : null}
                 {rail.kind === "content" ? (
                   <Rail
@@ -206,11 +241,13 @@ export default function HomeScreen() {
                 )}
               </Fragment>
             ))}
+            {/* No campus rails (yet): the categories close out the rails. */}
+            {campusAt < 0 ? categoryRails : null}
 
             {/* Home band newsletter entry point (spec §5.6). */}
             <NewsletterBand source="home_band" />
 
-            {data.hero.state === "none" && rails.length === 0 ? (
+            {data.hero.state === "none" && rails.length === 0 && categories.length === 0 ? (
               <EmptyState message="Nothing here yet. Check back soon." />
             ) : null}
           </>

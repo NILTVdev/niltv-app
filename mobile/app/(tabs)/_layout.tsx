@@ -7,10 +7,12 @@ import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
 
 /**
- * Home / Competitions / Channels / Featured / Profile. The competitions tab
+ * Home / Competitions / Channels / Featured. The competitions tab
  * keeps its route name (nilstar) and its star icon; only the label reads
  * "Competitions", the site's nav word. Featured mirrors the
- * site's /featured/ page.
+ * site's /featured/ page. Profile is a pushed screen off the top bar's
+ * profile button: at five tabs "Competitions" (71pt in Inter SemiBold 11)
+ * truncated on phones up to 393pt wide.
  */
 export default function TabLayout() {
   const t = useTheme();
@@ -67,13 +69,6 @@ export default function TabLayout() {
         options={{
           title: "Featured",
           tabBarIcon: ({ color, size }) => <Ionicons name="film-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
     </Tabs>

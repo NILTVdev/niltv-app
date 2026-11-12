@@ -2,7 +2,7 @@
   "expo": {
     "name": "NILTV",
     "slug": "niltv",
-    "version": "0.1.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "niltv",

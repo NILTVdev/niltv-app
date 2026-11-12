@@ -31,6 +31,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useNewsletterSignup } from "@/api/hooks";
 import { GoldButton } from "@/components/GoldButton";
+import { PrivacyLink } from "@/components/PrivacyLink";
 import { goBack } from "@/lib/navigation";
 import { useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
@@ -161,6 +162,7 @@ export default function NewsletterScreen() {
               <Text style={[styles.fine, { color: t.subtext }]}>
                 Free forever. Unsubscribe anytime.
               </Text>
+              <PrivacyLink />
             </>
           )}
         </ScrollView>

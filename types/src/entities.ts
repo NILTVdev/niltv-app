@@ -25,6 +25,7 @@ import {
 export const User = z.object({
   id: Id,
   name: z.string(),
+  displayName: z.string().optional(),
   email: z.string().email(),
   phone: z.string().optional(),
   role: Role.default("fan"),

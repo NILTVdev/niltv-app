@@ -1,19 +1,24 @@
 #!/usr/bin/env node
 /**
- * sync-featured-rails: copy the site's curated Featured shelves into the app.
+ * sync-featured-rails: copy the site's curated shelves into the app.
  *
- * Run this before EVERY OTA publish (eas update) so the Featured tab's curated
- * rails match the site: webapp/scripts/build-sections.py bakes the shelves
- * (ids + captions) into webapp/featured/index.html at each web deploy, and
- * this script reads that built page and writes
- * src/lib/featuredRails.generated.json for lib/featuredRails.ts to import.
+ * Run this before EVERY OTA publish (eas update) so the app's curated rails
+ * match the site: webapp/scripts/build-sections.py bakes the shelves (ids +
+ * captions) into the site's pages, and this script reads two built pages:
  *
- *   node scripts/sync-featured-rails.mjs            # ../../webapp/featured/index.html
- *   node scripts/sync-featured-rails.mjs <path>     # another built page
+ *   webapp/featured/index.html -> src/lib/featuredRails.generated.json
+ *     (the Featured tab's curated rails, lib/featuredRails.ts)
+ *   webapp/index.html          -> src/lib/categoryRails.generated.json
+ *     (the homepage's Timeless Category rails, lib/categoryRails.ts; only the
+ *     shelves inside the theme-cat-* slots, never Trending or Sponsored)
  *
- * The "New This Week" / "Latest on the Network" shelf is skipped on purpose:
- * the app builds that one live off /v1/home (lib/newThisWeek.ts). Node only,
- * no deps.
+ *   node scripts/sync-featured-rails.mjs                         # ../../webapp/...
+ *   node scripts/sync-featured-rails.mjs <featured> <homepage>   # other built pages
+ *
+ * Read the pages from a checkout at origin/main (what niltv.com ships), not a
+ * stale local branch. The "New This Week" / "Latest on the Network" shelf is
+ * skipped on purpose: the app builds that one live off /v1/home
+ * (lib/newThisWeek.ts). Node only, no deps.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -23,6 +28,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const mobileRoot = resolve(here, "..");
 const source = resolve(process.argv[2] ?? resolve(mobileRoot, "../../webapp/featured/index.html"));
 const target = resolve(mobileRoot, "src/lib/featuredRails.generated.json");
+const homeSource = resolve(process.argv[3] ?? resolve(mobileRoot, "../../webapp/index.html"));
+const homeTarget = resolve(mobileRoot, "src/lib/categoryRails.generated.json");
 
 /** Shelves the app renders live instead of copying. */
 const LIVE_SHELVES = new Set(["New This Week", "Latest on the Network"]);
@@ -103,3 +110,27 @@ for (const r of all) {
   console.log(`${r.title}: ${r.cards.length} cards${note}`);
 }
 console.log(`wrote ${target}`);
+
+// Homepage category rails: only what sits between the first theme-cat-*
+// slot and the end of the last one. A category the site hides (under its
+// eight-clip floor) has an empty slot and so no shelf here either.
+const home = readFileSync(homeSource, "utf8");
+const catStart = home.indexOf("<!-- AUTORAIL:theme-cat-");
+const catLast = home.lastIndexOf("<!-- /AUTORAIL:theme-cat-");
+if (catStart < 0 || catLast < 0) {
+  console.error(`sync-featured-rails: no theme-cat-* slots in ${homeSource}`);
+  process.exit(1);
+}
+const categories = parseShelves(home.slice(catStart, home.indexOf("-->", catLast) + 3)).filter(
+  (r) => r.cards.length > 0,
+);
+if (categories.length === 0) {
+  console.error(`sync-featured-rails: no category shelves found in ${homeSource}`);
+  process.exit(1);
+}
+writeFileSync(
+  homeTarget,
+  JSON.stringify({ syncedFrom: "webapp/index.html", rails: categories }, null, 2) + "\n",
+);
+for (const r of categories) console.log(`${r.title}: ${r.cards.length} cards (category)`);
+console.log(`wrote ${homeTarget}`);

@@ -11,6 +11,7 @@ import {
   HomeResponse,
   LikeAckResponse,
   MeResponse,
+  type MeUpdateRequest,
   type NewsletterRequest,
   type NotificationFollow,
   ProfileResponse,
@@ -179,6 +180,18 @@ export function useMe() {
     staleTime: 30_000,
     gcTime: 0,
     meta: { noPersist: true },
+  });
+}
+
+/** PATCH /v1/me — persist the authenticated user's display name. */
+export function useUpdateDisplayName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeUpdateRequest) =>
+      request("/v1/me", MeResponse, { method: "PATCH", body, auth: true }),
+    onSuccess: (updatedMe) => {
+      qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
+    },
   });
 }
 

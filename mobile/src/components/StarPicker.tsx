@@ -1,10 +1,12 @@
 /**
- * Top-bar ★ notification picker (spec §5.7) — bottom sheet listing channels
- * and ambassadors with star toggles. Opens seeded from me.notificationFollows;
+ * Top-bar ★ notification picker (spec §5.7) — bottom sheet listing the live
+ * channels with star toggles. Opens seeded from me.notificationFollows;
  * "Done" batch-replaces via PUT /v1/me/notification-follows and (with any
  * stars on) makes sure the device is actually registered for push. Event
- * "Notify me" opt-ins are preserved untouched — the picker only owns
- * channel/ambassador targets.
+ * "Notify me" opt-ins are preserved untouched. The picker owns channel and
+ * ambassador targets: ambassadors are no longer offered, so Done drops any
+ * ambassador star an account still carries rather than keeping a push the
+ * user can't see or turn off.
  */
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
@@ -29,7 +31,7 @@ export function StarPicker({ visible, onClose }: { visible: boolean; onClose: ()
   const [overrides, setOverrides] = useState<Set<string> | null>(null);
   const seeded = new Set(
     (me.data?.notificationFollows ?? [])
-      .filter((f) => PICKER_TYPES.has(f.targetType))
+      .filter((f) => f.targetType === "channel")
       .map(targetKey),
   );
   const selected = overrides ?? seeded;
@@ -59,7 +61,7 @@ export function StarPicker({ visible, onClose }: { visible: boolean; onClose: ()
   return (
     <Sheet visible={visible} onClose={close} title="Get notified">
       <Text style={[styles.copy, { color: t.subtext }]}>
-        Star the channels and ambassadors you want a push from when they post.
+        Star the channels you want a push from when they post.
       </Text>
       <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
         <NotifTargetList selected={selected} onToggle={toggle} />

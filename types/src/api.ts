@@ -220,6 +220,7 @@ export type NotificationFollow = z.infer<typeof NotificationFollow>;
 export const MeResponse = z.object({
   userId: Id,
   name: z.string(),
+  displayName: z.string().optional(),
   email: z.string(),
   role: Role,
   is18plus: z.boolean(),
@@ -232,6 +233,12 @@ export const MeResponse = z.object({
   notificationFollows: z.array(NotificationFollow),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+/** PATCH /v1/me — update the authenticated user's editable display name. */
+export const MeUpdateRequest = z.object({
+  displayName: z.string().trim().min(1).max(80),
+});
+export type MeUpdateRequest = z.infer<typeof MeUpdateRequest>;
 
 /* ── POST /v1/events/{id}/vote (design §6.3) ───────────────────────────────────── */
 

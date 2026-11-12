@@ -268,6 +268,7 @@ export function mapUserPartition(userId: string, rows: Item[]): MeResponse | und
   return MeResponse.parse({
     userId,
     name: meta["name"],
+    displayName: meta["displayName"],
     email: meta["email"],
     role: meta["role"],
     is18plus: meta["is18plus"] === true,
