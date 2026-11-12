@@ -42,6 +42,18 @@ export const ROUTE_LIMITS: Readonly<Record<string, WriteLimit>> = {
 
 export const RATE_LIMITED_MESSAGE = "Too many in a row. Wait a minute and try again.";
 
+/** What the member reads when a limit is spent, by the length of its window. */
+export const rateLimitedMessage = (limit: WriteLimit): string =>
+  limit.windowMs >= DAY
+    ? "That is the most for one day. Try again tomorrow."
+    : limit.windowMs >= HOUR
+      ? "That is the most for one hour. Try again later."
+      : RATE_LIMITED_MESSAGE;
+
+/** Whole seconds until the current window ends. */
+export const secondsLeft = (limit: WriteLimit, now: number = Date.now()): number =>
+  Math.ceil((limit.windowMs - (now % limit.windowMs)) / 1000);
+
 export const limitKey = (sub: string, bucket: string): { PK: string; SK: string } => ({
   PK: `USER#${sub}`,
   SK: `LIMIT#${bucket}`,
