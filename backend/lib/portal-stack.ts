@@ -76,6 +76,34 @@ export const PORTAL_LEADING_KEYS = [
  * testing ends. Push keys (VAPID) live in SSM; scripts/portal-vapid.ts
  * creates them.
  */
+/**
+ * Log phrases from portal paths that catch a failure, log it and carry on.
+ * The swallowed-errors metric filter matches any of them.
+ */
+export const SWALLOWED_TERMS = [
+  "email failed",
+  "push failed",
+  "one recipient failed",
+  "one summary failed",
+  "desk alert failed",
+  // notice, help
+  "enqueue failed",
+  // invite, posting interest notice
+  "not queued",
+  // posting interest marker
+  "not cleared",
+  "limit check failed",
+  "limit refund failed",
+  "abort failed",
+  "mention markers failed",
+  "read marker failed",
+  "last-seen write failed",
+  "audit line failed",
+  "application failed",
+  // a member or pending row that does not parse and is skipped
+  "unreadable",
+] as const;
+
 export class PortalStack extends Stack {
   public readonly httpApi: apigwv2.HttpApi;
 
@@ -406,8 +434,8 @@ export class PortalStack extends Stack {
       this.formatArn({ service: "sns", resource: `niltv-${stage}-alerts` }),
     );
     const alarmAction = new cloudwatch_actions.SnsAction(alertsTopic);
-    const alarm = (id: string, name: string, description: string, metric: cloudwatch.IMetric, threshold = 1): void => {
-      new cloudwatch.Alarm(this, id, {
+    const alarm = (id: string, name: string, description: string, metric: cloudwatch.IMetric, threshold = 1): cloudwatch.Alarm => {
+      const created = new cloudwatch.Alarm(this, id, {
         alarmName: `niltv-${stage}-${name}`,
         alarmDescription: description,
         metric,
@@ -415,7 +443,9 @@ export class PortalStack extends Stack {
         evaluationPeriods: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      }).addAlarmAction(alarmAction);
+      });
+      created.addAlarmAction(alarmAction);
+      return created;
     };
     const fiveMin = { period: Duration.minutes(5) };
     alarm(
@@ -436,11 +466,28 @@ export class PortalStack extends Stack {
         fn.metricErrors({ ...fiveMin, statistic: "sum" }),
       );
     }
+    // Two DLQ alarms. Presence stays in ALARM while the queue holds anything,
+    // so it pages once; its OK action says the queue was redriven or purged,
+    // and it can page again after that. Growth pages for each new dead letter
+    // while the queue is already in ALARM. A redrive into the DLQ does not
+    // count in NumberOfMessagesSent, so growth is the rise in visible messages.
+    const dlqVisible = notifyDlq.metricApproximateNumberOfMessagesVisible({ ...fiveMin, statistic: "max" });
     alarm(
       "NotifyDlqAlarm",
       "portal-notify-dlq",
-      "A portal notice used up its retries and is in the dead-letter queue. Redrive steps are in docs/portal.md.",
-      notifyDlq.metricApproximateNumberOfMessagesVisible({ ...fiveMin, statistic: "max" }),
+      "At least one portal notice is in the dead-letter queue. This stays in ALARM until the queue is redriven or purged. Steps are in docs/portal.md.",
+      dlqVisible,
+    ).addOkAction(alarmAction);
+    alarm(
+      "NotifyDlqNewAlarm",
+      "portal-notify-dlq-new",
+      "A new portal notice used up its retries and reached the dead-letter queue. Redrive steps are in docs/portal.md.",
+      new cloudwatch.MathExpression({
+        expression: "DIFF(m1)",
+        usingMetrics: { m1: dlqVisible },
+        label: "New dead letters",
+        ...fiveMin,
+      }),
     );
     alarm(
       "NotifyQueueAgeAlarm",
@@ -452,15 +499,10 @@ export class PortalStack extends Stack {
 
     // Paths that log and carry on (a failed email, push or enqueue). One
     // metric across every portal function, so a quiet failure still pages.
+    // Each term is a phrase from a console.error or console.warn in the portal
+    // code. A new swallowed path needs its phrase here (SWALLOWED_TERMS).
     const swallowedMetric = { namespace: "NILTV/Portal", name: `${stage}-swallowed-errors` };
-    const swallowedPattern = logs.FilterPattern.anyTerm(
-      "email failed",
-      "push failed",
-      "one recipient failed",
-      "one summary failed",
-      "desk alert failed",
-      "notice enqueue failed",
-    );
+    const swallowedPattern = logs.FilterPattern.anyTerm(...SWALLOWED_TERMS);
     const allFns: [string, NodejsFunction][] = [
       ["MeFn", meFn],
       ["MembersFn", membersFn],

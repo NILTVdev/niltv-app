@@ -8,7 +8,7 @@ import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyHandlerV2W
 import type { z } from "zod";
 import { badRequest, json, notFound, parseJsonBody } from "../http";
 import { type Caller, type Result, authorize } from "./access";
-import { ROUTE_LIMITS, rateLimitedMessage, secondsLeft, takeWrite } from "./limits";
+import { ROUTE_LIMITS, rateLimitedMessage, refundWrite, secondsLeft, takeWrite } from "./limits";
 
 export interface RouteContext {
   event: APIGatewayProxyEventV2WithJWTAuthorizer;
@@ -38,10 +38,13 @@ export function portalHandler(routes: Record<string, Route>): APIGatewayProxyHan
     const route = routes[event.routeKey];
     if (!route) return notFound();
     const limit = ROUTE_LIMITS[event.routeKey];
+    const now = Date.now();
+    // True once a write was taken, so a failed route can give it back.
+    let charged = false;
     if (limit) {
       try {
-        const now = Date.now();
-        if (!(await takeWrite(auth.caller.sub, limit, now))) {
+        charged = await takeWrite(auth.caller.sub, limit, now);
+        if (!charged) {
           return json(
             429,
             ApiError.parse({ error: "RATE_LIMITED", message: rateLimitedMessage(limit), retryAfterSec: secondsLeft(limit, now) }),
@@ -67,11 +70,21 @@ export function portalHandler(routes: Record<string, Route>): APIGatewayProxyHan
         return badRequest(custom?.message);
       },
     };
+    let result: Result;
     try {
-      return await route(ctx);
+      result = await route(ctx);
     } catch (err) {
       console.error(`portal: ${event.routeKey} failed`, err);
-      return json(500, ApiError.parse({ error: "INTERNAL", message: "Something went wrong. Try again." }));
+      result = json(500, ApiError.parse({ error: "INTERNAL", message: "Something went wrong. Try again." }));
     }
+    // A refused or failed write does not count against the member.
+    if (limit && charged && (result.statusCode ?? 200) >= 400) {
+      try {
+        await refundWrite(auth.caller.sub, limit, now);
+      } catch (err) {
+        console.warn(`portal: write limit refund failed for ${event.routeKey}`, err);
+      }
+    }
+    return result;
   };
 }

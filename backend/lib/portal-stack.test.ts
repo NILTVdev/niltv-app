@@ -3,7 +3,9 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { describe, expect, it } from "vitest";
-import { PORTAL_LEADING_KEYS, PortalStack, portalOrigins } from "./portal-stack";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { PORTAL_LEADING_KEYS, PortalStack, SWALLOWED_TERMS, portalOrigins } from "./portal-stack";
 
 function synth(stage = "test", context: Record<string, string> = {}): Template {
   const app = new App({ context });
@@ -121,6 +123,7 @@ describe("PortalStack", () => {
         "niltv-test-portal-summary-errors",
         "niltv-test-portal-roster-sync-errors",
         "niltv-test-portal-notify-dlq",
+        "niltv-test-portal-notify-dlq-new",
         "niltv-test-portal-notify-queue-age",
         "niltv-test-portal-swallowed-errors",
       ].sort(),
@@ -132,6 +135,49 @@ describe("PortalStack", () => {
     template.hasResourceProperties("AWS::Logs::MetricFilter", {
       FilterPattern: Match.stringLikeRegexp("push failed"),
     });
+    for (const term of ["not queued", "limit check failed", "limit refund failed", "not cleared"]) {
+      template.hasResourceProperties("AWS::Logs::MetricFilter", { FilterPattern: Match.stringLikeRegexp(term) });
+    }
+  });
+
+  it("pages on each new dead letter, and clears the presence alarm after a redrive", () => {
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm")).map((a) => a["Properties"]);
+    const presence = alarms.find((p) => p["AlarmName"] === "niltv-test-portal-notify-dlq")!;
+    expect(presence["MetricName"]).toBe("ApproximateNumberOfMessagesVisible");
+    expect(presence["OKActions"]).toHaveLength(1);
+    expect(presence["OKActions"]).toEqual(presence["AlarmActions"]);
+
+    const growth = alarms.find((p) => p["AlarmName"] === "niltv-test-portal-notify-dlq-new")!;
+    expect(growth["Threshold"]).toBe(1);
+    expect(growth["ComparisonOperator"]).toBe("GreaterThanOrEqualToThreshold");
+    const metrics = growth["Metrics"] as { Id: string; Expression?: string; ReturnData?: boolean; MetricStat?: { Metric: { MetricName: string } } }[];
+    expect(metrics.find((m) => m.Expression)?.Expression).toBe("DIFF(m1)");
+    const m1 = metrics.find((m) => m.Id === "m1")!;
+    expect(m1.MetricStat?.Metric.MetricName).toBe("ApproximateNumberOfMessagesVisible");
+    expect(m1.ReturnData).toBe(false);
+    expect(JSON.stringify(growth)).not.toContain("NumberOfMessagesSent");
+  });
+
+  it("matches every swallowed failure the portal code logs", () => {
+    // console.error / console.warn lines that do not need the filter: the
+    // notifier retries through SQS (DLQ alarm), a thrown route is a 500
+    // (5xx alarm), and a roster conflict is counted in the sync result.
+    const covered = [/portal-notify: notice failed/, /portal: \$\{event\.routeKey\} failed/, /member already linked/];
+    const src = join(__dirname, "..", "src");
+    const files = [
+      ...readdirSync(join(src, "handlers", "portal")).map((f) => join(src, "handlers", "portal", f)),
+      ...readdirSync(join(src, "lib", "portal")).map((f) => join(src, "lib", "portal", f)),
+    ].filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    const lines = files.flatMap((f) =>
+      readFileSync(f, "utf8")
+        .split(/\r?\n/)
+        .filter((line) => /console\.(error|warn)\(/.test(line)),
+    );
+    expect(lines.length).toBeGreaterThan(10);
+    const missed = lines.filter(
+      (line) => !SWALLOWED_TERMS.some((term) => line.includes(term)) && !covered.some((re) => re.test(line)),
+    );
+    expect(missed).toEqual([]);
   });
 
   it("adds the SES reputation alarms on prod only", () => {

@@ -13,8 +13,8 @@ vi.mock("./access", async (importOriginal) => ({
   authorize: m.authorize,
 }));
 
-import { RATE_LIMITED_MESSAGE, ROUTE_LIMITS, rateLimitedMessage, secondsLeft, takeWrite } from "./limits";
-import { ok, portalHandler } from "./router";
+import { RATE_LIMITED_MESSAGE, ROUTE_LIMITS, rateLimitedMessage, refundWrite, secondsLeft, takeWrite } from "./limits";
+import { badRequest, ok, portalHandler } from "./router";
 
 const ccf = Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" });
 
@@ -86,6 +86,31 @@ describe("takeWrite", () => {
   });
 });
 
+describe("refundWrite", () => {
+  const limit = { bucket: "help", max: 5, windowMs: 3_600_000 };
+  const now = Date.parse("2026-11-12T15:30:00.000Z");
+
+  it("gives one back in the charged window and never below zero", async () => {
+    m.send.mockResolvedValueOnce({});
+    await refundWrite("u-1", limit, now);
+    const input = m.send.mock.calls[0]![0].input;
+    expect(input.Key).toEqual({ PK: "USER#u-1", SK: "LIMIT#help" });
+    expect(input.UpdateExpression).toBe("ADD n :minus");
+    expect(input.ConditionExpression).toBe("win = :win AND n > :zero");
+    expect(input.ExpressionAttributeValues).toEqual({ ":minus": -1, ":win": Math.floor(now / 3_600_000), ":zero": 0 });
+  });
+
+  it("does nothing once the window moved on or the count is zero", async () => {
+    m.send.mockRejectedValueOnce(ccf);
+    await expect(refundWrite("u-1", limit, now)).resolves.toBeUndefined();
+  });
+
+  it("passes other errors up", async () => {
+    m.send.mockRejectedValueOnce(new Error("throttled"));
+    await expect(refundWrite("u-1", limit, now)).rejects.toThrow("throttled");
+  });
+});
+
 describe("portalHandler write limits", () => {
   const route = vi.fn(async () => ok({ status: "ok" }));
   const handler = portalHandler({ "POST /v1/help": route, "GET /v1/inbox": route });
@@ -119,5 +144,56 @@ describe("portalHandler write limits", () => {
   it("lets the write through when the counter cannot be reached", async () => {
     m.send.mockRejectedValue(new Error("throttled"));
     expect((await call("POST /v1/help")).statusCode).toBe(200);
+  });
+
+  const refunds = () =>
+    m.send.mock.calls.filter((c) => c[0].input.UpdateExpression === "ADD n :minus").map((c) => c[0].input);
+
+  it("keeps the charge when the route succeeds", async () => {
+    m.send.mockResolvedValue({});
+    expect((await call("POST /v1/help")).statusCode).toBe(200);
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect(refunds()).toHaveLength(0);
+  });
+
+  it("gives the write back when the route answers 4xx", async () => {
+    m.send.mockResolvedValue({});
+    route.mockResolvedValueOnce(badRequest());
+    expect((await call("POST /v1/help")).statusCode).toBe(400);
+    expect(refunds()).toHaveLength(1);
+    const charge = m.send.mock.calls[0]![0].input;
+    expect(refunds()[0]).toMatchObject({
+      Key: charge.Key,
+      ExpressionAttributeValues: { ":win": charge.ExpressionAttributeValues[":win"] },
+    });
+  });
+
+  it("gives the write back when the route throws", async () => {
+    m.send.mockResolvedValue({});
+    route.mockRejectedValueOnce(new Error("boom"));
+    expect((await call("POST /v1/help")).statusCode).toBe(500);
+    expect(refunds()).toHaveLength(1);
+  });
+
+  it("does not refund a 429", async () => {
+    m.send.mockRejectedValue(ccf);
+    expect((await call("POST /v1/help")).statusCode).toBe(429);
+    expect(refunds()).toHaveLength(0);
+  });
+
+  it("does not refund when the charge never landed", async () => {
+    m.send.mockRejectedValue(new Error("throttled"));
+    route.mockResolvedValueOnce(badRequest());
+    expect((await call("POST /v1/help")).statusCode).toBe(400);
+    expect(refunds()).toHaveLength(0);
+  });
+
+  it("only logs when the refund fails, with a term the swallowed-errors alarm matches", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    m.send.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error("throttled"));
+    route.mockResolvedValueOnce(badRequest());
+    expect((await call("POST /v1/help")).statusCode).toBe(400);
+    expect(warn).toHaveBeenCalledWith("portal: write limit refund failed for POST /v1/help", expect.any(Error));
+    warn.mockRestore();
   });
 });
