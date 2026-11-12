@@ -2,7 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { claimReload } from "./lib/reload";
 import { retryDelay, shouldRetryRead } from "./lib/retry";
+import { ErrorBoundary, sessionStoreOrNull } from "./ui/ErrorBoundary";
 import { ToastProvider } from "./ui/Toast";
 import "./styles.css";
 
@@ -20,12 +22,23 @@ const queryClient = new QueryClient({
   },
 });
 
+// After a deploy the old build's chunks are gone. Reload once to get the new
+// build; if it fails again within a minute, the error screen takes over.
+window.addEventListener("vite:preloadError", (event) => {
+  if (claimReload(sessionStoreOrNull(), Date.now())) {
+    event.preventDefault();
+    window.location.reload();
+  }
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
