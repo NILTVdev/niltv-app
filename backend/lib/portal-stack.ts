@@ -76,6 +76,34 @@ export const PORTAL_LEADING_KEYS = [
  * testing ends. Push keys (VAPID) live in SSM; scripts/portal-vapid.ts
  * creates them.
  */
+/**
+ * Log phrases from portal paths that catch a failure, log it and carry on.
+ * The swallowed-errors metric filter matches any of them.
+ */
+export const SWALLOWED_TERMS = [
+  "email failed",
+  "push failed",
+  "one recipient failed",
+  "one summary failed",
+  "desk alert failed",
+  // notice, help
+  "enqueue failed",
+  // invite, posting interest notice
+  "not queued",
+  // posting interest marker
+  "not cleared",
+  "limit check failed",
+  "limit refund failed",
+  "abort failed",
+  "mention markers failed",
+  "read marker failed",
+  "last-seen write failed",
+  "audit line failed",
+  "application failed",
+  // a member or pending row that does not parse and is skipped
+  "unreadable",
+] as const;
+
 export class PortalStack extends Stack {
   public readonly httpApi: apigwv2.HttpApi;
 
@@ -452,15 +480,10 @@ export class PortalStack extends Stack {
 
     // Paths that log and carry on (a failed email, push or enqueue). One
     // metric across every portal function, so a quiet failure still pages.
+    // Each term is a phrase from a console.error or console.warn in the portal
+    // code. A new swallowed path needs its phrase here (SWALLOWED_TERMS).
     const swallowedMetric = { namespace: "NILTV/Portal", name: `${stage}-swallowed-errors` };
-    const swallowedPattern = logs.FilterPattern.anyTerm(
-      "email failed",
-      "push failed",
-      "one recipient failed",
-      "one summary failed",
-      "desk alert failed",
-      "notice enqueue failed",
-    );
+    const swallowedPattern = logs.FilterPattern.anyTerm(...SWALLOWED_TERMS);
     const allFns: [string, NodejsFunction][] = [
       ["MeFn", meFn],
       ["MembersFn", membersFn],

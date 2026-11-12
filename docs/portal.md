@@ -300,7 +300,7 @@ Every alarm pages `niltv-{stage}-alerts`, the topic the api stack owns.
 | `niltv-{stage}-portal-notify-errors`, `-portal-summary-errors`, `-portal-roster-sync-errors` | That function threw in 5 minutes. |
 | `niltv-{stage}-portal-notify-dlq` | A notice used up its 3 tries and sits in the dead-letter queue. |
 | `niltv-{stage}-portal-notify-queue-age` | The oldest notice has waited 15 minutes. The notifier is stuck. |
-| `niltv-{stage}-portal-swallowed-errors` | A path that logs and carries on failed: `email failed`, `push failed`, `one recipient failed`, `one summary failed`, `desk alert failed`, `notice enqueue failed`. |
+| `niltv-{stage}-portal-swallowed-errors` | A path that logs and carries on failed: `email failed`, `push failed`, `one recipient failed`, `one summary failed`, `desk alert failed`, `enqueue failed`, `not queued`, `not cleared`, `limit check failed`, `limit refund failed`, `abort failed`, `mention markers failed`, `read marker failed`, `last-seen write failed`, `audit line failed`, `application failed`, `unreadable`. The list is `SWALLOWED_TERMS` in `backend/lib/portal-stack.ts`. A test fails when a portal `console.error` or `console.warn` matches none of them. |
 | `niltv-prod-ses-bounce-rate`, `niltv-prod-ses-complaint-rate` | SES reputation reached 4% bounces or 0.08% complaints. AWS reviews the account at 5% and 0.1%. Prod only, because dev and prod share the account. |
 
 Logs:

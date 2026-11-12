@@ -3,7 +3,9 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { describe, expect, it } from "vitest";
-import { PORTAL_LEADING_KEYS, PortalStack, portalOrigins } from "./portal-stack";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { PORTAL_LEADING_KEYS, PortalStack, SWALLOWED_TERMS, portalOrigins } from "./portal-stack";
 
 function synth(stage = "test", context: Record<string, string> = {}): Template {
   const app = new App({ context });
@@ -132,6 +134,31 @@ describe("PortalStack", () => {
     template.hasResourceProperties("AWS::Logs::MetricFilter", {
       FilterPattern: Match.stringLikeRegexp("push failed"),
     });
+    for (const term of ["not queued", "limit check failed", "limit refund failed", "not cleared"]) {
+      template.hasResourceProperties("AWS::Logs::MetricFilter", { FilterPattern: Match.stringLikeRegexp(term) });
+    }
+  });
+
+  it("matches every swallowed failure the portal code logs", () => {
+    // console.error / console.warn lines that do not need the filter: the
+    // notifier retries through SQS (DLQ alarm), a thrown route is a 500
+    // (5xx alarm), and a roster conflict is counted in the sync result.
+    const covered = [/portal-notify: notice failed/, /portal: \$\{event\.routeKey\} failed/, /member already linked/];
+    const src = join(__dirname, "..", "src");
+    const files = [
+      ...readdirSync(join(src, "handlers", "portal")).map((f) => join(src, "handlers", "portal", f)),
+      ...readdirSync(join(src, "lib", "portal")).map((f) => join(src, "lib", "portal", f)),
+    ].filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    const lines = files.flatMap((f) =>
+      readFileSync(f, "utf8")
+        .split(/\r?\n/)
+        .filter((line) => /console\.(error|warn)\(/.test(line)),
+    );
+    expect(lines.length).toBeGreaterThan(10);
+    const missed = lines.filter(
+      (line) => !SWALLOWED_TERMS.some((term) => line.includes(term)) && !covered.some((re) => re.test(line)),
+    );
+    expect(missed).toEqual([]);
   });
 
   it("adds the SES reputation alarms on prod only", () => {
