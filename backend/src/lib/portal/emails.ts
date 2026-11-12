@@ -7,7 +7,7 @@
  * dynamic is HTML-escaped before it reaches the shell.
  */
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { buttonBlock, emailShell } from "../email-shell";
+import { buttonBlock, emailShell, PRIVACY_URL, TERMS_URL } from "../email-shell";
 
 let ses: SESv2Client | undefined;
 const getSes = (): SESv2Client => (ses ??= new SESv2Client({}));
@@ -75,6 +75,7 @@ export function renderEmail(email: PortalEmail): { html: string; text: string } 
     tail,
     "",
     "NIL TV",
+    `Privacy Policy: ${PRIVACY_URL}\nTerms of Use: ${TERMS_URL}`,
   ].join("\n\n");
   return { html, text };
 }

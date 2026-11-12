@@ -570,6 +570,15 @@ div.mini { cursor: default; }
 .auth p { margin: 0; }
 .auth p:not(.err, .okmsg) { color: var(--dim); }
 .auth .legal { font-size: 12px; line-height: 1.7; text-align: center; }
+
+/* Privacy Policy and Terms of Use links: sidebar foot, More sheet, Account, Help. */
+.policy { margin: 0; font-size: 12px; line-height: 1.7; color: var(--faint); overflow-wrap: anywhere; }
+.policy a { color: var(--dim); text-decoration: underline; }
+main > .policy { margin-top: 20px; }
+.side > .policy { margin-top: auto; padding: 0 10px; }
+.side > .navfoot + .policy { margin-top: 0; }
+.sheet > .policy { padding: 8px 10px 4px; border-top: 1px solid var(--border); }
+.sheet > .policy a { all: revert; color: var(--dim); text-decoration: underline; cursor: pointer; min-height: 0; }
 .auth .panel { display: flex; flex-direction: column; gap: 14px; }
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */
