@@ -9,7 +9,7 @@ const ORDER: StripeState[] = ["none", "pending", "international", "complete"];
 
 export function Payouts() {
   const members = useMembers();
-  const [filter, setFilter] = useState<StripeState | "all" | "unknown">("all");
+  const [picked, setFilter] = useState<StripeState | "all" | "unknown">("all");
 
   const athletes = useMemo(
     () =>
@@ -21,6 +21,8 @@ export function Payouts() {
   const count = (s: StripeState) => athletes.filter((m) => m.stripe === s).length;
   const unknown = athletes.filter((m) => !m.stripe).length;
   const states = ORDER.filter((s) => count(s) > 0);
+  // A chip hides once its count drops to 0; its filter falls back to All.
+  const filter = picked === "all" || (picked === "unknown" ? unknown > 0 : states.includes(picked)) ? picked : "all";
   const shown = athletes.filter((m) => (filter === "all" ? true : filter === "unknown" ? !m.stripe : m.stripe === filter));
 
   return (
