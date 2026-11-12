@@ -145,8 +145,8 @@ button { font: inherit; }
 /* ── Shell ──────────────────────────────────────────────────────────────── */
 .shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
 .side {
-  background: var(--side); border-right: 1px solid var(--border); padding: 16px 14px;
-  display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: var(--side); border-right: 1px solid var(--border); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 /* The logo lockup: the logo image, then PORTAL as a label. Never typed. */
 .mark { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 8px 8px 4px; }
@@ -577,6 +577,8 @@ div.mini { cursor: default; }
 .policy { margin: 0; font-size: 12px; line-height: 1.7; color: var(--faint); overflow-wrap: anywhere; }
 .policy a { color: var(--dim); text-decoration: underline; }
 main > .policy { margin-top: 20px; }
+/* In the sidebar the links sit under the menu without adding a row of their own height. */
+.side .policy { margin-top: -8px; padding: 0 8px; line-height: 1.4; }
 .side > .policy { margin-top: auto; padding: 0 10px; }
 .side > .navfoot + .policy { margin-top: 0; }
 .sheet > .policy { padding: 8px 10px 4px; border-top: 1px solid var(--border); }
