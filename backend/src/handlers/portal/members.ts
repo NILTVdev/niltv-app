@@ -63,6 +63,17 @@ export function canEdit(caller: Caller, target: PortalMember, update: MemberUpda
   return false;
 }
 
+/**
+ * Guests: staff and admins; any other role: admins. Adding a disabled or
+ * waiting account under another role brings it back, so that needs
+ * manageAccess too, whatever the requested role.
+ */
+export function canAdd(caller: Caller, role: PortalMember["role"], existing?: PortalMember): boolean {
+  if (!can(caller, role === "guest" ? "manageGuests" : "manageAccess")) return false;
+  if (existing && existing.role !== role && !can(caller, "manageAccess")) return false;
+  return true;
+}
+
 export const handler = portalHandler({
   "GET /v1/members": async ({ caller }) => {
     if (!can(caller, "viewRoster")) return denied();
@@ -72,7 +83,7 @@ export const handler = portalHandler({
   "POST /v1/members": async ({ caller, body, rejectBody }) => {
     const req = body(MemberAddRequest);
     if (!req) return rejectBody(MemberAddRequest);
-    if (!can(caller, req.role === "guest" ? "manageGuests" : "manageAccess")) return denied();
+    if (!canAdd(caller, req.role)) return denied();
 
     const account = await findAccountByEmail(req.email);
     if (!account) return noAccountResult();
@@ -80,6 +91,7 @@ export const handler = portalHandler({
     if (existing && existing.status === "active") {
       return conflictResult("CONFLICT", `${existing.name} already has portal access as ${existing.role}.`);
     }
+    if (!canAdd(caller, req.role, existing)) return denied();
 
     const now = new Date().toISOString();
     const member: PortalMember = PortalMemberSchema.parse({
