@@ -333,7 +333,14 @@ function PendingRow({ p, thread }: { p: PendingMessage; thread: ReturnType<typeo
           <span>{isStaffRole(member.role) ? "You" : member.name}</span>
         </div>
         <p>{p.body}</p>
-        {p.state === "sending" ? (
+        {p.state === "sending" && p.error ? (
+          <div className="state" role="status">
+            {p.error} It sends on its own when the wait is over.
+            <button type="button" className="linkbtn" onClick={() => thread.discard(p.clientMsgId)}>
+              Discard
+            </button>
+          </div>
+        ) : p.state === "sending" ? (
           <div className="state">Sending…</div>
         ) : (
           <div className="state failed" role="alert">

@@ -8,12 +8,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../../api";
 import { lastId, mergeMessages, newClientMsgId, newestSeq } from "../../lib/messages";
+import { rateLimitWaitMs } from "../../lib/ratelimit";
 import { useVisible } from "../../lib/useVisible";
 import { qk } from "../../queries";
 
 export const THREAD_POLL_MS = 5_000;
 /** Every Nth poll re-reads the newest page so hide/unhide on recent messages lands. */
 const FULL_REFRESH_EVERY = 12;
+/** Automatic resends of one message after a 429, before it shows as failed. */
+const AUTO_RESENDS = 3;
 
 /** What the composer hands over: the text, who it @mentions, and the Important flag. */
 export interface Draft {
@@ -26,6 +29,7 @@ export interface PendingMessage extends Draft {
   clientMsgId: string;
   at: string;
   state: "sending" | "failed";
+  /** why it has not gone yet; while sending, a 429 the thread will wait out */
   error?: string;
 }
 
@@ -47,6 +51,22 @@ export function useThread(convId: string) {
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const [pollError, setPollError] = useState<unknown>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // Held sends after a 429: the timer that sends again, and how many times it has.
+  const resendTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const resends = useRef(new Map<string, number>());
+  const sendRef = useRef<((draft: Draft, clientMsgId: string) => Promise<void>) | undefined>(undefined);
+  useEffect(() => {
+    const timers = resendTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, [convId]);
+  const cancelResend = useCallback((clientMsgId: string) => {
+    const t = resendTimers.current.get(clientMsgId);
+    if (t !== undefined) clearTimeout(t);
+    resendTimers.current.delete(clientMsgId);
+  }, []);
 
   const merge = useCallback(
     (incoming: PortalMessage[]) => {
@@ -112,6 +132,7 @@ export function useThread(convId: string) {
   /** Send a draft; a retry passes the failed message back with its clientMsgId. */
   const send = useCallback(
     async (draft: Draft, clientMsgId: string = newClientMsgId()) => {
+      cancelResend(clientMsgId);
       const at = new Date().toISOString();
       const { body, mentions, important } = draft;
       setPending((list) => [
@@ -122,20 +143,42 @@ export function useThread(convId: string) {
         const result = await api.sendMessage(convId, { clientMsgId, body, mentions, important });
         if (!result.duplicate) merge([result.message]);
         else await poll();
+        resends.current.delete(clientMsgId);
         setPending((list) => list.filter((p) => p.clientMsgId !== clientMsgId));
         void qc.invalidateQueries({ queryKey: qk.inbox });
       } catch (err) {
+        const waitMs = rateLimitWaitMs(err);
+        const tries = resends.current.get(clientMsgId) ?? 0;
+        if (waitMs !== undefined && tries < AUTO_RESENDS) {
+          // Refused before it was stored: hold it and send the same clientMsgId again.
+          resends.current.set(clientMsgId, tries + 1);
+          resendTimers.current.set(
+            clientMsgId,
+            setTimeout(() => {
+              resendTimers.current.delete(clientMsgId);
+              void sendRef.current?.(draft, clientMsgId);
+            }, waitMs),
+          );
+          setPending((list) =>
+            list.map((p) => (p.clientMsgId === clientMsgId ? { ...p, state: "sending", error: errorText(err) } : p)),
+          );
+          return;
+        }
+        resends.current.delete(clientMsgId);
         setPending((list) =>
           list.map((p) => (p.clientMsgId === clientMsgId ? { ...p, state: "failed", error: errorText(err) } : p)),
         );
       }
     },
-    [convId, merge, poll, qc],
+    [convId, merge, poll, qc, cancelResend],
   );
+  sendRef.current = send;
 
   const discard = useCallback((clientMsgId: string) => {
+    cancelResend(clientMsgId);
+    resends.current.delete(clientMsgId);
     setPending((list) => list.filter((p) => p.clientMsgId !== clientMsgId));
-  }, []);
+  }, [cancelResend]);
 
   const setHiddenLocal = useCallback(
     (messageId: string, hidden: boolean) => {
