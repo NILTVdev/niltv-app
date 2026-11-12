@@ -645,7 +645,9 @@ export async function listMessages(
         ? { ":pk": `CONV#${convIdValue}`, ":from": CONV_MSG_SK_PREFIX, ":to": `${CONV_MSG_SK_PREFIX}${opts.before}` }
         : { ":pk": `CONV#${convIdValue}`, ":from": CONV_MSG_SK_PREFIX },
       ScanIndexForward: false,
-      Limit: limit + 1,
+      // BETWEEN includes the `before` row itself, which is dropped below, so
+      // a `before` page needs one extra row to tell whether more exist.
+      Limit: opts.before ? limit + 2 : limit + 1,
     }),
   );
   const newestFirst = (out.Items ?? [])

@@ -13,6 +13,7 @@ import {
   channelId,
   channelScopesFor,
   convAccess,
+  listMessages,
   presentMessage,
   sendMessage,
   setHidden,
@@ -226,6 +227,50 @@ describe("sendMessage", () => {
       .mockResolvedValue({});
     const out = await sendMessage(member(), "ch-everyone", { clientMsgId: "client-123", body: "hello" });
     expect(out.message?.seq).toBe(6);
+  });
+});
+
+describe("listMessages", () => {
+  /** A newest-first message query over `count` stored messages, as DynamoDB answers it. */
+  function fakeThread(count: number) {
+    const rows = Array.from({ length: count }, (_, i) => {
+      const id = `01M${String(i).padStart(5, "0")}`;
+      return { PK: "CONV#ch-everyone", SK: `MSG#${id}`, id, convId: "ch-everyone", seq: i + 1, body: `m${i + 1}` };
+    });
+    sendMock.mockImplementation(async (cmd: { input: Record<string, any> }) => {
+      const { ExpressionAttributeValues: v, KeyConditionExpression: k, ScanIndexForward, Limit } = cmd.input;
+      const hits = rows.filter((r) =>
+        k.includes("BETWEEN") ? r.SK >= v[":from"] && r.SK <= v[":to"] : r.SK.startsWith(v[":from"]),
+      );
+      if (!ScanIndexForward) hits.reverse();
+      return { Items: hits.slice(0, Limit) };
+    });
+  }
+
+  beforeEach(() => {
+    sendMock.mockReset();
+  });
+
+  it("pages back through every message of a long thread", async () => {
+    fakeThread(260);
+    const seen: number[] = [];
+    let before: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const out = await listMessages("ch-everyone", { before, limit: 100 });
+      seen.unshift(...out.messages.map((m) => m.seq));
+      before = out.before;
+      if (!before) break;
+    }
+    expect(seen).toEqual(Array.from({ length: 260 }, (_, i) => i + 1));
+  });
+
+  it("reports no older page at the start of the thread", async () => {
+    fakeThread(100);
+    const first = await listMessages("ch-everyone", { limit: 50 });
+    expect(first.messages).toHaveLength(50);
+    const second = await listMessages("ch-everyone", { before: first.before, limit: 50 });
+    expect(second.messages.map((m) => m.seq)).toEqual(Array.from({ length: 50 }, (_, i) => i + 1));
+    expect(second.before).toBeUndefined();
   });
 });
 
