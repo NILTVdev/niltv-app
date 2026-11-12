@@ -15,6 +15,7 @@ import {
   failedNotice,
   isOnScreen,
   markFailed,
+  outboxEpoch,
   removePending,
   showThread,
   updatePending,
@@ -128,19 +129,25 @@ export function useThread(convId: string, title?: string) {
       // The thread may be closed by the time this settles: everything below
       // goes to the outbox and the query cache, never to component state.
       const sendTitle = titleRef.current;
+      // A sign-out while this runs wipes the outbox; the result then belongs to nobody.
+      const epoch = outboxEpoch();
+      const signedOut = () => outboxEpoch() !== epoch;
       let sent = false;
       try {
         const result = await api.sendMessage(convId, { clientMsgId, body, mentions, important });
+        if (signedOut()) return;
         sent = true;
         if (!result.duplicate) merge([result.message]);
         else await poll();
       } catch (err) {
+        if (signedOut()) return;
         if (!sent) {
           updatePending(convId, (list) => markFailed(list, clientMsgId, errorText(err)));
           if (!isOnScreen(convId)) toast(failedNotice(sendTitle), "bad");
           return;
         }
       }
+      if (signedOut()) return;
       updatePending(convId, (list) => removePending(list, clientMsgId));
       void qc.invalidateQueries({ queryKey: qk.inbox });
     },

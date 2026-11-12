@@ -116,8 +116,13 @@ export function showThread(convId: string): () => void {
 
 export const isOnScreen = (convId: string): boolean => (onScreen.get(convId) ?? 0) > 0;
 
+/** Bumped by clearOutbox(): a send that settles after a sign-out sees a new epoch and stays quiet. */
+let epoch = 0;
+export const outboxEpoch = (): number => epoch;
+
 /** Sign-out: nothing typed or unsent may carry over to the next account in this tab. */
 export function clearOutbox(): void {
+  epoch++;
   pendingByConv.clear();
   drafts.clear();
   notify();

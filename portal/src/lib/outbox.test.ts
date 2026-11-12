@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type PendingMessage,
   clearOutbox,
+  outboxEpoch,
   draftFor,
   failedNotice,
   hasFailed,
@@ -44,6 +45,12 @@ describe("pending list steps", () => {
 });
 
 describe("outbox store", () => {
+  it("moves to a new epoch on sign-out, so late sends stay quiet", () => {
+    const before = outboxEpoch();
+    clearOutbox();
+    expect(outboxEpoch()).not.toBe(before);
+  });
+
   it("keeps a thread's sends after it leaves the screen", () => {
     clearOutbox();
     const leave = showThread("c1");
