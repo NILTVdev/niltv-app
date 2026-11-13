@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { appearanceForSession, paletteForAppearance, resolveAppearance } from "./appearance";
+import {
+  APPEARANCE_OPTIONS,
+  appearanceForSession,
+  appearanceLabel,
+  appearanceSaveErrorMessage,
+  paletteForAppearance,
+  resolveAppearance,
+} from "./appearance";
 import { themePalettes, tokens } from "./tokens";
 
 function luminance(hex: string): number {
@@ -20,6 +27,20 @@ function contrastRatio(foreground: string, background: string): number {
 }
 
 describe("appearance resolution", () => {
+  it("offers exactly the three saved appearance preferences", () => {
+    expect(APPEARANCE_OPTIONS.map((option) => option.value)).toEqual(["light", "dark", "system"]);
+    expect(appearanceLabel("light")).toBe("Light");
+    expect(appearanceLabel("dark")).toBe("Dark");
+    expect(appearanceLabel("system")).toBe("System");
+    expect(APPEARANCE_OPTIONS.find((option) => option.value === "system")?.description).toMatch(/device/i);
+  });
+
+  it("provides useful feedback for save errors", () => {
+    expect(appearanceSaveErrorMessage({ status: 401 })).toMatch(/session has expired/i);
+    expect(appearanceSaveErrorMessage({ code: "INVALID_REQUEST" })).toMatch(/unavailable/i);
+    expect(appearanceSaveErrorMessage(new Error("offline"))).toMatch(/check your connection/i);
+  });
+
   it("uses the system appearance when preference is system or missing", () => {
     expect(resolveAppearance("system", "dark")).toBe("dark");
     expect(resolveAppearance("system", "light")).toBe("light");
