@@ -109,7 +109,7 @@ export async function transitionEvent(
 async function sendTransitionPushes(eventId: string, to: EventStatus, title: string): Promise<void> {
   try {
     if (to === "live") {
-      const result = await broadcastPush({
+      const result = await broadcastPush("competitionsAndVoting", {
         title: "Voting is open! 🌟",
         body: `${title} is live — cast your vote now.`,
         data: { url: `/event/${eventId}` },
@@ -117,7 +117,7 @@ async function sendTransitionPushes(eventId: string, to: EventStatus, title: str
       console.log(JSON.stringify({ push: "voting-open", eventId, ...result }));
     } else if (to === "ended") {
       const voters = new Set(await listVoterUserIds(eventId));
-      const result = await pushToUsers(voters, {
+      const result = await pushToUsers(voters, "competitionsAndVoting", {
         title: "The results are in",
         body: `${title} has ended — see who won.`,
         data: { url: `/event/${eventId}` },
@@ -145,7 +145,7 @@ export async function notifyClosingSoon(eventId: string, now: Date = new Date())
     return "noop";
   }
   try {
-    const result = await broadcastPush({
+    const result = await broadcastPush("competitionsAndVoting", {
       title: "Last chance to vote ⏳",
       body: `${String(eventRow["title"] ?? "NIL STAR")} closes in 24 hours.`,
       data: { url: `/event/${eventId}` },

@@ -52,7 +52,12 @@ describe("transition pushes (design §7)", () => {
   it("→ live broadcasts voting-open with the event deep link", async () => {
     sendMock.mockResolvedValueOnce({ Item: eventRow("upcoming") }).mockResolvedValue({});
     expect(await transitionEvent("ev-x", "live")).toBe("ok");
-    const [notification] = broadcastPushMock.mock.calls[0] as [Record<string, any>];
+    expect(broadcastPushMock.mock.calls[0]?.[0]).toBe("competitionsAndVoting");
+    const [category, notification] = broadcastPushMock.mock.calls[0] as [
+      string,
+      Record<string, any>,
+    ];
+    expect(category).toBe("competitionsAndVoting");
     expect(notification.body).toContain("NIL STAR S2");
     expect(notification.data).toEqual({ url: "/event/ev-x" });
     expect(pushToUsersMock).not.toHaveBeenCalled();
@@ -68,7 +73,12 @@ describe("transition pushes (design §7)", () => {
     expect(await transitionEvent("ev-x", "ended")).toBe("ok");
 
     expect(broadcastPushMock).not.toHaveBeenCalled();
-    const [audience, notification] = pushToUsersMock.mock.calls[0] as [Set<string>, Record<string, any>];
+    const [audience, category, notification] = pushToUsersMock.mock.calls[0] as [
+      Set<string>,
+      string,
+      Record<string, any>,
+    ];
+    expect(category).toBe("competitionsAndVoting");
     expect([...audience].sort()).toEqual(["u-1", "u-2"]);
     expect(notification.title).toContain("results");
   });
@@ -83,7 +93,12 @@ describe("transition pushes (design §7)", () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     sendMock.mockResolvedValueOnce({ Item: eventRow("live", future) });
     expect(await notifyClosingSoon("ev-x")).toBe("ok");
-    const [notification] = broadcastPushMock.mock.calls[0] as [Record<string, any>];
+    expect(broadcastPushMock.mock.calls[0]?.[0]).toBe("competitionsAndVoting");
+    const [category, notification] = broadcastPushMock.mock.calls[0] as [
+      string,
+      Record<string, any>,
+    ];
+    expect(category).toBe("competitionsAndVoting");
     expect(notification.data).toEqual({ url: "/event/ev-x" });
   });
 

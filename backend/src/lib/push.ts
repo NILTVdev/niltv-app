@@ -14,7 +14,11 @@ import {
   notifTargetGsi1Pk,
   userKey,
 } from "./db";
+import { DEFAULT_NOTIFICATION_PREFERENCES } from "@niltv/types";
+import type { NotificationPreferences } from "@niltv/types";
 import type { Item } from "./shape";
+
+export type PushCategory = keyof NotificationPreferences;
 
 export interface PushNotification {
   title: string;
@@ -101,43 +105,61 @@ const toDevice = (row: Item): PushDevice => ({
 });
 
 /**
- * Keep only devices whose owner still has the global push toggle on
- * (design §7: user.pushEnabled checked at fanout, not at registration).
+ * Keep only devices whose owner has both the global push toggle and this
+ * notification category enabled. Missing or malformed category values use
+ * the shared legacy defaults.
  */
-async function filterPushEnabled(devices: PushDevice[]): Promise<PushDevice[]> {
+async function filterPushEnabled(
+  devices: PushDevice[],
+  category: PushCategory,
+): Promise<PushDevice[]> {
   const userIds = [...new Set(devices.map((d) => d.userId))];
   if (userIds.length === 0) return [];
   const db = getDocClient();
-  const enabled = new Set<string>();
+  const deliverable = new Set<string>();
   for (const ids of chunk(userIds, BATCH_GET_SIZE)) {
     const { Responses } = await db.send(
       new BatchGetCommand({
         RequestItems: {
           [table()]: {
             Keys: ids.map((id) => userKey(id)),
-            ProjectionExpression: "PK, pushEnabled",
+            ProjectionExpression: "PK, pushEnabled, notificationPreferences",
           },
         },
       }),
     );
     for (const row of Responses?.[table()] ?? []) {
-      if (row["pushEnabled"] === true) enabled.add(String(row["PK"]).slice("USER#".length));
+      if (row["pushEnabled"] !== true) continue;
+
+      const preferences = row["notificationPreferences"];
+      const savedPreference =
+        typeof preferences === "object" && preferences !== null && !Array.isArray(preferences)
+          ? (preferences as Record<string, unknown>)[category]
+          : undefined;
+      const enabled =
+        typeof savedPreference === "boolean"
+          ? savedPreference
+          : DEFAULT_NOTIFICATION_PREFERENCES[category];
+      if (enabled) deliverable.add(String(row["PK"]).slice("USER#".length));
     }
   }
-  return devices.filter((d) => enabled.has(d.userId));
+  return devices.filter((d) => deliverable.has(d.userId));
 }
 
 /** Deliverable devices for a set of users (dedup across target sets happens in the caller's Set). */
-export async function devicesForUsers(userIds: ReadonlySet<string>): Promise<PushDevice[]> {
+export async function devicesForUsers(
+  userIds: ReadonlySet<string>,
+  category: PushCategory,
+): Promise<PushDevice[]> {
   if (userIds.size === 0) return [];
   const all = await listAllDeviceRows();
-  return filterPushEnabled(all.map(toDevice).filter((d) => userIds.has(d.userId)));
+  return filterPushEnabled(all.map(toDevice).filter((d) => userIds.has(d.userId)), category);
 }
 
 /** Every deliverable device — the broadcast audience (design §7 voting open/closing pushes). */
-export async function allDevices(): Promise<PushDevice[]> {
+export async function allDevices(category: PushCategory): Promise<PushDevice[]> {
   const all = await listAllDeviceRows();
-  return filterPushEnabled(all.map(toDevice));
+  return filterPushEnabled(all.map(toDevice), category);
 }
 
 interface ExpoTicket {
@@ -260,12 +282,16 @@ export async function sendPush(
 /** Resolve a user set to devices and send (the §6.4 fanout tail). */
 export async function pushToUsers(
   userIds: ReadonlySet<string>,
+  category: PushCategory,
   notification: PushNotification,
 ): Promise<SendResult> {
-  return sendPush(await devicesForUsers(userIds), notification);
+  return sendPush(await devicesForUsers(userIds, category), notification);
 }
 
 /** Send to every opted-in device (design §7 broadcast rows). */
-export async function broadcastPush(notification: PushNotification): Promise<SendResult> {
-  return sendPush(await allDevices(), notification);
+export async function broadcastPush(
+  category: PushCategory,
+  notification: PushNotification,
+): Promise<SendResult> {
+  return sendPush(await allDevices(category), notification);
 }

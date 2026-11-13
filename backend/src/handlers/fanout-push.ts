@@ -51,7 +51,7 @@ async function fanoutContent(row: Item): Promise<void> {
     if (typeof channel?.["name"] === "string") channelName = channel["name"];
   }
 
-  const result = await pushToUsers(audience, {
+  const result = await pushToUsers(audience, "newVideosFromFollowedTargets", {
     title: `New on ${channelName}`,
     body: String(row["title"] ?? "A new clip just dropped"),
     data: { url: `/video/${contentId}` },

@@ -89,7 +89,12 @@ describe("fanout-push stream handler", () => {
     expect(listTargetUserIdsMock).toHaveBeenCalledWith("channel", "ch-tbtv");
     expect(listTargetUserIdsMock).toHaveBeenCalledWith("ambassador", "ath-camila");
 
-    const [audience, notification] = pushToUsersMock.mock.calls[0] as [Set<string>, Record<string, any>];
+    const [audience, category, notification] = pushToUsersMock.mock.calls[0] as [
+      Set<string>,
+      string,
+      Record<string, any>,
+    ];
+    expect(category).toBe("newVideosFromFollowedTargets");
     expect([...audience].sort()).toEqual(["u-1", "u-2", "u-3"]);
     expect(notification).toMatchObject({
       title: "New on TrueBlue TV",

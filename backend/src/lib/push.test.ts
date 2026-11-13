@@ -10,7 +10,13 @@ vi.mock("./db", async (importOriginal) => {
   };
 });
 
-import { allDevices, devicesForUsers, listTargetUserIds, sendPush } from "./push";
+import {
+  allDevices,
+  devicesForUsers,
+  listTargetUserIds,
+  sendPush,
+  type PushCategory,
+} from "./push";
 
 const fetchMock = vi.fn();
 
@@ -21,12 +27,23 @@ const deviceRow = (userId: string, token: string) => ({
   GSI1SK: `USER#${userId}#${token}`,
 });
 
-const userRow = (userId: string, pushEnabled: boolean) => ({
+const userRow = (
+  userId: string,
+  pushEnabled: boolean,
+  notificationPreferences?: unknown,
+) => ({
   PK: `USER#${userId}`,
   pushEnabled,
+  ...(notificationPreferences ? { notificationPreferences } : {}),
 });
 
 describe("push audience resolution (design §6.4/§7)", () => {
+  const categories: PushCategory[] = [
+    "newVideosFromFollowedTargets",
+    "competitionsAndVoting",
+    "niltvAnnouncements",
+  ];
+
   beforeEach(() => {
     sendMock.mockReset();
     process.env.TABLE_NAME = "niltv-test";
@@ -50,7 +67,7 @@ describe("push audience resolution (design §6.4/§7)", () => {
         Responses: { "niltv-test": [userRow("u-1", true), userRow("u-2", false)] },
       });
 
-    const devices = await devicesForUsers(new Set(["u-1", "u-2"]));
+    const devices = await devicesForUsers(new Set(["u-1", "u-2"]), "newVideosFromFollowedTargets");
     expect(devices).toEqual([{ userId: "u-1", expoPushToken: "tok-1" }]);
   });
 
@@ -60,7 +77,113 @@ describe("push audience resolution (design §6.4/§7)", () => {
       .mockResolvedValueOnce({
         Responses: { "niltv-test": [userRow("u-1", true), userRow("u-2", true)] },
       });
-    expect(await allDevices()).toHaveLength(2);
+    expect(await allDevices("competitionsAndVoting")).toHaveLength(2);
+  });
+
+  it("broadcast audiences honor competition and voting preferences", async () => {
+    sendMock
+      .mockResolvedValueOnce({
+        Items: [deviceRow("u-event-off", "tok-1"), deviceRow("u-event-on", "tok-2")],
+      })
+      .mockResolvedValueOnce({
+        Responses: {
+          "niltv-test": [
+            userRow("u-event-off", true, { competitionsAndVoting: false }),
+            userRow("u-event-on", true, { competitionsAndVoting: true }),
+          ],
+        },
+      });
+
+    expect(await allDevices("competitionsAndVoting")).toEqual([
+      { userId: "u-event-on", expoPushToken: "tok-2" },
+    ]);
+  });
+
+  it.each(categories)("the global push gate blocks category %s", async (category) => {
+    sendMock
+      .mockResolvedValueOnce({ Items: [deviceRow("u-1", "tok-1")] })
+      .mockResolvedValueOnce({ Responses: { "niltv-test": [userRow("u-1", false)] } });
+
+    expect(await devicesForUsers(new Set(["u-1"]), category)).toEqual([]);
+  });
+
+  it("disabling new-video preferences filters only that target's recipients", async () => {
+    sendMock
+      .mockResolvedValueOnce({
+        Items: [deviceRow("u-video-off", "tok-1"), deviceRow("u-video-on", "tok-2")],
+      })
+      .mockResolvedValueOnce({
+        Responses: {
+          "niltv-test": [
+            userRow("u-video-off", true, { newVideosFromFollowedTargets: false }),
+            userRow("u-video-on", true, { newVideosFromFollowedTargets: true }),
+          ],
+        },
+      });
+
+    expect(
+      await devicesForUsers(new Set(["u-video-off", "u-video-on"]), "newVideosFromFollowedTargets"),
+    ).toEqual([{ userId: "u-video-on", expoPushToken: "tok-2" }]);
+  });
+
+  it("disabling competition and voting preferences filters event recipients", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Items: [deviceRow("u-event-off", "tok-1")] })
+      .mockResolvedValueOnce({
+        Responses: {
+          "niltv-test": [
+            userRow("u-event-off", true, { competitionsAndVoting: false }),
+          ],
+        },
+      });
+
+    expect(
+      await devicesForUsers(new Set(["u-event-off"]), "competitionsAndVoting"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["newVideosFromFollowedTargets", true],
+    ["competitionsAndVoting", true],
+    ["niltvAnnouncements", false],
+  ] as const)("legacy accounts use the default for %s", async (category, expectedEnabled) => {
+    sendMock
+      .mockResolvedValueOnce({ Items: [deviceRow("u-legacy", "tok-legacy")] })
+      .mockResolvedValueOnce({ Responses: { "niltv-test": [userRow("u-legacy", true)] } });
+
+    expect(await devicesForUsers(new Set(["u-legacy"]), category)).toHaveLength(
+      expectedEnabled ? 1 : 0,
+    );
+  });
+
+  it("uses safe category defaults for malformed stored preferences", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Items: [deviceRow("u-malformed", "tok-1")] })
+      .mockResolvedValueOnce({
+        Responses: {
+          "niltv-test": [userRow("u-malformed", true, "not-an-object")],
+        },
+      });
+
+    expect(
+      await devicesForUsers(new Set(["u-malformed"]), "newVideosFromFollowedTargets"),
+    ).toHaveLength(1);
+  });
+
+  it("uses the default for malformed category values", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Items: [deviceRow("u-malformed", "tok-1")] })
+      .mockResolvedValueOnce({
+        Responses: {
+          "niltv-test": [
+            userRow("u-malformed", true, { newVideosFromFollowedTargets: "false" }),
+          ],
+        },
+      });
+
+    expect(
+      await devicesForUsers(new Set(["u-malformed"]), "newVideosFromFollowedTargets"),
+    ).toHaveLength(1);
   });
 });
 
