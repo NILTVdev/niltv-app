@@ -14,6 +14,7 @@ import {
   Subscriber,
 } from "./entities";
 import {
+  AppearancePreference,
   AssetType,
   ContentProvider,
   ContentType,
@@ -225,6 +226,7 @@ export const MeResponse = z.object({
   role: Role,
   is18plus: z.boolean(),
   pushEnabled: z.boolean(),
+  appearance: AppearancePreference.default("system"),
   /** eventId → entryId the user voted for */
   votes: z.record(z.string(), z.string()),
   follows: z.array(Id),
@@ -239,6 +241,10 @@ export const MeUpdateRequest = z.object({
   displayName: z.string().trim().min(1).max(80),
 });
 export type MeUpdateRequest = z.infer<typeof MeUpdateRequest>;
+
+/** PUT /v1/me/appearance — update the authenticated user's appearance preference. */
+export const MeAppearancePutRequest = z.object({ appearance: AppearancePreference });
+export type MeAppearancePutRequest = z.infer<typeof MeAppearancePutRequest>;
 
 /* ── POST /v1/events/{id}/vote (design §6.3) ───────────────────────────────────── */
 

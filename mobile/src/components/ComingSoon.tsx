@@ -25,7 +25,7 @@ export function ComingSoon({ title }: { title: string }) {
         <Text style={[styles.backLabel, { color: t.text }]}>Back</Text>
       </Pressable>
       <View style={styles.body}>
-        <Ionicons name="star" size={44} color={tokens.color.gold} />
+        <Ionicons name="star" size={44} color={t.accent} />
         <Text style={[styles.title, { color: t.text }]}>{title}</Text>
         <Text style={[styles.copy, { color: t.subtext }]}>
           Coming soon — we&apos;re still rolling out the red carpet.

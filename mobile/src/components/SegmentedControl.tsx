@@ -27,7 +27,7 @@ export function SegmentedControl({ options, value, onChange, scrollable = false 
         accessibilityState={{ selected: active }}
         style={[
           scrollable ? styles.segmentFixed : styles.segment,
-          active && [styles.segmentActive, { backgroundColor: t.dark ? "#3d3d45" : "#ffffff" }],
+          active && [styles.segmentActive, { backgroundColor: t.raisedSurface }],
         ]}
       >
         <Text

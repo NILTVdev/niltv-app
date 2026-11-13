@@ -261,7 +261,7 @@ export class ApiStack extends Stack {
       }),
     );
 
-    // /v1/me reads its own partition and nothing else.
+    // /v1/me and /v1/me/appearance read and update their own USER partition only.
     meFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
@@ -671,6 +671,12 @@ export class ApiStack extends Stack {
       path: "/v1/me",
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
       integration: new HttpLambdaIntegration("MeIntegration", meFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/appearance",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("MeAppearanceIntegration", meFn),
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({

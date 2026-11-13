@@ -273,6 +273,7 @@ export function mapUserPartition(userId: string, rows: Item[]): MeResponse | und
     role: meta["role"],
     is18plus: meta["is18plus"] === true,
     pushEnabled: meta["pushEnabled"] === true,
+    appearance: meta["appearance"],
     votes,
     follows,
     likes,

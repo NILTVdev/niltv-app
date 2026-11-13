@@ -88,7 +88,7 @@ export default function FollowingScreen() {
               style={({ pressed }) => [styles.rowTap, pressed && { opacity: 0.8 }]}
             >
               {item.logo !== undefined ? (
-                <View style={styles.logoBadge}>
+                <View style={[styles.logoBadge, { backgroundColor: t.dark ? "rgba(255,255,255,0.10)" : "#060608" }]}>
                   <Image source={item.logo} style={styles.logoImg} resizeMode="contain" accessibilityIgnoresInvertColors />
                 </View>
               ) : (
@@ -196,7 +196,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.10)",
     alignItems: "center",
     justifyContent: "center",
     padding: 5,

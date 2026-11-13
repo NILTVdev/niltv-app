@@ -7,12 +7,9 @@ import {
 } from "@expo-google-fonts/barlow-condensed";
 import { Inter_400Regular, Inter_600SemiBold, Inter_700Bold, useFonts } from "@expo-google-fonts/inter";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-
-import * as SystemUI from "expo-system-ui";
 
 import { persistOptions, queryClient } from "@/api/queryClient";
 import { bootstrapAuth, useAuthStore } from "@/auth/store";
@@ -23,6 +20,7 @@ import { wireNetworkManagers } from "@/lib/network";
 import { refreshRegistrationIfGranted } from "@/push";
 import { PushDeepLinks } from "@/push/DeepLinks";
 import { installErrorReporting } from "@/telemetry/errors";
+import { AppearanceProvider } from "@/theme/AppearanceProvider";
 
 SplashScreen.preventAutoHideAsync();
 // Fade the splash into the app instead of a hard cut (colors now match:
@@ -47,9 +45,6 @@ export default function RootLayout() {
     installErrorReporting();
     wireNetworkManagers();
     suppressMediaAbortNoise();
-    // Root window color: guards against white flashes behind modal mounts
-    // and screen transitions on the dark-only theme.
-    void SystemUI.setBackgroundColorAsync("#060608").catch(() => undefined);
     void bootstrapAuth();
   }, []);
 
@@ -71,8 +66,7 @@ export default function RootLayout() {
 
   return (
     <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-      {/* Dark-only network identity. */}
-      <ThemeProvider value={DarkTheme}>
+      <AppearanceProvider>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="newsletter" options={{ presentation: "modal" }} />
@@ -85,9 +79,7 @@ export default function RootLayout() {
         <InterestSheet />
         <PushDeepLinks />
         <OfflineBanner />
-        {/* Dark-only app: commit to light icons rather than trusting scheme inference. */}
-        <StatusBar style="light" />
-      </ThemeProvider>
+      </AppearanceProvider>
     </PersistQueryClientProvider>
   );
 }

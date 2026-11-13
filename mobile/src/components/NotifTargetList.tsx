@@ -54,7 +54,7 @@ function TargetRow({
       <Ionicons
         name={starred ? "star" : "star-outline"}
         size={22}
-        color={starred ? tokens.color.gold : t.subtext}
+        color={starred ? t.accent : t.subtext}
       />
     </Pressable>
   );
