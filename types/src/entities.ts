@@ -21,6 +21,23 @@ import {
   TranscodeStatus,
 } from "./primitives";
 
+/** Notification categories shared by the app and fan-facing website. */
+export const NotificationPreferences = z.object({
+  /** Existing NOTIF# target subscriptions; this does not redefine FOLLOW# relationships. */
+  newVideosFromFollowedTargets: z.boolean(),
+  competitionsAndVoting: z.boolean(),
+  /** No consumer-app announcement notification source is currently active. */
+  niltvAnnouncements: z.boolean(),
+});
+export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
+
+/** Preserve existing video and competition delivery for globally enabled accounts. */
+export const DEFAULT_NOTIFICATION_PREFERENCES = {
+  newVideosFromFollowedTargets: true,
+  competitionsAndVoting: true,
+  niltvAnnouncements: false,
+} satisfies NotificationPreferences;
+
 /** Account record (design §5: USER#id / META). DOB never leaves the backend. */
 export const User = z.object({
   id: Id,
@@ -30,6 +47,7 @@ export const User = z.object({
   phone: z.string().optional(),
   role: Role.default("fan"),
   is18plus: z.boolean(),
+  notificationPreferences: NotificationPreferences.optional(),
   pushEnabled: z.boolean().default(false),
   createdAt: IsoDate,
 });

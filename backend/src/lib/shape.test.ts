@@ -140,6 +140,11 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
       role: "fan",
       is18plus: true,
       pushEnabled: false,
+      notificationPreferences: {
+        newVideosFromFollowedTargets: true,
+        competitionsAndVoting: true,
+        niltvAnnouncements: false,
+      },
       votes: { "evt-nilstar-s1": "ent-camila" },
       follows: ["ath-camila-garza", "ath-jordan-banks"],
       likes: ["c-floor-routine", "c-audition-camila"],

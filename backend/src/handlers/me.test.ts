@@ -74,6 +74,11 @@ describe("GET /v1/me handler", () => {
       role: "fan",
       is18plus: true,
       pushEnabled: true,
+      notificationPreferences: {
+        newVideosFromFollowedTargets: true,
+        competitionsAndVoting: true,
+        niltvAnnouncements: false,
+      },
       votes: { "evt-nilstar-s1": "ent-camila" },
       follows: ["ath-camila"],
       likes: ["c-floor-routine"],

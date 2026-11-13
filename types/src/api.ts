@@ -4,8 +4,10 @@ import {
   Channel,
   Content,
   ContentRights,
+  DEFAULT_NOTIFICATION_PREFERENCES,
   Entry,
   EventEntity,
+  NotificationPreferences,
   Partner,
   PartnerLicence,
   PlatformId,
@@ -224,7 +226,9 @@ export const MeResponse = z.object({
   email: z.string(),
   role: Role,
   is18plus: z.boolean(),
+  /** Global delivery gate; category preferences never enable push on their own. */
   pushEnabled: z.boolean(),
+  notificationPreferences: NotificationPreferences.default(DEFAULT_NOTIFICATION_PREFERENCES),
   /** eventId → entryId the user voted for */
   votes: z.record(z.string(), z.string()),
   follows: z.array(Id),
@@ -293,6 +297,12 @@ export const NotificationFollowsPutRequest = z.object({
   follows: z.array(NotificationFollow).max(200),
 });
 export type NotificationFollowsPutRequest = z.infer<typeof NotificationFollowsPutRequest>;
+
+/** PUT /v1/me/notification-preferences — replace all fan notification categories. */
+export const NotificationPreferencesPutRequest = z.object({
+  notificationPreferences: NotificationPreferences,
+});
+export type NotificationPreferencesPutRequest = z.infer<typeof NotificationPreferencesPutRequest>;
 
 export const DeviceRegisterRequest = z.object({
   expoPushToken: z.string().min(1),
