@@ -4,6 +4,7 @@ import {
   APPEARANCE_OPTIONS,
   appearanceForSession,
   appearanceLabel,
+  appearanceRadioAccessibilityProps,
   appearanceSaveErrorMessage,
   paletteForAppearance,
   resolveAppearance,
@@ -39,6 +40,17 @@ describe("appearance resolution", () => {
     expect(appearanceSaveErrorMessage({ status: 401 })).toMatch(/session has expired/i);
     expect(appearanceSaveErrorMessage({ code: "INVALID_REQUEST" })).toMatch(/unavailable/i);
     expect(appearanceSaveErrorMessage(new Error("offline"))).toMatch(/check your connection/i);
+  });
+
+  it("exposes radio selection for native and web screen readers", () => {
+    expect(appearanceRadioAccessibilityProps(true, false)).toEqual({
+      accessibilityState: { selected: true, disabled: false },
+      "aria-checked": true,
+    });
+    expect(appearanceRadioAccessibilityProps(false, true)).toEqual({
+      accessibilityState: { selected: false, disabled: true },
+      "aria-checked": false,
+    });
   });
 
   it("uses the system appearance when preference is system or missing", () => {

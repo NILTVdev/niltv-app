@@ -5,7 +5,12 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { useMe, useUpdateAppearance } from "@/api/hooks";
 import { GoldButton } from "@/components/GoldButton";
-import { appearanceLabel, appearanceSaveErrorMessage, APPEARANCE_OPTIONS } from "@/theme/appearance";
+import {
+  appearanceLabel,
+  appearanceRadioAccessibilityProps,
+  appearanceSaveErrorMessage,
+  APPEARANCE_OPTIONS,
+} from "@/theme/appearance";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
 
@@ -82,7 +87,7 @@ export function AppearanceSettings() {
         </View>
       ) : editing && draft !== null ? (
         <View style={styles.editor}>
-          <View accessibilityLabel="Appearance options" style={styles.options}>
+          <View accessibilityRole="radiogroup" accessibilityLabel="Appearance options" style={styles.options}>
             {APPEARANCE_OPTIONS.map((option) => {
               const selected = draft === option.value;
               return (
@@ -91,7 +96,7 @@ export function AppearanceSettings() {
                   accessibilityRole="radio"
                   accessibilityLabel={option.label}
                   accessibilityHint={option.description}
-                  accessibilityState={{ selected, disabled: updateAppearance.isPending }}
+                  {...appearanceRadioAccessibilityProps(selected, updateAppearance.isPending)}
                   disabled={updateAppearance.isPending}
                   onPress={() => {
                     setDraft(option.value);

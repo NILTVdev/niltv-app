@@ -227,7 +227,16 @@ describe("PUT /v1/me/appearance handler", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body ?? "")).toMatchObject({ userId: "u-1", appearance });
+    expect(JSON.parse(res.body ?? "")).toMatchObject({
+      userId: "u-1",
+      appearance,
+      name: "Test Fan",
+      pushEnabled: true,
+      follows: ["ath-camila"],
+      likes: ["c-floor-routine"],
+      votes: { "evt-nilstar-s1": "ent-camila" },
+      notificationFollows: [{ targetType: "channel", targetId: "ch-trueblue" }],
+    });
     expect(sendMock).toHaveBeenCalledTimes(2);
 
     const update = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;

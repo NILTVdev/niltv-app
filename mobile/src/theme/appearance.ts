@@ -16,6 +16,13 @@ export function appearanceLabel(preference: AppearancePreference): string {
   return APPEARANCE_OPTIONS.find((option) => option.value === preference)?.label ?? "System";
 }
 
+export function appearanceRadioAccessibilityProps(selected: boolean, disabled: boolean) {
+  return {
+    accessibilityState: { selected, disabled },
+    "aria-checked": selected,
+  };
+}
+
 export function appearanceSaveErrorMessage(error: unknown): string {
   const details =
     typeof error === "object" && error !== null ? (error as { code?: unknown; status?: unknown }) : undefined;
