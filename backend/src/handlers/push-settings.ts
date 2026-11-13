@@ -1,9 +1,10 @@
 /**
  * POST /v1/me/devices · PUT /v1/me/push (JWT) — the push opt-in pair
  * (design §6.2 tail, §7): device registration upserts the token row (with its
- * DEVICES#ALL broadcast mirror) and flips the user's global toggle on —
- * registering IS opting in. The Profile toggle then writes pushEnabled
- * directly; fanout checks it per send, so muting never deletes tokens.
+ * DEVICES#ALL broadcast mirror). Only an explicit opt-in signal flips the
+ * user's global toggle on; silent token refresh preserves the existing gate.
+ * The Profile toggle writes pushEnabled directly, and fanout checks it per
+ * send, so muting never deletes tokens.
  */
 import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { AckResponse, DeviceRegisterRequest, PushToggleRequest } from "@niltv/types";
@@ -30,15 +31,19 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
 
   // Guarded toggle write shared by both routes. The attribute_exists condition
   // keeps a stale JWT from resurrecting a deleted account's partition (§6.6).
-  const setPushEnabled = async (enabled: boolean): Promise<boolean> => {
+  const setPushEnabled = async (enabled: boolean | undefined): Promise<boolean> => {
     try {
       await db.send(
         new UpdateCommand({
           TableName: table,
           Key: userKey(sub),
           ConditionExpression: "attribute_exists(PK)",
-          UpdateExpression: "SET pushEnabled = :enabled",
-          ExpressionAttributeValues: { ":enabled": enabled },
+          UpdateExpression:
+            enabled === undefined
+              ? "SET pushEnabled = if_not_exists(pushEnabled, :disabled)"
+              : "SET pushEnabled = :enabled",
+          ExpressionAttributeValues:
+            enabled === undefined ? { ":disabled": false } : { ":enabled": enabled },
         }),
       );
       return true;
@@ -53,8 +58,10 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
     if (!request.success) return badRequest();
     const { expoPushToken, platform } = request.data;
 
-    // Toggle first: if the account is gone, no device row gets minted at all.
-    if (!(await setPushEnabled(true))) return notFound();
+    // Guard before writing: if the account is gone, no device row gets minted.
+    // Omitted optIn is a silent token refresh and must preserve pushEnabled.
+    const enabled = request.data.optIn === true ? true : undefined;
+    if (!(await setPushEnabled(enabled))) return notFound();
 
     // Upsert keeps re-registration (token refresh, reinstall) idempotent.
     await db.send(

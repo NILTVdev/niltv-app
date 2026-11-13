@@ -307,6 +307,8 @@ export type NotificationPreferencesPutRequest = z.infer<typeof NotificationPrefe
 export const DeviceRegisterRequest = z.object({
   expoPushToken: z.string().min(1),
   platform: z.enum(["ios", "android"]),
+  /** Only explicit user intent may turn on the global push delivery gate. */
+  optIn: z.boolean().optional(),
 });
 export type DeviceRegisterRequest = z.infer<typeof DeviceRegisterRequest>;
 

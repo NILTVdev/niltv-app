@@ -11,6 +11,7 @@ import {
   HomeResponse,
   LikeAckResponse,
   MeResponse,
+  NotificationPreferencesPutRequest,
   type MeUpdateRequest,
   type NewsletterRequest,
   type NotificationFollow,
@@ -189,6 +190,22 @@ export function useUpdateDisplayName() {
   return useMutation({
     mutationFn: (body: MeUpdateRequest) =>
       request("/v1/me", MeResponse, { method: "PATCH", body, auth: true }),
+    onSuccess: (updatedMe) => {
+      qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
+    },
+  });
+}
+
+/** PUT /v1/me/notification-preferences — replace the fan's category choices. */
+export function useSetNotificationPreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: NotificationPreferencesPutRequest) =>
+      request("/v1/me/notification-preferences", MeResponse, {
+        method: "PUT",
+        body: NotificationPreferencesPutRequest.parse(body),
+        auth: true,
+      }),
     onSuccess: (updatedMe) => {
       qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
     },

@@ -52,7 +52,7 @@ describe("POST /v1/me/devices · PUT /v1/me/push handler", () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
-  it("registers a device: pushEnabled on, then token row with the broadcast mirror", async () => {
+  it("registers a device on silent refresh without changing the global gate", async () => {
     const res = await invoke(
       makeEvent("/v1/me/devices", { expoPushToken: "ExponentPushToken[abc]", platform: "ios" }),
     );
@@ -62,7 +62,8 @@ describe("POST /v1/me/devices · PUT /v1/me/push handler", () => {
     const toggle = (sendMock.mock.calls[0]?.[0] as { input: Record<string, any> }).input;
     expect(toggle["Key"]).toEqual({ PK: "USER#u-1", SK: "META" });
     expect(toggle["ConditionExpression"]).toBe("attribute_exists(PK)");
-    expect(toggle["ExpressionAttributeValues"]).toEqual({ ":enabled": true });
+    expect(toggle["UpdateExpression"]).toBe("SET pushEnabled = if_not_exists(pushEnabled, :disabled)");
+    expect(toggle["ExpressionAttributeValues"]).toEqual({ ":disabled": false });
 
     const put = (sendMock.mock.calls[1]?.[0] as { input: Record<string, any> }).input;
     expect(put["Item"]).toMatchObject({
@@ -72,6 +73,35 @@ describe("POST /v1/me/devices · PUT /v1/me/push handler", () => {
       GSI1SK: "USER#u-1#ExponentPushToken[abc]",
       platform: "ios",
     });
+  });
+
+  it("explicit opt-in enables the global gate before registering the device", async () => {
+    const res = await invoke(
+      makeEvent("/v1/me/devices", {
+        expoPushToken: "ExponentPushToken[abc]",
+        platform: "ios",
+        optIn: true,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    const toggle = (sendMock.mock.calls[0]?.[0] as { input: Record<string, any> }).input;
+    expect(toggle["UpdateExpression"]).toBe("SET pushEnabled = :enabled");
+    expect(toggle["ExpressionAttributeValues"]).toEqual({ ":enabled": true });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("optIn false is a token refresh and does not enable push", async () => {
+    const res = await invoke(
+      makeEvent("/v1/me/devices", {
+        expoPushToken: "ExponentPushToken[abc]",
+        platform: "ios",
+        optIn: false,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    const toggle = (sendMock.mock.calls[0]?.[0] as { input: Record<string, any> }).input;
+    expect(toggle["UpdateExpression"]).toBe("SET pushEnabled = if_not_exists(pushEnabled, :disabled)");
+    expect(toggle["ExpressionAttributeValues"]).toEqual({ ":disabled": false });
   });
 
   it("a deleted account's stale JWT cannot mint rows (404, no device write)", async () => {

@@ -12,8 +12,11 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { AckResponse } from "@niltv/types";
+import type { MeResponse } from "@niltv/types";
 
 import { request } from "@/api/client";
+import { queryKeys } from "@/api/keys";
+import { queryClient } from "@/api/queryClient";
 import { track } from "@/telemetry";
 
 // Foreground presentation: banner + list, no badge count at MVP.
@@ -57,7 +60,7 @@ export async function requestAndRegister(): Promise<PushPermission> {
       track("push_permission_denied");
       return permission.canAskAgain ? "undetermined" : "denied";
     }
-    const registered = await registerToken();
+    const registered = await registerToken(true);
     track(registered ? "push_registered" : "push_register_failed");
     return registered ? "granted" : "unavailable";
   } catch {
@@ -72,10 +75,10 @@ export async function requestAndRegister(): Promise<PushPermission> {
  */
 export async function refreshRegistrationIfGranted(): Promise<void> {
   if ((await getPushPermission()) !== "granted") return;
-  await registerToken().catch(() => undefined);
+  await registerToken(false).catch(() => undefined);
 }
 
-async function registerToken(): Promise<boolean> {
+async function registerToken(optIn: boolean): Promise<boolean> {
   // Remote push needs an EAS projectId (dev/prod builds carry one via
   // app.json extra.eas; Expo Go and bare simulators do not).
   const projectId: unknown =
@@ -89,7 +92,13 @@ async function registerToken(): Promise<boolean> {
     body: {
       expoPushToken: token.data,
       platform: Platform.OS === "android" ? "android" : "ios",
+      ...(optIn ? { optIn: true } : {}),
     },
   });
+  if (optIn) {
+    queryClient.setQueryData<MeResponse>(queryKeys.me, (previous) =>
+      previous ? { ...previous, pushEnabled: true } : previous,
+    );
+  }
   return true;
 }

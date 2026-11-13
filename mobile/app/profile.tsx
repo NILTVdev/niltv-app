@@ -15,7 +15,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
+import {
+  useDeleteAccount,
+  useMe,
+  useSetNotificationPreferences,
+  useSetPushEnabled,
+  useUpdateDisplayName,
+} from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
 import { PrivacyLink } from "@/components/PrivacyLink";
@@ -24,6 +30,7 @@ import { requestAndRegister } from "@/push";
 import { track, useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
+import type { NotificationPreferences } from "@niltv/types";
 
 function GuestProfile() {
   const t = useTheme();
@@ -85,11 +92,17 @@ function SignedInProfile() {
   const signOutAction = useAuthStore((s) => s.signOutAction);
   const me = useMe();
   const setPushEnabled = useSetPushEnabled();
+  const setNotificationPreferences = useSetNotificationPreferences();
   const deleteAccount = useDeleteAccount();
   const updateDisplayName = useUpdateDisplayName();
   const [editingName, setEditingName] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [notificationPreferencesDraft, setNotificationPreferencesDraft] =
+    useState<NotificationPreferences | null>(null);
+  const [pushMessage, setPushMessage] = useState("");
+  const [preferencesMessage, setPreferencesMessage] = useState("");
+  const [registeringPush, setRegisteringPush] = useState(false);
 
   const name = me.data?.displayName || me.data?.name || storeName || "NILTV Fan";
   const email = me.data?.email || storeEmail || "";
@@ -103,11 +116,69 @@ function SignedInProfile() {
       ? "Following. Can't reach NILTV right now"
       : "Following …";
 
-  // Global push toggle (design §7: mute keeps tokens, fanout checks the flag).
-  // Turning ON also (re)runs permission + registration so the flag is honest.
+  // Category preferences are independent from the global gate. Only a clear
+  // opt-in gesture may enable the gate, after permission and registration.
   function togglePush(enabled: boolean) {
-    setPushEnabled.mutate(enabled);
-    if (enabled) void requestAndRegister();
+    setPushMessage("");
+    if (!enabled) {
+      setPushEnabled.mutate(false, {
+        onSuccess: () => setPushMessage("Push notifications are off."),
+        onError: () => setPushMessage("Could not update push settings. Please try again."),
+      });
+      return;
+    }
+
+    setRegisteringPush(true);
+    void requestAndRegister()
+      .then((permission) => {
+        if (permission === "granted") {
+          setPushMessage("Push notifications are on.");
+        } else {
+          setPushMessage("Push notifications were not enabled. Check device permission and try again.");
+        }
+      })
+      .finally(() => setRegisteringPush(false));
+  }
+
+  const savedPreferences = me.data?.notificationPreferences;
+  const preferences = notificationPreferencesDraft ?? savedPreferences;
+  const preferencesChanged =
+    !!preferences &&
+    !!savedPreferences &&
+    Object.keys(savedPreferences).some(
+      (key) =>
+        preferences[key as keyof NotificationPreferences] !==
+        savedPreferences[key as keyof NotificationPreferences],
+    );
+
+  function toggleNotificationPreference(key: keyof NotificationPreferences, value: boolean) {
+    if (!savedPreferences || setNotificationPreferences.isPending) return;
+    setPreferencesMessage("");
+    setNotificationPreferencesDraft((current) => ({
+      ...(current ?? savedPreferences),
+      [key]: value,
+    }));
+  }
+
+  function cancelNotificationPreferenceEdits() {
+    if (setNotificationPreferences.isPending) return;
+    setNotificationPreferencesDraft(null);
+    setPreferencesMessage("");
+    setNotificationPreferences.reset();
+  }
+
+  function saveNotificationPreferences() {
+    if (!preferences || !preferencesChanged || setNotificationPreferences.isPending) return;
+    setPreferencesMessage("");
+    setNotificationPreferences.mutate(
+      { notificationPreferences: preferences },
+      {
+        onSuccess: () => {
+          setNotificationPreferencesDraft(null);
+          setPreferencesMessage("Notification preferences saved.");
+        },
+      },
+    );
   }
 
   function startEditingName() {
@@ -249,16 +320,146 @@ function SignedInProfile() {
         )}
       </Pressable>
 
-      <View style={[styles.rowItem, { borderColor: t.line, backgroundColor: t.surface }]}>
-        <Ionicons name="notifications-outline" size={18} color={t.subtext} />
-        <Text style={[styles.rowLabel, { color: t.text }]}>Push notifications</Text>
-        <Switch
-          value={me.data?.pushEnabled === true}
-          onValueChange={togglePush}
-          disabled={me.data === undefined}
-          trackColor={{ true: tokens.color.gold }}
-          accessibilityLabel="Push notifications"
-        />
+      <View style={[styles.notificationCard, { borderColor: t.line, backgroundColor: t.surface }]}>
+        <View style={styles.notificationHeading}>
+          <Ionicons name="notifications-outline" size={18} color={t.accent} />
+          <Text style={[styles.notificationTitle, { color: t.text }]}>Notifications</Text>
+        </View>
+        <View style={styles.globalPushRow}>
+          <View style={styles.preferenceCopy}>
+            <Text style={[styles.preferenceLabel, { color: t.text }]}>Allow push notifications</Text>
+            <Text style={[styles.preferenceDescription, { color: t.subtext }]}>
+              This global setting overrides every category below.
+            </Text>
+          </View>
+          {me.isPending || registeringPush ? (
+            <ActivityIndicator size="small" color={t.accent} />
+          ) : (
+            <Switch
+              value={me.data?.pushEnabled === true}
+              onValueChange={togglePush}
+              disabled={me.data === undefined || setPushEnabled.isPending || registeringPush}
+              trackColor={{ true: tokens.color.gold }}
+              accessibilityRole="switch"
+              accessibilityLabel="Allow push notifications"
+              accessibilityState={{ checked: me.data?.pushEnabled === true }}
+            />
+          )}
+        </View>
+        {registeringPush ? (
+          <Text accessibilityLiveRegion="polite" style={[styles.preferenceStatus, { color: t.subtext }]}>
+            Waiting for device permission and registering this device…
+          </Text>
+        ) : pushMessage ? (
+          <Text
+            accessibilityLiveRegion="polite"
+            accessibilityRole={pushMessage.startsWith("Could not") ? "alert" : undefined}
+            style={[styles.preferenceStatus, { color: t.subtext }]}
+          >
+            {pushMessage}
+          </Text>
+        ) : null}
+        <Text style={[styles.categoryIntro, { color: t.subtext }]}>
+          Choose which types of push notifications you want. These choices do not turn push
+          notifications on.
+        </Text>
+        {me.isPending ? (
+          <ActivityIndicator size="small" color={t.accent} />
+        ) : me.isError ? (
+          <Text accessibilityRole="alert" style={styles.preferenceError}>
+            Could not load notification preferences. Please try again.
+          </Text>
+        ) : preferences ? (
+          <>
+            <View style={[styles.categoryRow, { borderTopColor: t.line }]}>
+              <View style={styles.preferenceCopy}>
+                <Text style={[styles.preferenceLabel, { color: t.text }]}>
+                  New videos from followed notification targets
+                </Text>
+                <Text style={[styles.preferenceDescription, { color: t.subtext }]}>
+                  Channels you starred for notifications.
+                </Text>
+              </View>
+              <Switch
+                value={preferences.newVideosFromFollowedTargets}
+                onValueChange={(value) =>
+                  toggleNotificationPreference("newVideosFromFollowedTargets", value)
+                }
+                disabled={!savedPreferences || setNotificationPreferences.isPending}
+                trackColor={{ true: tokens.color.gold }}
+                accessibilityRole="switch"
+                accessibilityLabel="New videos from followed notification targets"
+                accessibilityState={{ checked: preferences.newVideosFromFollowedTargets }}
+              />
+            </View>
+            <View style={[styles.categoryRow, { borderTopColor: t.line }]}>
+              <View style={styles.preferenceCopy}>
+                <Text style={[styles.preferenceLabel, { color: t.text }]}>
+                  Competitions and voting
+                </Text>
+                <Text style={[styles.preferenceDescription, { color: t.subtext }]}>
+                  Voting opens, closing reminders, and results.
+                </Text>
+              </View>
+              <Switch
+                value={preferences.competitionsAndVoting}
+                onValueChange={(value) => toggleNotificationPreference("competitionsAndVoting", value)}
+                disabled={!savedPreferences || setNotificationPreferences.isPending}
+                trackColor={{ true: tokens.color.gold }}
+                accessibilityRole="switch"
+                accessibilityLabel="Competitions and voting"
+                accessibilityState={{ checked: preferences.competitionsAndVoting }}
+              />
+            </View>
+            <View style={[styles.categoryRow, { borderTopColor: t.line }]}>
+              <View style={styles.preferenceCopy}>
+                <Text style={[styles.preferenceLabel, { color: t.text }]}>NILTV announcements</Text>
+                <Text style={[styles.preferenceDescription, { color: t.subtext }]}>
+                  This category does not currently have an active fan notification source.
+                </Text>
+              </View>
+              <Switch
+                value={preferences.niltvAnnouncements}
+                onValueChange={(value) => toggleNotificationPreference("niltvAnnouncements", value)}
+                disabled={!savedPreferences || setNotificationPreferences.isPending}
+                trackColor={{ true: tokens.color.gold }}
+                accessibilityRole="switch"
+                accessibilityLabel="NILTV announcements"
+                accessibilityState={{ checked: preferences.niltvAnnouncements }}
+              />
+            </View>
+            {setNotificationPreferences.isError ? (
+              <Text accessibilityRole="alert" style={styles.preferenceError}>
+                {setNotificationPreferences.error.message ||
+                  "Could not save notification preferences. Please try again."}
+              </Text>
+            ) : null}
+            {preferencesMessage ? (
+              <Text accessibilityLiveRegion="polite" style={[styles.preferenceStatus, { color: t.accent }]}>
+                {preferencesMessage}
+              </Text>
+            ) : null}
+            {preferencesChanged || setNotificationPreferences.isPending ? (
+              <View style={styles.preferenceActions}>
+                <GoldButton
+                  label="Save notification settings"
+                  onPress={saveNotificationPreferences}
+                  disabled={!preferencesChanged}
+                  busy={setNotificationPreferences.isPending}
+                  style={styles.preferenceSave}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={setNotificationPreferences.isPending}
+                  onPress={cancelNotificationPreferenceEdits}
+                  style={({ pressed }) => [styles.preferenceCancel, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Text style={[styles.cancelNameLabel, { color: t.subtext }]}>Cancel</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </>
+        ) : null}
       </View>
 
       <Row
@@ -444,6 +645,84 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: tokens.font.semibold,
     fontSize: 15,
+  },
+  notificationCard: {
+    borderWidth: 1,
+    borderRadius: tokens.radius,
+    padding: tokens.spacing.md,
+    gap: tokens.spacing.sm,
+  },
+  notificationHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.spacing.sm,
+  },
+  notificationTitle: {
+    fontFamily: tokens.font.bold,
+    fontSize: tokens.text.section,
+  },
+  globalPushRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.spacing.sm,
+    paddingVertical: tokens.spacing.xs,
+  },
+  categoryIntro: {
+    fontFamily: tokens.font.regular,
+    fontSize: tokens.text.meta,
+    lineHeight: 19,
+  },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: tokens.spacing.sm,
+    paddingBottom: tokens.spacing.xs,
+  },
+  preferenceCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: tokens.spacing.xs,
+  },
+  preferenceLabel: {
+    fontFamily: tokens.font.semibold,
+    fontSize: tokens.text.body,
+    lineHeight: 21,
+  },
+  preferenceDescription: {
+    fontFamily: tokens.font.regular,
+    fontSize: tokens.text.meta,
+    lineHeight: 19,
+  },
+  preferenceStatus: {
+    fontFamily: tokens.font.regular,
+    fontSize: tokens.text.meta,
+    lineHeight: 19,
+  },
+  preferenceError: {
+    color: "#d97970",
+    fontFamily: tokens.font.regular,
+    fontSize: tokens.text.meta,
+    lineHeight: 19,
+  },
+  preferenceActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: tokens.spacing.sm,
+    paddingTop: tokens.spacing.xs,
+  },
+  preferenceSave: {
+    flexGrow: 1,
+    flexBasis: 170,
+  },
+  preferenceCancel: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: tokens.spacing.md,
   },
   logIn: {
     fontFamily: tokens.font.bold,
