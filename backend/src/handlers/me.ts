@@ -1,10 +1,10 @@
 /**
- * GET/PATCH /v1/me (JWT) — identity plus everything gated UI needs in one call
- * (design §4.1): votes{}, follows[], notification follows, mapped from the
+ * GET/PATCH /v1/me and PUT /v1/me/notification-preferences (JWT) — identity
+ * plus everything gated UI needs in one call (design §4.1), mapped from the
  * full USER#{sub} partition. Never cached (Cache-Control private, no-store).
  */
 import { QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { MeUpdateRequest } from "@niltv/types";
+import { MeUpdateRequest, NotificationPreferencesPutRequest } from "@niltv/types";
 import type { APIGatewayProxyHandlerV2WithJWTAuthorizer } from "aws-lambda";
 import { getDocClient, userKey } from "../lib/db";
 import { badRequest, forbidden, json, notFound, parseJsonBody, unauthorized } from "../lib/http";
@@ -22,6 +22,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
   const db = getDocClient();
   const table = process.env.TABLE_NAME ?? "";
   const isPatch = event.requestContext?.http?.method === "PATCH";
+  const isNotificationPreferencesPut = event.requestContext?.http?.method === "PUT";
 
   if (isPatch) {
     const request = MeUpdateRequest.safeParse(parseJsonBody(event.body, event.isBase64Encoded === true));
@@ -47,6 +48,32 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
       }
       throw err;
     }
+  } else if (isNotificationPreferencesPut) {
+    const request = NotificationPreferencesPutRequest.safeParse(
+      parseJsonBody(event.body, event.isBase64Encoded === true),
+    );
+    if (!request.success) return badRequest();
+
+    try {
+      await db.send(
+        new UpdateCommand({
+          TableName: table,
+          Key: userKey(sub),
+          ConditionExpression: "attribute_exists(PK)",
+          UpdateExpression: "SET notificationPreferences = :notificationPreferences",
+          ExpressionAttributeValues: { ":notificationPreferences": request.data.notificationPreferences },
+        }),
+      );
+    } catch (err) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as { name?: string }).name === "ConditionalCheckFailedException"
+      ) {
+        return notFound();
+      }
+      throw err;
+    }
   }
 
   // Full-partition query (META + FOLLOW# + VOTE# + NOTIF# + the rest),
@@ -59,7 +86,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
         TableName: table,
         KeyConditionExpression: "PK = :pk",
         ExpressionAttributeValues: { ":pk": userKey(sub).PK },
-        ...(isPatch ? { ConsistentRead: true } : {}),
+        ...(isPatch || isNotificationPreferencesPut ? { ConsistentRead: true } : {}),
         ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {}),
       }),
     );

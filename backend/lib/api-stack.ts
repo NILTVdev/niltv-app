@@ -674,6 +674,12 @@ export class ApiStack extends Stack {
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({
+      path: "/v1/me/notification-preferences",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("MeNotificationPreferencesIntegration", meFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
       path: "/v1/me/follows/{athleteId}",
       methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
       integration: new HttpLambdaIntegration("FollowIntegration", followFn),
