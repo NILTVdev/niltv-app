@@ -60,7 +60,7 @@ function Row({
   onPress: () => void;
 }) {
   const t = useTheme();
-  const color = danger ? "#b04a3f" : t.text;
+  const color = danger ? t.danger : t.text;
   return (
     <Pressable
       onPress={onPress}
@@ -204,7 +204,7 @@ function SignedInProfile() {
               </Pressable>
             </View>
             {updateDisplayName.isError ? (
-              <Text accessibilityRole="alert" style={styles.nameError}>
+              <Text accessibilityRole="alert" style={[styles.nameError, { color: t.danger }]}>
                 {updateDisplayName.error.message || "Could not save your display name. Please try again."}
               </Text>
             ) : null}
@@ -410,7 +410,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   nameError: {
-    color: "#d97970",
     fontFamily: tokens.font.regular,
     fontSize: 13,
     textAlign: "center",

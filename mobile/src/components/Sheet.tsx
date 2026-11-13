@@ -37,7 +37,7 @@ export function Sheet({ visible, onClose, title, children }: PropsWithChildren<S
             },
           ]}
         >
-          <View style={[styles.handle, { backgroundColor: t.dark ? "#3d3d45" : tokens.color.line }]} />
+          <View style={[styles.handle, { backgroundColor: t.line }]} />
           {title ? <Text style={[styles.title, { color: t.text }]}>{title}</Text> : null}
           {children}
         </View>

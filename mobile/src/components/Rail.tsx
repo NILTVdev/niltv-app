@@ -4,6 +4,7 @@ import { FlatList, Image, StyleSheet, Text, View } from "react-native";
 import { Card, type CardProps } from "@/components/Card";
 import { PressableScale } from "@/components/PressableScale";
 import { tokens } from "@/theme/tokens";
+import { useTheme } from "@/theme/useTheme";
 
 export interface RailItem extends Omit<CardProps, "aspect" | "width"> {
   id: string;
@@ -46,24 +47,26 @@ export function SeeMoreCard({
   width?: number;
   onPress: () => void;
 }) {
+  const t = useTheme();
   const height = aspect === "9:16" ? (width * 16) / 9 : (width * 4) / 3;
   return (
     <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={title ? `See more ${title}` : "See more"}
-      style={[styles.more, { width, height }]}
+      style={[styles.more, { width, height, backgroundColor: t.surface, borderColor: t.line }]}
     >
       <View style={styles.moreCircle}>
-        <Ionicons name="chevron-forward" size={24} color={tokens.color.ink} style={styles.moreIcon} />
+        <Ionicons name="chevron-forward" size={24} color={t.onAccent} style={styles.moreIcon} />
       </View>
-      <Text style={styles.moreLabel}>See more</Text>
+      <Text style={[styles.moreLabel, { color: t.text }]}>See more</Text>
     </PressableScale>
   );
 }
 
 /** Horizontal finger-scroll rail of Cards — no arrows (Brief §6, demo .rail). */
 export function Rail({ title, items, aspect = "9:16", cardWidth = 180, onSeeAll, titleLogo }: RailProps) {
+  const t = useTheme();
   return (
     <View style={styles.wrap}>
       {title ? (
@@ -71,7 +74,7 @@ export function Rail({ title, items, aspect = "9:16", cardWidth = 180, onSeeAll,
           {titleLogo !== undefined ? (
             <Image
               source={titleLogo}
-              style={styles.lockup}
+              style={[styles.lockup, !t.dark && styles.lightLockup]}
               resizeMode="contain"
               accessible
               accessibilityRole="header"
@@ -79,7 +82,7 @@ export function Rail({ title, items, aspect = "9:16", cardWidth = 180, onSeeAll,
               accessibilityIgnoresInvertColors
             />
           ) : (
-            <Text numberOfLines={1} style={styles.title}>
+            <Text numberOfLines={1} style={[styles.title, { color: t.accent }]}>
               {title}
             </Text>
           )}
@@ -125,8 +128,11 @@ const styles = StyleSheet.create({
     height: 44,
     width: 132,
   },
+  lightLockup: {
+    backgroundColor: "#060608",
+    borderRadius: 6,
+  },
   title: {
-    color: tokens.color.gold,
     flexShrink: 1,
     fontFamily: tokens.font.displayBold,
     fontSize: 19,
@@ -140,8 +146,6 @@ const styles = StyleSheet.create({
   // See more tile: soft ground, 1px edge, Card's corner radius.
   more: {
     alignItems: "center",
-    backgroundColor: tokens.color.soft,
-    borderColor: tokens.color.line,
     borderRadius: tokens.radius - 2,
     borderWidth: 1,
     justifyContent: "center",
@@ -159,7 +163,6 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   moreLabel: {
-    color: "#ffffff",
     fontFamily: tokens.font.bold,
     fontSize: 14,
     marginTop: tokens.spacing.sm,
