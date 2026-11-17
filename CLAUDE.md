@@ -22,6 +22,7 @@ clips; MediaConvert exists only for staff uploads.
 | `backend/` | AWS CDK: six stacks per stage + one Lambda per resource group. |
 | `mobile/` | The Expo SDK 57 app (iOS/Android; web is dev-only, see gotchas). |
 | `admin/` | Vite/React staff tool for content, profiles, events, newsletter export. |
+| `portal/` | Vite/React NIL TV Portal (portal.niltv.com) for athletes, guests and staff. Guide: `docs/portal.md`. |
 
 `docs/CONVENTIONS.md` is binding. The short version: API shapes only in `@niltv/types`;
 `is18plus`/`role` come from the stored USER row, never live Cognito attributes;
@@ -30,7 +31,7 @@ camelCase per the contract.
 ## Environments
 
 Two stages, `dev` and `prod`, each a set of CDK stacks
-(`niltv-{stage}-{foundation,api,media,edge,admin,ingest,partner}`) in one AWS
+(`niltv-{stage}-{foundation,api,media,edge,admin,ingest,partner,portal}`) in one AWS
 account. Stage values live in `backend/cdk.json` context and in the mobile and
 admin config files. Deploys and the environment map are maintainer tasks and
 are documented outside this repo; contributors work against the tests and a
@@ -155,7 +156,7 @@ module can never reach an installed build that lacks it.
 
 ## Where the state lives
 
-- `docs/CONVENTIONS.md`, `docs/content-foundation.md`, `docs/partner-content-api.md`
-  and `docs/api-testing.md` are the developer documents.
+- `docs/CONVENTIONS.md`, `docs/content-foundation.md`, `docs/partner-content-api.md`,
+  `docs/portal.md` and `docs/api-testing.md` are the developer documents.
 - Plans, specs, changelogs and runbooks are maintainer documents kept in a
   separate private repository.

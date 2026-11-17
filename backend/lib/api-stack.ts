@@ -76,12 +76,13 @@ export class ApiStack extends Stack {
       ORIGIN_VERIFY_SECRET: this.originVerifySecret.secretValue.unsafeUnwrap(),
     };
     const apiFns: Array<{ id: string; name: string; fn: NodejsFunction }> = [];
-    const apiFn = (fnId: string, name: string, file: string): NodejsFunction => {
+    const apiFn = (fnId: string, name: string, file: string, timeout?: Duration): NodejsFunction => {
       const fn = makeFn(this, fnId, {
         stage,
         name,
         entry: join(__dirname, "..", "src", "handlers", file),
         env: apiEnv,
+        ...(timeout ? { timeout } : {}),
       });
       apiFns.push({ id: fnId, name, fn });
       return fn;
@@ -97,6 +98,7 @@ export class ApiStack extends Stack {
     const profileFn = apiFn("ProfileFn", "profile", "profile.ts");
     const profilesListFn = apiFn("ProfilesListFn", "profiles-list", "profiles-list.ts");
     const meFn = apiFn("MeFn", "me", "me.ts");
+    const favoritesFn = apiFn("FavoritesFn", "favorites", "favorites.ts");
     const followFn = apiFn("FollowFn", "follow", "follow.ts");
     const likeFn = apiFn("LikeFn", "like", "like.ts");
     const voteFn = apiFn("VoteFn", "vote", "vote.ts");
@@ -105,7 +107,8 @@ export class ApiStack extends Stack {
     const notifFollowsFn = apiFn("NotifFollowsFn", "notification-follows", "notification-follows.ts");
     const newsletterFn = apiFn("NewsletterFn", "newsletter", "newsletter.ts");
     const newsletterConfirmFn = apiFn("NewsletterConfirmFn", "newsletter-confirm", "newsletter-confirm.ts");
-    const deleteMeFn = apiFn("DeleteMeFn", "delete-me", "delete-me.ts");
+    // 29 s: the HTTP API gives up at 30. The Content Hub purge walks every ask.
+    const deleteMeFn = apiFn("DeleteMeFn", "delete-me", "delete-me.ts", Duration.seconds(29));
 
     // ── Partner content API (/partner/v1, keyed) ───────────────────────────
     // The routes exist in every stage; PARTNER_API_ENABLED decides whether
@@ -270,6 +273,35 @@ export class ApiStack extends Stack {
       }),
     );
 
+    // Favorites live on USER META; channel ids are checked against CHANNEL META rows.
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["USER#*"] },
+        },
+      }),
+    );
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:BatchGetItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CHANNEL#*"] },
+        },
+      }),
+    );
+    favoritesFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem"],
+        resources: [table.tableArn],
+        conditions: {
+          "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["CONFIG#app"] },
+        },
+      }),
+    );
+
     // follow: fact row writes in USER#*, existence check + follower counter
     // in ATHLETE#* — nothing else on the table, nothing on the GSIs.
     followFn.addToRolePolicy(
@@ -417,6 +449,40 @@ export class ApiStack extends Stack {
       new iam.PolicyStatement({
         actions: ["cognito-idp:AdminDeleteUser"],
         resources: [userPool.userPoolArn],
+      }),
+    );
+
+    // ── delete-me, portal Content Hub part (lib/portal/hub-purge.ts) ────────
+    // A member's claims, file rows and files live under each ask. The bucket
+    // belongs to the portal stack; it is named here, not referenced, so the
+    // two stacks still deploy on their own.
+    const submissionsBucketName = `niltv-${stage}-portal-submissions-${this.account}`;
+    deleteMeFn.addEnvironment("SUBMISSIONS_BUCKET", submissionsBucketName);
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${table.tableArn}/index/GSI1`],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ASKS#ALL"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:DeleteItem"],
+        resources: [table.tableArn],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ASK#*"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [`arn:${this.partition}:s3:::${submissionsBucketName}`],
+        conditions: { StringLike: { "s3:prefix": ["submissions/*"] } },
+      }),
+    );
+    deleteMeFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:DeleteObject", "s3:AbortMultipartUpload"],
+        resources: [`arn:${this.partition}:s3:::${submissionsBucketName}/submissions/*`],
       }),
     );
 
@@ -641,6 +707,12 @@ export class ApiStack extends Stack {
       path: "/v1/me/appearance",
       methods: [apigwv2.HttpMethod.PUT],
       integration: new HttpLambdaIntegration("MeAppearanceIntegration", meFn),
+      authorizer: this.jwtAuthorizer,
+    });
+    this.httpApi.addRoutes({
+      path: "/v1/me/favorites",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("FavoritesIntegration", favoritesFn),
       authorizer: this.jwtAuthorizer,
     });
     this.httpApi.addRoutes({

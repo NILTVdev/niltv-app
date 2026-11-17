@@ -79,6 +79,7 @@ describe("GET /v1/me handler", () => {
       follows: ["ath-camila"],
       likes: ["c-floor-routine"],
       notificationFollows: [{ targetType: "channel", targetId: "ch-trueblue" }],
+      favorites: { schools: [], sports: [], channels: [] },
     });
 
     // The query is keyed to the caller's own partition.
@@ -136,7 +137,11 @@ describe("PATCH /v1/me handler", () => {
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({
         Items: [
-          { ...partitionRows[0], displayName: "Updated Fan" },
+          {
+            ...partitionRows[0],
+            displayName: "Updated Fan",
+            favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] },
+          },
           ...partitionRows.slice(1),
         ],
       });
@@ -155,6 +160,7 @@ describe("PATCH /v1/me handler", () => {
       userId: "u-1",
       name: "Test Fan",
       displayName: "Updated Fan",
+      favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] },
     });
     expect(sendMock).toHaveBeenCalledTimes(2);
     const update = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;

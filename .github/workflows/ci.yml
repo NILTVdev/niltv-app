@@ -53,6 +53,14 @@ jobs:
       - name: Mobile tests
         run: npm run test --workspace mobile
 
+      - name: Portal tests
+        run: npm run test --workspace @niltv/portal
+
+      # Smoke build: catches import and bundling faults the typecheck misses.
+      # No VITE_* values in CI; the app renders its setup screen without them.
+      - name: Portal build
+        run: npm run build --workspace @niltv/portal
+
       - name: Lint (mobile)
         run: npm run lint --workspace mobile
 

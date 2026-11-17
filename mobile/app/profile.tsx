@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
 import { AppearanceSettings } from "@/components/AppearanceSettings";
+import { FavoritesSettings } from "@/components/FavoritesSettings";
 import { GoldButton } from "@/components/GoldButton";
 import { PrivacyLink } from "@/components/PrivacyLink";
 import { goBack } from "@/lib/navigation";
@@ -261,6 +262,8 @@ function SignedInProfile() {
           accessibilityLabel="Push notifications"
         />
       </View>
+
+      <FavoritesSettings />
 
       <AppearanceSettings />
 

@@ -22,6 +22,10 @@ describe("email shell", () => {
     expect(html).toContain("Lead copy.");
     expect(html).toContain("Tail copy.");
     expect(html).toContain('href="https://niltv.com"');
+    expect(html).toContain('href="https://niltv.com/legal/privacy/"');
+    expect(html).toContain('href="https://niltv.com/legal/terms/"');
+    expect(html).toContain(">Privacy Policy<");
+    expect(html).toContain(">Terms of Use<");
     expect(html.trimEnd().endsWith("</html>")).toBe(true);
   });
 
