@@ -48,3 +48,6 @@ export function useMe(): MeValue {
   if (!value) throw new Error("useMe outside MeProvider");
   return value;
 }
+
+/** The signed-in member when there is one, for shared pieces that also render signed out. */
+export const useMeMaybe = (): MeValue | null => useContext(MeContext);
