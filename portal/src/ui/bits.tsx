@@ -3,15 +3,18 @@ import type { PortalRole } from "@niltv/types";
 import { type ReactNode, useId } from "react";
 import { errorText } from "../api";
 import { initials, type Tone } from "../lib/format";
+import { useMeMaybe } from "./me";
 
 export function PageHead({ title, sub, access }: { title: string; sub?: ReactNode; access?: string }) {
+  // Who can see a screen is admin information; athletes, staff and guests never see the label.
+  const isAdmin = useMeMaybe()?.member.role === "admin";
   return (
     <header className="head">
       <div>
         <h1>{title}</h1>
         {sub ? <p>{sub}</p> : null}
       </div>
-      {access ? (
+      {access && isAdmin ? (
         <span className="access">
           Visible to: <b>{access}</b>
         </span>
