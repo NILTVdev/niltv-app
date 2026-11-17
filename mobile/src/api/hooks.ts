@@ -11,6 +11,7 @@ import {
   HomeResponse,
   LikeAckResponse,
   MeResponse,
+  type MeFavoritesPutRequest,
   type MeUpdateRequest,
   type NewsletterRequest,
   type NotificationFollow,
@@ -189,6 +190,18 @@ export function useUpdateDisplayName() {
   return useMutation({
     mutationFn: (body: MeUpdateRequest) =>
       request("/v1/me", MeResponse, { method: "PATCH", body, auth: true }),
+    onSuccess: (updatedMe) => {
+      qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
+    },
+  });
+}
+
+/** PUT /v1/me/favorites — replace saved discovery preferences. */
+export function useUpdateFavorites() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeFavoritesPutRequest) =>
+      request("/v1/me/favorites", MeResponse, { method: "PUT", body, auth: true }),
     onSuccess: (updatedMe) => {
       qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
     },
