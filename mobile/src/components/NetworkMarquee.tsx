@@ -101,7 +101,7 @@ function Row({
           ids.map((id) => (
             <View
               key={`${copy}-${id}`}
-              style={[styles.tile, { width: tileWidth, height, backgroundColor: t.surface }]}
+              style={[styles.tile, { width: tileWidth, height, backgroundColor: t.surface, borderColor: t.line }]}
             >
               <Image
                 source={{ uri: marqueePosterUrl(config.apiBase, id) }}
@@ -204,7 +204,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.05)",
   },
   edge: {
     position: "absolute",

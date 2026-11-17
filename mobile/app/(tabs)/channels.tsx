@@ -76,7 +76,7 @@ export default function ChannelsScreen() {
         onPress={soon ? undefined : () => open(c.id, c.name, "channels")}
         style={styles.cell}
       >
-        <View style={styles.tile}>
+        <View style={[styles.tile, logo !== undefined && !t.dark && styles.lightLogoTile]}>
           {logo !== undefined ? (
             <Image source={logo} style={styles.logo} resizeMode="contain" accessibilityIgnoresInvertColors />
           ) : (
@@ -87,7 +87,7 @@ export default function ChannelsScreen() {
         </View>
         {/* One line, the site's caption: "{School}'s Athletes", Coming Soon,
             or the bare channel name as the fallback. */}
-        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.caption}>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.caption, { color: t.accent }]}>
           {soon ? "Coming Soon" : (descriptor ?? c.name)}
         </Text>
       </PressableScale>
@@ -115,13 +115,13 @@ export default function ChannelsScreen() {
           numberOfLines={2}
           adjustsFontSizeToFit
           minimumFontScale={0.6}
-          style={[styles.heroTitle, { fontSize: heroSize, lineHeight: Math.round(heroSize * 1.02) }]}
+          style={[styles.heroTitle, { color: t.text, fontSize: heroSize, lineHeight: Math.round(heroSize * 1.02) }]}
         >
           {HERO_TITLE}
         </Text>
 
         {/* ── The channel carousel ─────────────────────────────────────── */}
-        <Text style={styles.heading}>Channels</Text>
+        <Text style={[styles.heading, { color: t.accent }]}>Channels</Text>
 
         {channels.isPending && !channels.data ? <RailSkeleton cardWidth={TILE_WIDTH} aspect="3:4" /> : null}
         {channels.isError && !channels.data ? (
@@ -183,10 +183,9 @@ const styles = StyleSheet.create({
   gutter: {
     paddingHorizontal: tokens.spacing.lg,
   },
-  // The site's h1.hero-title.ht-sm: Barlow 800, uppercase, white, tight
-  // leading; the size is set inline against the width (see heroSize).
+  // The site's h1.hero-title.ht-sm: Barlow 800, uppercase, tight leading;
+  // the size is set inline against the width (see heroSize).
   heroTitle: {
-    color: "#ffffff",
     fontFamily: tokens.font.display,
     letterSpacing: 0.5,
     textTransform: "uppercase",
@@ -195,9 +194,8 @@ const styles = StyleSheet.create({
     marginBottom: tokens.spacing.md,
   },
   // The site's shelf title (cinema .shelf-title): Barlow Condensed
-  // 700, 19px, .16em tracking (3px here), uppercase, gold.
+  // 700, 19px, .16em tracking (3px here), uppercase.
   heading: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.displayBold,
     fontSize: 19,
     letterSpacing: 3,
@@ -228,6 +226,10 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing.md,
     paddingHorizontal: tokens.spacing.sm,
   },
+  lightLogoTile: {
+    backgroundColor: "#060608",
+    borderRadius: 8,
+  },
   logo: {
     height: 84,
     width: "94%",
@@ -244,7 +246,6 @@ const styles = StyleSheet.create({
    * (.chan-cap-soon is the same type, gold), and the bare name fallback.
    */
   caption: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.displayBold,
     fontSize: 11,
     letterSpacing: 1.3,

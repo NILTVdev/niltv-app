@@ -98,7 +98,7 @@ export default function AuthScreen() {
 
           <NiltvLogo height={36} style={styles.logo} />
           {/* The site's tagline (the hero eyebrow voice: gold, tracked, uppercase). */}
-          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.tagline}>
+          <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.tagline, { color: t.accent }]}>
             Real Name. Real Game. Real TV.
           </Text>
           {/* Full bleed: escapes the screen's xl side padding. Decorative, no
@@ -144,7 +144,6 @@ const styles = StyleSheet.create({
     marginTop: tokens.spacing.sm,
   },
   tagline: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.displayBold,
     fontSize: 15,
     letterSpacing: 3.6,

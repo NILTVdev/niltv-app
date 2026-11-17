@@ -10,6 +10,7 @@ import {
   FollowAckResponse,
   HomeResponse,
   LikeAckResponse,
+  type MeAppearancePutRequest,
   MeResponse,
   type MeFavoritesPutRequest,
   type MeUpdateRequest,
@@ -190,6 +191,18 @@ export function useUpdateDisplayName() {
   return useMutation({
     mutationFn: (body: MeUpdateRequest) =>
       request("/v1/me", MeResponse, { method: "PATCH", body, auth: true }),
+    onSuccess: (updatedMe) => {
+      qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
+    },
+  });
+}
+
+/** PUT /v1/me/appearance — persist the authenticated user's appearance preference. */
+export function useUpdateAppearance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MeAppearancePutRequest) =>
+      request("/v1/me/appearance", MeResponse, { method: "PUT", body, auth: true }),
     onSuccess: (updatedMe) => {
       qc.setQueryData<MeResponse>(queryKeys.me, updatedMe);
     },

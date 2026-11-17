@@ -36,7 +36,7 @@ export function NewsletterBand({
         { backgroundColor: t.surface, borderColor: t.line, opacity: pressed ? 0.8 : 1 },
       ]}
     >
-      <Ionicons name="mail-outline" size={22} color={tokens.color.gold} />
+      <Ionicons name="mail-outline" size={22} color={t.accent} />
       <View style={styles.text}>
         <Text style={[styles.title, { color: t.text }]}>{title}</Text>
         <Text numberOfLines={2} style={[styles.copy, { color: t.subtext }]}>

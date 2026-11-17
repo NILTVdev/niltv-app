@@ -30,8 +30,8 @@ export function AboutSection({ about }: { about: NonNullable<EventEntity["about"
       {about.note ? <Text style={[styles.note, { color: t.subtext }]}>{about.note}</Text> : null}
       <View style={styles.facts}>
         {about.facts.map((fact, i) => (
-          <View key={fact} style={[styles.fact, { borderTopColor: tokens.color.gold }]}>
-            <Text style={[styles.factNum, { color: tokens.color.goldDeep }]}>
+          <View key={fact} style={[styles.fact, { borderTopColor: t.accent }]}>
+            <Text style={[styles.factNum, { color: t.accent }]}>
               {String(i + 1).padStart(2, "0")}
             </Text>
             <Text style={[styles.factCopy, { color: t.text }]}>{fact}</Text>
@@ -97,7 +97,7 @@ export function FaqSection({ faq }: { faq: NonNullable<EventEntity["faq"]> }) {
                 styles.faqItem,
                 {
                   backgroundColor: t.surface,
-                  borderColor: isOpen ? tokens.color.gold : t.line,
+                  borderColor: isOpen ? t.accent : t.line,
                 },
               ]}
             >
@@ -112,7 +112,7 @@ export function FaqSection({ faq }: { faq: NonNullable<EventEntity["faq"]> }) {
                   <Ionicons
                     name={isOpen ? "remove" : "add"}
                     size={16}
-                    color={isOpen ? "#1a1a1f" : t.accent}
+                    color={isOpen ? t.onAccent : t.accent}
                   />
                 </View>
               </View>

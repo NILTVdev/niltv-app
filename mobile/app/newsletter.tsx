@@ -37,9 +37,6 @@ import { useScreenView } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
 
-/** Muted red for inline error copy (same as the auth sheet). */
-const ERROR_RED = "#b04a3f";
-
 const BENEFITS = [
   "Weekly athlete spotlights & top clips",
   "NIL STAR voting windows before anyone else",
@@ -117,7 +114,7 @@ export default function NewsletterScreen() {
             <>
               {BENEFITS.map((benefit) => (
                 <View key={benefit} style={styles.benefit}>
-                  <Ionicons name="star" size={14} color={tokens.color.gold} />
+                  <Ionicons name="star" size={14} color={t.accent} />
                   <Text style={[styles.benefitText, { color: t.text }]}>{benefit}</Text>
                 </View>
               ))}
@@ -152,7 +149,7 @@ export default function NewsletterScreen() {
                 onSubmitEditing={submit}
                 editable={!signup.isPending}
               />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
               <GoldButton
                 label="Sign Me Up"
                 onPress={submit}
@@ -228,7 +225,6 @@ const styles = StyleSheet.create({
     marginTop: tokens.spacing.md,
   },
   error: {
-    color: ERROR_RED,
     fontFamily: tokens.font.semibold,
     fontSize: 13,
     marginTop: tokens.spacing.md,

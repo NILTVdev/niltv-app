@@ -191,7 +191,7 @@ export default function HomeScreen() {
                     {categoryRails}
                     <View style={styles.campusBreak}>
                       <View style={[styles.campusRule, { backgroundColor: t.line }]} />
-                      <Text style={styles.campusHeading}>Channels</Text>
+                      <Text style={[styles.campusHeading, { color: t.accent }]}>Channels</Text>
                     </View>
                   </>
                 ) : null}
@@ -279,7 +279,6 @@ const styles = StyleSheet.create({
   },
   // Gold uppercase like the site's shelf titles.
   campusHeading: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.extrabold,
     fontSize: 22,
     letterSpacing: 2,

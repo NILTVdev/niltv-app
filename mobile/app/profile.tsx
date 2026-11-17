@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useDeleteAccount, useMe, useSetPushEnabled, useUpdateDisplayName } from "@/api/hooks";
 import { requireAuth, useAuthStore } from "@/auth/store";
+import { AppearanceSettings } from "@/components/AppearanceSettings";
 import { FavoritesSettings } from "@/components/FavoritesSettings";
 import { GoldButton } from "@/components/GoldButton";
 import { PrivacyLink } from "@/components/PrivacyLink";
@@ -61,7 +62,7 @@ function Row({
   onPress: () => void;
 }) {
   const t = useTheme();
-  const color = danger ? "#b04a3f" : t.text;
+  const color = danger ? t.danger : t.text;
   return (
     <Pressable
       onPress={onPress}
@@ -205,7 +206,7 @@ function SignedInProfile() {
               </Pressable>
             </View>
             {updateDisplayName.isError ? (
-              <Text accessibilityRole="alert" style={styles.nameError}>
+              <Text accessibilityRole="alert" style={[styles.nameError, { color: t.danger }]}>
                 {updateDisplayName.error.message || "Could not save your display name. Please try again."}
               </Text>
             ) : null}
@@ -263,6 +264,8 @@ function SignedInProfile() {
       </View>
 
       <FavoritesSettings />
+
+      <AppearanceSettings />
 
       <Row
         icon="mail-outline"
@@ -413,7 +416,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   nameError: {
-    color: "#d97970",
     fontFamily: tokens.font.regular,
     fontSize: 13,
     textAlign: "center",
