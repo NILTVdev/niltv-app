@@ -5,8 +5,9 @@ import { Image, type ImageStyle, type StyleProp } from "react-native";
  * ★ + "NILTV" text; channel logos key off channel id.
  * Every file here is the one the site renders, copied from webapp/assets/img:
  * chan3/*.webp (stacked campus marks), chanh/*.webp (horizontal
- * lockups), nilstar-logo-wide.webp and niltv-logo.webp. Keep them .webp:
- * React Native decodes it on iOS 14+ and Android.
+ * lockups), nilstar-logo-wide.webp, and the site's niltv-logo-v2.webp as
+ * niltv-logo.webp. Keep them .webp: React Native decodes it on iOS 14+ and
+ * Android.
  *
  * Two channel-mark sets: CHANNEL_LOGOS (stacked chan3 art, used by the
  * Channels grid tiles) and CHANNEL_LOGOS_H (the 3:1 chanh lockups in
@@ -189,9 +190,9 @@ function Mark({
 }
 
 /**
- * The gold NILTV wordmark (the site's nav logo, 697x220, cropped tight).
- * Still boxed at 2.4:1 so it width-fits and the header keeps its set size;
- * the old padded asset had the same ink inside a looser canvas.
+ * The NIL TV logo: the brand kit's niltv-logo-gold-transparent.png fitted
+ * into the same 697x220 canvas as the mark it replaced, so the header keeps
+ * its set size. Still boxed at 2.4:1 so it width-fits.
  */
 export function NiltvLogo({ height = 28, style }: { height?: number; style?: StyleProp<ImageStyle> }) {
   return <Mark source={NILTV_LOGO} height={height} aspect={2.4} style={style} />;
