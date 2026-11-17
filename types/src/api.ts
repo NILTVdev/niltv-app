@@ -217,6 +217,24 @@ export const NotificationFollow = z.object({
 });
 export type NotificationFollow = z.infer<typeof NotificationFollow>;
 
+/** Saved discovery preferences; school names retain the existing string model. */
+export const FavoriteSchool = z.string().trim().min(1).max(80);
+export type FavoriteSchool = z.infer<typeof FavoriteSchool>;
+
+/** Sport interests exclude taxonomy-only classifications, without narrowing Sport itself. */
+export const FavoriteSport = Sport.exclude(["multi-sport", "none-visible"]);
+export type FavoriteSport = z.infer<typeof FavoriteSport>;
+
+/** PUT /v1/me/favorites replaces all three arrays. */
+export const MeFavorites = z.object({
+  schools: z.array(FavoriteSchool).max(50),
+  sports: z.array(FavoriteSport).max(FavoriteSport.options.length),
+  channels: z.array(Id).max(100),
+});
+export type MeFavorites = z.infer<typeof MeFavorites>;
+export const MeFavoritesPutRequest = MeFavorites;
+export type MeFavoritesPutRequest = MeFavorites;
+
 export const MeResponse = z.object({
   userId: Id,
   name: z.string(),
@@ -231,6 +249,8 @@ export const MeResponse = z.object({
   /** contentIds the user has liked — the client derives per-clip liked state from this */
   likes: z.array(Id).default([]),
   notificationFollows: z.array(NotificationFollow),
+  /** Saved discovery preferences, absent on accounts created before favorites shipped. */
+  favorites: MeFavorites.default({ schools: [], sports: [], channels: [] }),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 

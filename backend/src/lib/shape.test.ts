@@ -147,7 +147,29 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
         { targetType: "channel", targetId: "ch-trueblue" },
         { targetType: "ambassador", targetId: "ath-maya-robinson" },
       ],
+      favorites: { schools: [], sports: [], channels: [] },
     });
+  });
+
+  it("maps saved favorites and defaults them for existing META rows", () => {
+    const saved = mapUserPartition("u-1", [
+      { ...meta, favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] } },
+    ]);
+    expect(saved?.favorites).toEqual({
+      schools: ["Duke"],
+      sports: ["soccer"],
+      channels: ["ch-trueblue"],
+    });
+
+    const legacy = mapUserPartition("u-1", [meta]);
+    expect(legacy?.favorites).toEqual({ schools: [], sports: [], channels: [] });
+  });
+
+  it("defaults malformed stored favorites without failing the account response", () => {
+    const malformed = mapUserPartition("u-1", [
+      { ...meta, favorites: { schools: ["Duke"], sports: ["none-visible"], channels: ["ch-trueblue"] } },
+    ]);
+    expect(malformed?.favorites).toEqual({ schools: [], sports: [], channels: [] });
   });
 
   it("returns undefined when the META row is absent", () => {
