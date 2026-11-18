@@ -285,8 +285,8 @@ export function buildLibrarySync(
 export type LibrarySyncOutcome =
   | { status: "disabled" }
   | { status: "skipped"; reason: string; items?: number }
-  | { status: "sent"; items: number; received: number; upserted: number; removed: number }
-  | { status: "failed"; error: string; items?: number };
+  | { status: "sent"; items: number; bytes: number; received: number; upserted: number; removed: number }
+  | { status: "failed"; error: string; items?: number; bytes?: number };
 
 export interface LibrarySyncOptions {
   /** LIBRARY_SYNC_ENABLED === "true" */
@@ -295,6 +295,8 @@ export interface LibrarySyncOptions {
   stage: string;
   playbackBase: string;
   dashboardUrl: string;
+  /** LIBRARY_SYNC_API_KEY_PARAM: the SSM parameter holding that dashboard's API key. */
+  apiKeyParam: string;
   now?: Date;
 }
 
@@ -321,11 +323,11 @@ export function librarySyncLogLine(outcome: LibrarySyncOutcome): string {
       return `library-sync: status=skipped items=${outcome.items ?? 0} reason="${outcome.reason}"`;
     case "sent":
       return (
-        `library-sync: status=sent items=${outcome.items} received=${outcome.received} ` +
+        `library-sync: status=sent items=${outcome.items} bytes=${outcome.bytes} received=${outcome.received} ` +
         `upserted=${outcome.upserted} removed=${outcome.removed}`
       );
     case "failed":
-      return `library-sync: status=failed items=${outcome.items ?? 0} error="${outcome.error.replace(/"/g, "'")}"`;
+      return `library-sync: status=failed items=${outcome.items ?? 0} bytes=${outcome.bytes ?? 0} error="${outcome.error.replace(/"/g, "'")}"`;
   }
 }
 
@@ -347,8 +349,10 @@ async function attemptLibrarySync(opts: LibrarySyncOptions, deps: LibrarySyncDep
     return { status: "skipped", reason: `stage ${opts.stage || "(unset)"} is not dev or prod` };
   }
   if (!opts.dashboardUrl) return { status: "skipped", reason: "LIBRARY_SYNC_URL unset" };
+  if (!opts.apiKeyParam) return { status: "skipped", reason: "LIBRARY_SYNC_API_KEY_PARAM unset" };
 
   let items: number | undefined;
+  let bytes: number | undefined;
   try {
     const [rows, profiles] = await Promise.all([deps.loadRows(opts.table), deps.loadProfiles(opts.table)]);
     items = rows.content.length;
@@ -369,22 +373,31 @@ async function attemptLibrarySync(opts: LibrarySyncOptions, deps: LibrarySyncDep
       { stage: opts.stage, generatedAt: opts.now ?? new Date() },
     );
     items = body.items.length;
+    // Plain JSON on purpose: the dashboard does not decompress. The size is
+    // logged so operators can compare it with the proxy's body limit.
+    const payload = JSON.stringify(body);
+    bytes = Buffer.byteLength(payload, "utf8");
 
     const apiKey = await deps.getApiKey();
     const response = await deps.fetch(`${opts.dashboardUrl.replace(/\/+$/, "")}/api/library/sync`, {
       method: "POST",
       headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: payload,
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       const text = (await response.text().catch(() => "")).slice(0, 200);
-      return { status: "failed", error: `HTTP ${response.status} ${text}`.trim(), items };
+      return { status: "failed", error: `HTTP ${response.status} ${text}`.trim(), items, bytes };
     }
     const parsed = DashboardLibrarySyncResponse.safeParse(await response.json().catch(() => undefined));
-    if (!parsed.success) return { status: "failed", error: "unexpected response body", items };
-    return { status: "sent", items, ...parsed.data };
+    if (!parsed.success) return { status: "failed", error: "unexpected response body", items, bytes };
+    return { status: "sent", items, bytes, ...parsed.data };
   } catch (err) {
-    return { status: "failed", error: err instanceof Error ? err.message : String(err), ...(items !== undefined ? { items } : {}) };
+    return {
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+      ...(items !== undefined ? { items } : {}),
+      ...(bytes !== undefined ? { bytes } : {}),
+    };
   }
 }

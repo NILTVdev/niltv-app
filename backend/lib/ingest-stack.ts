@@ -81,7 +81,7 @@ export class IngestStack extends Stack {
     // the bridge POSTs the whole labelled library to the dashboard's
     // /api/library/sync. Context `niltv:librarySync:{stage}`; defaults to on
     // in dev and off in prod until the dashboard endpoint ships there. It
-    // reads with the table grant below and the same dashboard API key.
+    // reads with the table grant below and its own dashboard API key.
     const librarySyncEnabled =
       (this.node.tryGetContext(`niltv:librarySync:${stage}`) as string | undefined) ?? (stage === "dev" ? "true" : "false");
     ingestFn.addEnvironment("LIBRARY_SYNC_ENABLED", librarySyncEnabled);
@@ -93,6 +93,13 @@ export class IngestStack extends Stack {
       (this.node.tryGetContext(`niltv:dashboardApiUrl:${stage}`) as string | undefined) ??
       (stage === "prod" ? "https://api.niltv.com" : "https://api-dev.niltv.com");
     ingestFn.addEnvironment("LIBRARY_SYNC_URL", librarySyncUrl);
+    // The dev and prod dashboards take different keys, so the sync reads its
+    // own SSM parameter. Prod defaults to the brand-read key (same dashboard);
+    // dev to the dev dashboard's key. Context `niltv:librarySyncKeyParam:{stage}`.
+    const librarySyncKeyParamName =
+      (this.node.tryGetContext(`niltv:librarySyncKeyParam:${stage}`) as string | undefined) ??
+      (stage === "prod" ? apiKeyParamName : `/niltv/${stage}/dashboard-dev-api-key`);
+    ingestFn.addEnvironment("LIBRARY_SYNC_API_KEY_PARAM", librarySyncKeyParamName);
 
     // Same pattern as the api stack: the CloudFront domain comes from cdk.json
     // context so the handler can compose public download URLs for the
@@ -145,6 +152,9 @@ export class IngestStack extends Stack {
         resources: [
           this.formatArn({ service: "ssm", resource: "parameter", resourceName: apiKeyParamName.slice(1) }),
           this.formatArn({ service: "ssm", resource: "parameter", resourceName: siteDeployTokenParamName.slice(1) }),
+          ...(librarySyncKeyParamName !== apiKeyParamName
+            ? [this.formatArn({ service: "ssm", resource: "parameter", resourceName: librarySyncKeyParamName.replace(/^\//, "") })]
+            : []),
         ],
       }),
     );

@@ -407,6 +407,26 @@ async function getDashboardApiKey(): Promise<string> {
   return value;
 }
 
+// The library sync posts to the stage's own dashboard (LIBRARY_SYNC_URL),
+// whose key differs from the prod key above in dev, so it has its own
+// parameter and cache. A missing parameter fails the sync, never the run.
+let cachedLibrarySyncKey: string | undefined;
+async function getLibrarySyncApiKey(): Promise<string> {
+  if (cachedLibrarySyncKey) return cachedLibrarySyncKey;
+  const paramName = process.env.LIBRARY_SYNC_API_KEY_PARAM ?? "";
+  let value: string | undefined;
+  try {
+    const out = await new SSMClient({}).send(new GetParameterCommand({ Name: paramName, WithDecryption: true }));
+    value = out.Parameter?.Value;
+  } catch (err) {
+    const why = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    throw new Error(`library sync key ${paramName} unreadable (${why})`);
+  }
+  if (!value) throw new Error(`library sync key ${paramName} is empty`);
+  cachedLibrarySyncKey = value;
+  return value;
+}
+
 async function fetchDashboard<T>(path: string): Promise<T[]> {
   const baseUrl = process.env.DASHBOARD_API_URL ?? "";
   const apiKey = await getDashboardApiKey();
@@ -870,7 +890,9 @@ export const handler: ScheduledHandler = async () => {
       playbackBase,
       // The stage's own dashboard (LIBRARY_SYNC_URL), not DASHBOARD_API_URL.
       dashboardUrl: process.env.LIBRARY_SYNC_URL ?? "",
+      // Its own key: the dev dashboard does not accept the prod key.
+      apiKeyParam: process.env.LIBRARY_SYNC_API_KEY_PARAM ?? "",
     },
-    defaultLibrarySyncDeps(getDashboardApiKey),
+    defaultLibrarySyncDeps(getLibrarySyncApiKey),
   );
 };

@@ -36,6 +36,18 @@ function ingestEnv(template: Template): Record<string, string> {
   return fn!.Properties.Environment.Variables;
 }
 
+type Statement = { Action: string | string[]; Resource: unknown };
+
+/** Every resource an ssm:GetParameter statement names, flattened to strings. */
+function ssmParams(template: Template): string[] {
+  const policies = template.findResources("AWS::IAM::Policy");
+  return Object.values(policies)
+    .flatMap((p) => (p as { Properties: { PolicyDocument: { Statement: Statement[] } } }).Properties.PolicyDocument.Statement)
+    .filter((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]).includes("ssm:GetParameter"))
+    .flatMap((s) => (Array.isArray(s.Resource) ? s.Resource : [s.Resource]))
+    .map((r) => JSON.stringify(r));
+}
+
 describe("IngestStack library sync", () => {
   const dev = synth("dev");
   const prod = synth("prod");
@@ -51,6 +63,28 @@ describe("IngestStack library sync", () => {
     expect(ingestEnv(prod)["LIBRARY_SYNC_URL"]).toBe("https://api.niltv.com");
     const devOverride = synth("dev", { "niltv:dashboardApiUrl:dev": "https://dashboard.example.test" });
     expect(ingestEnv(devOverride)["LIBRARY_SYNC_URL"]).toBe("https://dashboard.example.test");
+  });
+
+  it("reads the sync key from its own parameter: the dev dashboard key in dev, the brand key in prod", () => {
+    expect(ingestEnv(dev)["LIBRARY_SYNC_API_KEY_PARAM"]).toBe("/niltv/dev/dashboard-dev-api-key");
+    expect(ingestEnv(dev)["DASHBOARD_API_KEY_PARAM"]).toBe("/niltv/dev/dashboard-api-key");
+    expect(ingestEnv(prod)["LIBRARY_SYNC_API_KEY_PARAM"]).toBe("/niltv/prod/dashboard-api-key");
+    const devOverride = synth("dev", { "niltv:librarySyncKeyParam:dev": "/niltv/dev/other-key" });
+    expect(ingestEnv(devOverride)["LIBRARY_SYNC_API_KEY_PARAM"]).toBe("/niltv/dev/other-key");
+  });
+
+  it("grants ssm:GetParameter on the sync key parameter", () => {
+    expect(ssmParams(dev)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("parameter/niltv/dev/dashboard-api-key"),
+        expect.stringContaining("parameter/niltv/dev/dashboard-dev-api-key"),
+      ]),
+    );
+    const override = synth("dev", { "niltv:librarySyncKeyParam:dev": "/niltv/dev/other-key" });
+    expect(ssmParams(override)).toEqual(expect.arrayContaining([expect.stringContaining("parameter/niltv/dev/other-key")]));
+    // Prod reuses the brand-read key, which is already granted.
+    expect(ssmParams(prod).filter((a) => a.includes("dashboard-dev-api-key"))).toEqual([]);
+    expect(ssmParams(prod)).toEqual(expect.arrayContaining([expect.stringContaining("parameter/niltv/prod/dashboard-api-key")]));
   });
 
   it("follows the niltv:librarySync:{stage} context value", () => {

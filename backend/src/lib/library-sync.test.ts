@@ -269,6 +269,7 @@ const options = (overrides: Partial<LibrarySyncOptions> = {}): LibrarySyncOption
   stage: "dev",
   playbackBase: BASE,
   dashboardUrl: "https://dashboard.example.test",
+  apiKeyParam: "/niltv/test/dashboard-dev-api-key",
   now: new Date("2026-11-18T12:00:00Z"),
   ...overrides,
 });
@@ -305,17 +306,21 @@ describe("runLibrarySync", () => {
   it("POSTs one full snapshot with the API key and reports the counts", async () => {
     const d = deps();
     const outcome = await runLibrarySync(options(), d);
-    expect(outcome).toEqual({ status: "sent", items: 3, received: 3, upserted: 3, removed: 1 });
-    expect(d.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = d.fetch.mock.calls[0] as [string, RequestInit];
+    const bytes = Buffer.byteLength(String(init.body), "utf8");
+    expect(outcome).toEqual({ status: "sent", items: 3, bytes, received: 3, upserted: 3, removed: 1 });
+    expect(d.fetch).toHaveBeenCalledTimes(1);
     expect(url).toBe("https://dashboard.example.test/api/library/sync");
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("sample-key");
+    // Plain JSON, never compressed: the dashboard does not decompress.
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((init.headers as Record<string, string>)["Content-Encoding"]).toBeUndefined();
     const body = DashboardLibrarySync.parse(JSON.parse(String(init.body)));
     expect(body.full).toBe(true);
     expect(body.items).toHaveLength(3);
     expect(console.log).toHaveBeenCalledWith(
-      "library-sync: status=sent items=3 received=3 upserted=3 removed=1",
+      `library-sync: status=sent items=3 bytes=${bytes} received=3 upserted=3 removed=1`,
     );
   });
 
@@ -341,6 +346,31 @@ describe("runLibrarySync", () => {
     expect(outcome).toEqual({ status: "skipped", reason: "over item limit", items: 5001 });
     expect(d.fetch).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalled();
+  });
+
+  it("skips when the sync key parameter is not configured", async () => {
+    const d = deps();
+    const getApiKey = vi.fn(d.getApiKey);
+    expect(await runLibrarySync(options({ apiKeyParam: "" }), { ...d, getApiKey })).toEqual({
+      status: "skipped",
+      reason: "LIBRARY_SYNC_API_KEY_PARAM unset",
+    });
+    expect(getApiKey).not.toHaveBeenCalled();
+    expect(d.fetch).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith(
+      'library-sync: status=skipped items=0 reason="LIBRARY_SYNC_API_KEY_PARAM unset"',
+    );
+  });
+
+  it("fails cleanly, with the payload size, when the sync key cannot be read", async () => {
+    const d = deps({
+      getApiKey: async () => Promise.reject(new Error("library sync key /k unreadable (ParameterNotFound: x)")),
+    });
+    const outcome = await runLibrarySync(options(), d);
+    expect(outcome).toMatchObject({ status: "failed", items: 3, error: expect.stringContaining("ParameterNotFound") });
+    expect((outcome as { bytes?: number }).bytes).toBeGreaterThan(0);
+    expect(d.fetch).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^library-sync: status=failed items=3 bytes=\d+ /));
   });
 
   it("skips a stage the contract does not know", async () => {
