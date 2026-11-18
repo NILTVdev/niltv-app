@@ -57,7 +57,7 @@ import {
   summarize,
   teamLabel,
 } from "../../lib/portal/conversations";
-import { type PortalEmail, formatWhen, isTestAddress, sendEmail } from "../../lib/portal/emails";
+import { type PortalEmail, formatWhen, isTestAddress, sendEmail, siteSignupUrl } from "../../lib/portal/emails";
 import { deskRecipients, deskStaff, getMember, getMembers, getSettings, listMembers } from "../../lib/portal/members";
 import { eventReplies, hasAnswered } from "../../lib/portal/events";
 import { getPending, markInviteSent } from "../../lib/portal/pending";
@@ -562,10 +562,10 @@ async function inviteNotice(applicationId: number, now: Date): Promise<void> {
     heading: "Your portal is waiting",
     lead: "The NIL TV Portal is where you message the team, check the schedule and see internal postings.",
     paragraphs: [
-      `To get in, create your account with this email address: ${row.email}`,
-      "Use this exact address. That is how we connect the account to your athlete record.",
+      `To get in, create your free niltv.com account with this email address: ${row.email}`,
+      "Use this exact address. That is how we connect the account to your athlete record. The same account signs you in to the portal.",
     ],
-    button: { label: "Create your account", path: `/create-account?email=${encodeURIComponent(row.email)}` },
+    button: { label: "Create your account", path: siteSignupUrl(row.email) },
     tail: "You get this because you were accepted as a NIL TV athlete.",
   });
   if (sent) await markInviteSent(applicationId, now);

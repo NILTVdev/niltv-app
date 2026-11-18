@@ -11,6 +11,7 @@
  */
 import {
   ApiError as ApiErrorBody,
+  ApplicantsResponse,
   Availability,
   AvailabilityHeatmap,
   ConversationDetail,
@@ -241,6 +242,7 @@ export const api = {
     request("POST", "/v1/members", PortalMember, bodyOf(MemberAddRequest, input)),
   updateMember: (sub: string, input: z.input<typeof MemberUpdateRequest>) =>
     request("PATCH", `/v1/members/${enc(sub)}`, PortalMember, bodyOf(MemberUpdateRequest, input)),
+  applicants: () => request("GET", "/v1/athletes/applicants", ApplicantsResponse),
   pendingAthletes: () => request("GET", "/v1/athletes/pending", PendingAthletesResponse),
   inviteAthlete: (applicationId: number) =>
     request("POST", `/v1/athletes/pending/${applicationId}/invite`, PendingAthlete),

@@ -1,5 +1,6 @@
 /**
- * Athletes (staff): the roster with search and filters. Staff fix campus
+ * Athletes (staff): applicants from niltv.com with their onboarding steps
+ * (the Applicants tab), and the portal roster with search and filters. Staff fix campus
  * and sport; admins enable accepted athletes (ready → active) and disable.
  * Accepted athletes with no account are not members yet, so they sit behind
  * their own status filter, where an admin can send the invite by hand.
@@ -13,9 +14,10 @@ import { campusName, MEMBER_STATUS, plural, STRIPE_STATUS } from "../lib/format"
 import { ComboBox } from "../ui/ComboBox";
 import { formatSeen, formatShortDate } from "../lib/time";
 import { patchMember, qk, useMembers, useOpenDesk, usePendingAthletes } from "../queries";
-import { Empty, ErrorNote, Loading, PageHead, Pill } from "../ui/bits";
+import { Empty, ErrorNote, Loading, PageHead, Pill, Tabs } from "../ui/bits";
 import { useMe } from "../ui/me";
 import { useToast } from "../ui/Toast";
+import { Applicants } from "./athletes/Applicants";
 
 const NO_ACCOUNT = "no-account";
 type StatusFilter = PortalMemberStatus | "" | typeof NO_ACCOUNT;
@@ -32,6 +34,7 @@ export function Athletes() {
   const [status, setStatus] = useState<StatusFilter>("");
   const [campus, setCampus] = useState("");
   const [sport, setSport] = useState("");
+  const [tab, setTab] = useState<"applicants" | "roster">("applicants");
 
   const athletes = useMemo(() => (members.data ?? []).filter((m) => m.role === "athlete"), [members.data]);
   const ready = athletes.filter((m) => m.status === "ready").length;
@@ -62,6 +65,19 @@ export function Athletes() {
         title="Athletes"
         access="Staff and admins"
       />
+      <Tabs
+        idBase="ath"
+        label="Athletes"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { key: "applicants", label: "Applicants" },
+          { key: "roster", label: "Portal roster", count: athletes.length },
+        ]}
+      />
+      <div id="ath-panel" role="tabpanel" aria-labelledby={`ath-${tab}`} className="stack">
+      {tab === "applicants" ? <Applicants admin={admin} /> : (
+      <>
       {ready > 0 ? (
         <div className="callout" role="status">
           <span>
@@ -153,6 +169,9 @@ export function Athletes() {
           </table>
         </div>
       ) : null}
+      </>
+      )}
+      </div>
     </>
   );
 }

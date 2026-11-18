@@ -22,6 +22,17 @@ export const escapeHtml = (value: string): string =>
 
 export const portalUrl = (path = "/"): string => `${(process.env.PORTAL_URL ?? "https://portal.niltv.com").replace(/\/$/, "")}${path}`;
 
+/**
+ * Where an athlete creates their niltv.com account. Portal and site share one
+ * account, and the portal has no sign-up of its own, so every "make an
+ * account" link goes to niltv.com, which opens its sign-up box for this link.
+ */
+export const siteSignupUrl = (email?: string): string =>
+  `https://niltv.com/?account=create${email ? `&email=${encodeURIComponent(email)}` : ""}`;
+
+/** A button path inside the portal, or a full https link elsewhere (niltv.com sign-up). */
+const buttonHref = (path: string): string => (path.startsWith("https://") ? path : portalUrl(path));
+
 export interface PortalEmail {
   subject: string;
   heading: string;
@@ -30,6 +41,7 @@ export interface PortalEmail {
   paragraphs?: string[];
   /** a list under the paragraphs: one line each, an optional grey detail under it */
   rows?: { label: string; detail?: string }[];
+  /** `path` is a portal path, or a full https URL */
   button?: { label: string; path: string };
   tail?: string;
 }
@@ -54,7 +66,7 @@ export function renderEmail(email: PortalEmail): { html: string; text: string } 
         )
         .join("")}</table></td></tr>`
     : "";
-  const button = email.button ? buttonBlock(escapeHtml(email.button.label), portalUrl(email.button.path)) : "";
+  const button = email.button ? buttonBlock(escapeHtml(email.button.label), buttonHref(email.button.path)) : "";
   const tail = email.tail ?? "You get this because you have a NIL TV Portal account. Change which emails you get in Account.";
   const html = emailShell({
     logoBase: process.env.EMAIL_LOGO_BASE,
@@ -70,7 +82,7 @@ export function renderEmail(email: PortalEmail): { html: string; text: string } 
     ...((email.rows ?? []).length
       ? [(email.rows ?? []).map((row) => `- ${row.label}${row.detail ? `\n  ${row.detail}` : ""}`).join("\n")]
       : []),
-    ...(email.button ? [`${email.button.label}: ${portalUrl(email.button.path)}`] : []),
+    ...(email.button ? [`${email.button.label}: ${buttonHref(email.button.path)}`] : []),
     "",
     tail,
     "",

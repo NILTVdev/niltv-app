@@ -345,6 +345,16 @@ td .c { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 .editrow td { background: var(--surface-hi); }
 .editrow .two { margin-bottom: 10px; }
 .roster td:last-child > .row { flex-wrap: nowrap; }
+/* Athletes tabs: the panel spaces its blocks like main does. */
+#ath-panel { gap: 22px; }
+/* Applicants: the onboarding checklist, one step per line. */
+.applicants td { vertical-align: top; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; color: var(--faint); }
+.steps li { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
+.steps li > span[aria-hidden] { width: 12px; flex: none; text-align: center; }
+.steps li.done { color: var(--text); }
+.steps li.done > span[aria-hidden] { color: var(--green); font-weight: 700; }
+.applicants td[data-label="Where they are"] .c { margin-top: 6px; max-width: 220px; }
 .matrix tbody th { background: transparent; color: var(--text); font: 400 14px/1.5 var(--body); text-transform: none; letter-spacing: 0; white-space: normal; }
 /* Team members, narrower: name, role, status and Save on one line, desks under them. */
 @container (max-width: 940px) {

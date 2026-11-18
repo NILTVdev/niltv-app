@@ -23,7 +23,6 @@ import {
   CognitoIdToken,
   CognitoRefreshToken,
   CognitoUser,
-  CognitoUserAttribute,
   CognitoUserPool,
   type CognitoUserSession,
 } from "amazon-cognito-identity-js";
@@ -201,19 +200,7 @@ export async function signIn(email: string, password: string): Promise<string> {
   });
 }
 
-/** Create a niltv.com account. Cognito emails a code that confirmSignUp takes. */
-export function signUp(input: { email: string; password: string; name: string; birthdate: string }): Promise<void> {
-  const email = clean(input.email);
-  const attributes = [
-    new CognitoUserAttribute({ Name: "email", Value: email }),
-    new CognitoUserAttribute({ Name: "name", Value: input.name.trim() }),
-    new CognitoUserAttribute({ Name: "birthdate", Value: input.birthdate }),
-  ];
-  return new Promise((resolve, reject) => {
-    getPool().signUp(email, input.password, attributes, [], (err) => (err ? reject(friendly(err)) : resolve()));
-  });
-}
-
+/** Confirm an account made on niltv.com but never confirmed, with the code Cognito emailed. */
 export function confirmSignUp(email: string, code: string): Promise<void> {
   return firstForm(
     email,
