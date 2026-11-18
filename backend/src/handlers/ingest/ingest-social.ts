@@ -40,6 +40,7 @@ import { Channel, Content, Profile } from "@niltv/types";
 import type { ScheduledHandler } from "aws-lambda";
 import { channelContentGsi1Pk, channelKey, configKey, contentKey, getDocClient, profileKey, schoolPolicyKey } from "../../lib/db";
 import { type EnrichContext, applyEnrichment, profilesByHandle, type SchoolPolicy } from "../../lib/enrich";
+import { defaultLibrarySyncDeps, runLibrarySync } from "../../lib/library-sync";
 import { allProfiles } from "../../lib/roster";
 import type { Item } from "../../lib/shape";
 import {
@@ -857,4 +858,18 @@ export const handler: ScheduledHandler = async () => {
   );
 
   await dispatchSiteDeploy(ingested);
+
+  // Full library snapshot with labels to the dashboard (lib/library-sync).
+  // Flagged per stage (LIBRARY_SYNC_ENABLED); never throws, so a dashboard
+  // outage cannot fail the ingest run.
+  await runLibrarySync(
+    {
+      enabled: process.env.LIBRARY_SYNC_ENABLED === "true",
+      table,
+      stage: process.env.STAGE ?? "",
+      playbackBase,
+      dashboardUrl: process.env.DASHBOARD_API_URL ?? "",
+    },
+    defaultLibrarySyncDeps(getDashboardApiKey),
+  );
 };

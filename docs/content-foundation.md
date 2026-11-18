@@ -49,6 +49,25 @@ per surface and per partner. It is cleared with
 `scripts/import-overrides.ts` (a CSV of ids and the fields a person decided) or
 through admin, which records the same overrides.
 
+## Library sync to the dashboard
+
+After each hourly ingest run, `src/lib/library-sync.ts` sends the dashboard a
+full snapshot of the library with its labels (`POST /api/library/sync`, body
+`DashboardLibrarySync` in `@niltv/types`, snake_case because it mirrors the
+dashboard's endpoint). The dashboard joins it to its Instagram view counts by
+`ig_post_id`. Only public `/video/*` URLs and labels leave; the rights record
+does not. Rows missing from the snapshot (tombstones) are marked removed there.
+
+- Flag: context `niltv:librarySync:{stage}` sets `LIBRARY_SYNC_ENABLED` on the
+  ingest function. On in dev, off in prod until the dashboard endpoint ships.
+- A failed sync is logged (`library-sync: status=failed ...`) and the run
+  carries on. Above 5000 rows the sync skips rather than truncate, since a
+  partial full snapshot would mark the rest removed.
+- Contract fixture for the dashboard's tests:
+  `backend/test/fixtures/dashboard-library-sync.sample.json`, produced by the
+  mapping code. Regenerate after a mapping change with
+  `UPDATE_FIXTURES=1 npx vitest run src/lib/library-sync.test.ts` in `backend/`.
+
 ## Bringing the library up to standard
 
 ```

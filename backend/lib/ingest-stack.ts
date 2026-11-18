@@ -77,6 +77,15 @@ export class IngestStack extends Stack {
       },
     });
 
+    // Library sync to the dashboard (src/lib/library-sync.ts): after each run
+    // the bridge POSTs the whole labelled library to the dashboard's
+    // /api/library/sync. Context `niltv:librarySync:{stage}`; defaults to on
+    // in dev and off in prod until the dashboard endpoint ships there. It
+    // reads with the table grant below and the same dashboard API key.
+    const librarySyncEnabled =
+      (this.node.tryGetContext(`niltv:librarySync:${stage}`) as string | undefined) ?? (stage === "dev" ? "true" : "false");
+    ingestFn.addEnvironment("LIBRARY_SYNC_ENABLED", librarySyncEnabled);
+
     // Same pattern as the api stack: the CloudFront domain comes from cdk.json
     // context so the handler can compose public download URLs for the
     // content-library CSV.
