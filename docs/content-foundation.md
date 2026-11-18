@@ -79,7 +79,12 @@ does not. Rows missing from the snapshot (tombstones) are marked removed there.
   against the proxy's request size limit.
 - A failed sync is logged (`library-sync: status=failed ...`) and the run
   carries on. A missing or unreadable key parameter is a failed sync naming
-  the parameter, not a failed run.
+  the parameter, not a failed run. Above 5000 rows the sync skips rather than
+  truncate, since a partial full snapshot would mark the rest removed.
+- Contract fixture for the dashboard's tests:
+  `backend/test/fixtures/dashboard-library-sync.sample.json`, produced by the
+  mapping code. Regenerate after a mapping change with
+  `UPDATE_FIXTURES=1 npx vitest run src/lib/library-sync.test.ts` in `backend/`.
 
 ### Operator notes: dev sync key
 
@@ -96,12 +101,11 @@ every dev run logs `library-sync: status=failed ... error="library sync key
    ```
 
 2. Deploy `niltv-dev-ingest` so the function gets the new env var and grant.
-3. Check the key is accepted before waiting for the schedule. A 401 or 403
-   means the key was refused. Any other code means it was accepted (the
-   empty body itself is not a valid snapshot).
+3. Check the key is accepted with a read-only call before waiting for the
+   schedule. 200 means the key works. 401 or 403 means it was refused.
 
    ```
-   curl -s -o /dev/null -w "%{http_code}\n" -X POST https://api-dev.niltv.com/api/library/sync -H "Content-Type: application/json" -H "X-API-Key: <dev dashboard API key>" -d "{}"
+   curl -s -o /dev/null -w "%{http_code}\n" https://api-dev.niltv.com/api/library/status -H "X-API-Key: <dev dashboard API key>"
    ```
 
 4. Invoke the dev ingest function (or wait for :30) and read its log for
@@ -110,12 +114,7 @@ every dev run logs `library-sync: status=failed ... error="library sync key
 
 Prod needs no new parameter while it reuses the brand key. If the prod
 dashboard ever takes a different key, create a new parameter and point
-`niltv:librarySyncKeyParam:prod` at it. Above 5000 rows the sync skips rather than truncate, since a
-  partial full snapshot would mark the rest removed.
-- Contract fixture for the dashboard's tests:
-  `backend/test/fixtures/dashboard-library-sync.sample.json`, produced by the
-  mapping code. Regenerate after a mapping change with
-  `UPDATE_FIXTURES=1 npx vitest run src/lib/library-sync.test.ts` in `backend/`.
+`niltv:librarySyncKeyParam:prod` at it.
 
 ## Bringing the library up to standard
 
