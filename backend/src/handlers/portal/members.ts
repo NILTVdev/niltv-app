@@ -15,6 +15,7 @@
  */
 import {
   ApiError,
+  ApplicantsResponse,
   MemberAddRequest,
   MemberListResponse,
   MemberUpdateRequest,
@@ -29,10 +30,12 @@ import {
 import { json } from "../../lib/http";
 import { type Caller, can, conflictResult, denied } from "../../lib/portal/access";
 import { deleteUnfinished, findAccountByEmail, lookupEmail, nameFromEmail } from "../../lib/portal/accounts";
+import { buildApplicants, fetchApplications, verifiedAccountEmails } from "../../lib/portal/applicants";
 import { audit } from "../../lib/portal/audit";
+import { dashboardApiKey } from "../../lib/roster";
 import { leaveAllGroups, syncChannelMemberships } from "../../lib/portal/conversations";
 import { createMember, getMember, getSettings, listMembers, putMember, putSettings } from "../../lib/portal/members";
-import { portalUrl } from "../../lib/portal/emails";
+import { siteSignupUrl } from "../../lib/portal/emails";
 import { enqueue, enqueueOrThrow } from "../../lib/portal/notify";
 import { claimInvite, deletePending, getPending, listPending, releaseInvite } from "../../lib/portal/pending";
 import { badRequest, notFound, ok, portalHandler } from "../../lib/portal/router";
@@ -44,7 +47,7 @@ const noAccountResult = () =>
     404,
     ApiError.parse({
       error: "NO_ACCOUNT",
-      message: `No confirmed niltv.com account uses that email. Ask them to create one at ${portalUrl("/create-account")}, then try again.`,
+      message: `No confirmed niltv.com account uses that email. Ask them to create one at ${siteSignupUrl()}, then try again.`,
     }),
   );
 
@@ -155,6 +158,19 @@ export const handler = portalHandler({
     const enabled = target.status !== "active" && next.status === "active";
     if (enabled && (await getSettings()).welcomeEmail) await enqueue({ type: "welcome", sub: next.sub });
     return ok(next);
+  },
+
+  "GET /v1/athletes/applicants": async ({ caller }) => {
+    if (!can(caller, "viewRoster")) return denied();
+    const baseUrl = process.env.DASHBOARD_API_URL;
+    const keyParam = process.env.DASHBOARD_API_KEY_PARAM;
+    if (!baseUrl || !keyParam) throw new Error("DASHBOARD_API_URL / DASHBOARD_API_KEY_PARAM unset");
+    const [apps, emails, members] = await Promise.all([
+      dashboardApiKey(keyParam).then((key) => fetchApplications(baseUrl, key)),
+      verifiedAccountEmails(),
+      listMembers(),
+    ]);
+    return ok(ApplicantsResponse.parse({ applicants: buildApplicants(apps, emails, members) }));
   },
 
   "GET /v1/athletes/pending": async ({ caller }) => {

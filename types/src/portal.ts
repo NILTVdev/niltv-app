@@ -367,6 +367,38 @@ export type PendingAthlete = z.infer<typeof PendingAthlete>;
 export const PendingAthletesResponse = z.object({ pending: z.array(PendingAthlete) });
 export type PendingAthletesResponse = z.infer<typeof PendingAthletesResponse>;
 
+/**
+ * Where an application stands in dashboard onboarding. The dashboard owns
+ * every step up to accepted (staff review, agreement, Stripe); the portal
+ * only lets accepted athletes in.
+ */
+export const ApplicantStage = z.enum(["applied", "approved", "agreement_sent", "signed", "stripe_pending", "accepted"]);
+export type ApplicantStage = z.infer<typeof ApplicantStage>;
+
+/** One niltv.com athlete application, with what is still missing before portal access. */
+export const PortalApplicant = z.object({
+  /** dashboard applications.id */
+  applicationId: z.number().int(),
+  name: z.string(),
+  email: z.string(),
+  campus: z.string().optional(),
+  school: z.string().optional(),
+  sport: z.string().optional(),
+  appliedAt: IsoDate.optional(),
+  stage: ApplicantStage,
+  /** international athletes skip Stripe */
+  international: z.boolean(),
+  /** a confirmed niltv.com account with a verified email matches the application, or a member is already linked */
+  hasAccount: z.boolean(),
+  /** the portal member for this application, once the roster sync made one */
+  memberSub: z.string().optional(),
+  memberStatus: PortalMemberStatus.optional(),
+});
+export type PortalApplicant = z.infer<typeof PortalApplicant>;
+
+export const ApplicantsResponse = z.object({ applicants: z.array(PortalApplicant) });
+export type ApplicantsResponse = z.infer<typeof ApplicantsResponse>;
+
 /** An admin connects a pending athlete to the account they really use. */
 export const PendingLinkRequest = z.object({ email: z.string().email().max(254) });
 export type PendingLinkRequest = z.infer<typeof PendingLinkRequest>;

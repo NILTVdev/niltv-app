@@ -17,6 +17,7 @@ export const qk = {
   pushDevices: ["push-devices"] as const,
   members: ["members"] as const,
   pending: ["pending"] as const,
+  applicants: ["applicants"] as const,
   events: ["events"] as const,
   availability: ["availability"] as const,
   heatmap: (type: string, value: string | undefined) => ["heatmap", type, value ?? ""] as const,
@@ -41,6 +42,10 @@ export function useInbox(poll = false) {
 
 export function useMembers(enabled = true) {
   return useQuery({ queryKey: qk.members, queryFn: api.members, select: (r) => r.members, enabled });
+}
+
+export function useApplicants(enabled = true) {
+  return useQuery({ queryKey: qk.applicants, queryFn: api.applicants, select: (r) => r.applicants, enabled });
 }
 
 export function usePendingAthletes() {

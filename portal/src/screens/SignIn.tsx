@@ -1,34 +1,37 @@
-/** Email + password (Cognito SRP), creating an account, and the code flows. */
+/**
+ * Email + password (Cognito SRP) and the code flows. Accounts are made on
+ * niltv.com, never here: the portal signs in with the same account.
+ */
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { NotConfirmedError, confirmPassword, confirmSignUp, forgotPassword, resendCode, signIn, signUp } from "../auth";
-import { MIN_AGE, ageOn, inviteFromUrl } from "../lib/signup";
-import { LegalLinks, PRIVACY_URL, TERMS_URL } from "../ui/bits";
+import { NotConfirmedError, confirmPassword, confirmSignUp, forgotPassword, resendCode, signIn } from "../auth";
+import { inviteFromUrl, siteSignupUrl } from "../lib/signup";
+import { LegalLinks } from "../ui/bits";
 import { Mark } from "../ui/Brand";
 
-type Mode = "signin" | "forgot" | "reset" | "create" | "confirm";
+type Mode = "signin" | "forgot" | "reset" | "confirm";
 
 const PASSWORD_HINT = "At least 8 characters with a number, an uppercase and a lowercase letter.";
 
 /** `notice` explains why sign-in is showing, such as a session that ended. */
 export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (email: string) => void; notice?: string }) {
   const [invite] = useState(() => inviteFromUrl(window.location.pathname, window.location.search));
-  const [mode, setMode] = useState<Mode>(invite.create ? "create" : "signin");
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState(invite.email);
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [birthdate, setBirthdate] = useState("");
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
+  const [notice, setNotice] = useState<string | null>(
+    initialNotice ??
+      (invite.create ? "Accounts are made on niltv.com. Create yours there with this email, then sign in here." : null),
+  );
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const titles: Record<Mode, string> = {
     signin: "Sign in",
     forgot: "Reset your password",
     reset: "Set a new password",
-    create: "Create your account",
     confirm: "Check your email",
   };
 
@@ -36,7 +39,7 @@ export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (ema
     document.title = `${titles[mode]} | NIL TV Portal`;
   });
 
-  /** Signed in: the invite link has done its job, so it must not reopen Create after a sign-out. */
+  /** Signed in: drop an old invite path so a sign-out does not show its notice again. */
   const finish = (signedIn: string) => {
     if (invite.create) window.history.replaceState(null, "", "/");
     onSignedIn(signedIn);
@@ -71,18 +74,6 @@ export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (ema
         if (!(err instanceof NotConfirmedError)) throw err;
         switchTo("confirm", "This account is not confirmed yet. Enter the code from your email, or send a new one.");
       }
-    });
-  };
-
-  const submitCreate = (e: FormEvent) => {
-    e.preventDefault();
-    setNotice(null);
-    const age = ageOn(birthdate, new Date());
-    if (age === null) return setError("Enter your birthdate.");
-    if (age < MIN_AGE) return setError(`The portal is for people ${MIN_AGE} and older.`);
-    void run(async () => {
-      await signUp({ email, password, name, birthdate });
-      switchTo("confirm", `We sent a code to ${email.trim()}.`);
     });
   };
 
@@ -134,7 +125,6 @@ export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (ema
           {titles[mode]}
         </h1>
         {mode === "signin" ? <p>Use your niltv.com account.</p> : null}
-        {mode === "create" ? <p>Athletes: use the email from your NIL TV application.</p> : null}
         {notice ? (
           <p className="okmsg" role="status">
             {notice}
@@ -177,81 +167,9 @@ export function SignIn({ onSignedIn, notice: initialNotice }: { onSignedIn: (ema
               <button type="button" className="linkbtn" onClick={() => switchTo("forgot")}>
                 Forgot password?
               </button>
-              <button type="button" className="linkbtn" onClick={() => switchTo("create")}>
-                No account yet? Create one
-              </button>
-            </div>
-          </form>
-        ) : null}
-
-        {mode === "create" ? (
-          <form className="panel" onSubmit={submitCreate}>
-            <div className="field">
-              <label htmlFor="ca-name">Name</label>
-              <input
-                id="ca-name"
-                value={name}
-                maxLength={80}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="ca-email">Email</label>
-              <input
-                id="ca-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="username"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="ca-birthdate">Birthdate</label>
-              <input
-                id="ca-birthdate"
-                type="date"
-                value={birthdate}
-                onChange={(e) => setBirthdate(e.target.value)}
-                autoComplete="bday"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="ca-password">Password</label>
-              <input
-                id="ca-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                aria-describedby="ca-password-help"
-                required
-              />
-              <span id="ca-password-help" className="hint">
-                {PASSWORD_HINT}
-              </span>
-            </div>
-            <p className="note">
-              By creating an account you agree to the{" "}
-              <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
-                Terms of Use
-              </a>{" "}
-              and{" "}
-              <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
-                Privacy Policy
+              <a className="linkbtn" href={siteSignupUrl(email.trim() || undefined)}>
+                No account yet? Create one on niltv.com
               </a>
-              .
-            </p>
-            <button className="btn" type="submit" disabled={busy || !name.trim() || !email.trim() || !birthdate || !password}>
-              {busy ? "Creating…" : "Create account"}
-            </button>
-            <div className="row">
-              <button type="button" className="linkbtn" onClick={() => switchTo("signin")}>
-                Have an account? Sign in
-              </button>
             </div>
           </form>
         ) : null}

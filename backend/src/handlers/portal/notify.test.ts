@@ -259,7 +259,7 @@ describe("account invites", () => {
     const [to, email] = m.sendEmail.mock.calls[0]!;
     expect(to).toBe("jordan+nil@example.edu");
     expect(email.paragraphs.join(" ")).toContain("jordan+nil@example.edu");
-    expect(email.button.path).toBe("/create-account?email=jordan%2Bnil%40example.edu");
+    expect(email.button.path).toBe("https://niltv.com/?account=create&email=jordan%2Bnil%40example.edu");
     expect(m.markInviteSent).toHaveBeenCalledWith(7, NOW);
   });
 

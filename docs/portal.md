@@ -32,10 +32,19 @@ row. Roles are `athlete`, `guest`, `staff` and `admin`.
   them on Athletes under the No account yet status. Once `welcomeEmail` is on,
   the sync sends each one an invite, retried daily until one really goes out.
   An admin can also send one by hand, whatever the switch says, at most once a
-  day per person. The invite links to `/create-account` in the portal with the
-  address filled in. The person makes the account there, enters the emailed
-  code, and the next sync connects them and clears the row. If they used another
-  address, an admin links it from the same row.
+  day per person. The invite links to the niltv.com sign-up
+  (`https://niltv.com/?account=create&email=...`). The portal has no sign-up of
+  its own: the person makes the account on niltv.com, and the next sync connects
+  them and clears the row. An old `/create-account` link opens sign-in with a
+  pointer to niltv.com. If they used another address, an admin links it from the
+  same row.
+- **Applicants** (the first tab on Athletes) lists every niltv.com application
+  that is not declined, live from the dashboard (`GET /v1/athletes/applicants`),
+  with five checks: niltv.com account, application approved, agreement signed,
+  Stripe set up (skipped for international athletes) and portal access. Review,
+  the agreement and Stripe stay in the dashboard. Once an athlete is accepted and
+  the sync has made them a `ready` member, an admin approves them there, which is
+  the same as Enable on the roster.
 - **Unfinished sign-ups** block an address: it cannot sign up again, sign in or
   reset. Someone with the password gets the code step by signing in. Otherwise the
   sync deletes one older than a day on a pending address, and an admin's Send again

@@ -262,7 +262,18 @@ export class PortalStack extends Stack {
 
     const meFn = portalFn("MeFn", "me", "me.ts", { VAPID_PUBLIC_PARAM: vapidPublicParam });
     meFn.addToRolePolicy(ssmRead(vapidPublicParam));
-    const membersFn = portalFn("MembersFn", "members", "members.ts", { USER_POOL_ID: userPool.userPoolId });
+    // The dashboard key reaches Athletes' applicant list, which reads onboarding.
+    const apiKeyParamName = `/niltv/${stage}/dashboard-api-key`;
+    const apiKeyReadPolicy = new iam.PolicyStatement({
+      actions: ["ssm:GetParameter"],
+      resources: [this.formatArn({ service: "ssm", resource: "parameter", resourceName: apiKeyParamName.slice(1) })],
+    });
+    const membersFn = portalFn("MembersFn", "members", "members.ts", {
+      USER_POOL_ID: userPool.userPoolId,
+      DASHBOARD_API_URL: dashboardApiUrl,
+      DASHBOARD_API_KEY_PARAM: apiKeyParamName,
+    });
+    membersFn.addToRolePolicy(apiKeyReadPolicy);
     const conversationsFn = portalFn("ConversationsFn", "conversations", "conversations.ts");
     const scheduleFn = portalFn("ScheduleFn", "schedule", "schedule.ts");
     const postingsFn = portalFn("PostingsFn", "postings", "postings.ts");
@@ -333,7 +344,6 @@ export class PortalStack extends Stack {
     });
 
     // ── Roster sync: accepted onboarding athletes → portal members ────────
-    const apiKeyParamName = `/niltv/${stage}/dashboard-api-key`;
     const rosterSyncFn = makeFn(this, "RosterSyncFn", {
       stage,
       name: "portal-roster-sync",
@@ -353,12 +363,7 @@ export class PortalStack extends Stack {
     rosterSyncFn.addToRolePolicy(listUsersPolicy);
     rosterSyncFn.addToRolePolicy(clearSignupPolicy);
     notifyQueue.grantSendMessages(rosterSyncFn);
-    rosterSyncFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["ssm:GetParameter"],
-        resources: [this.formatArn({ service: "ssm", resource: "parameter", resourceName: apiKeyParamName.slice(1) })],
-      }),
-    );
+    rosterSyncFn.addToRolePolicy(apiKeyReadPolicy);
     // Scheduled on prod. Elsewhere only when context turns it on: the dev
     // dashboard has its own API key, and dev should not mirror real applicants.
     const syncOn = stage === "prod" || this.node.tryGetContext(`niltv:portalRosterSync:${stage}`) === "on";
@@ -379,6 +384,7 @@ export class PortalStack extends Stack {
       ["/v1/push/remove", [M.POST], meFn],
       ["/v1/members", [M.GET, M.POST], membersFn],
       ["/v1/members/{sub}", [M.PATCH], membersFn],
+      ["/v1/athletes/applicants", [M.GET], membersFn],
       ["/v1/athletes/pending", [M.GET], membersFn],
       ["/v1/athletes/pending/{id}/invite", [M.POST], membersFn],
       ["/v1/athletes/pending/{id}/link", [M.POST], membersFn],
