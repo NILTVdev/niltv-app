@@ -868,7 +868,8 @@ export const handler: ScheduledHandler = async () => {
       table,
       stage: process.env.STAGE ?? "",
       playbackBase,
-      dashboardUrl: process.env.DASHBOARD_API_URL ?? "",
+      // The stage's own dashboard (LIBRARY_SYNC_URL), not DASHBOARD_API_URL.
+      dashboardUrl: process.env.LIBRARY_SYNC_URL ?? "",
     },
     defaultLibrarySyncDeps(getDashboardApiKey),
   );

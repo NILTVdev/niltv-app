@@ -60,6 +60,13 @@ does not. Rows missing from the snapshot (tombstones) are marked removed there.
 
 - Flag: context `niltv:librarySync:{stage}` sets `LIBRARY_SYNC_ENABLED` on the
   ingest function. On in dev, off in prod until the dashboard endpoint ships.
+- Target: `LIBRARY_SYNC_URL`, the stage's own dashboard (dev posts to
+  `https://api-dev.niltv.com`, prod to `https://api.niltv.com`; override with
+  context `niltv:dashboardApiUrl:{stage}`). It is separate from
+  `DASHBOARD_API_URL`, which still reads prod brand posts in every stage. The
+  dev dashboard must serve the endpoint before the dev sync does anything.
+  Each stage sends `stage` in the body; the dashboard should scope removals to
+  rows of the same stage.
 - A failed sync is logged (`library-sync: status=failed ...`) and the run
   carries on. Above 5000 rows the sync skips rather than truncate, since a
   partial full snapshot would mark the rest removed.

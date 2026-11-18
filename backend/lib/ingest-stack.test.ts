@@ -46,6 +46,13 @@ describe("IngestStack library sync", () => {
     expect(ingestEnv(prod)["LIBRARY_SYNC_ENABLED"]).toBe("false");
   });
 
+  it("posts to the stage's own dashboard, never prod from dev", () => {
+    expect(ingestEnv(dev)["LIBRARY_SYNC_URL"]).toBe("https://api-dev.niltv.com");
+    expect(ingestEnv(prod)["LIBRARY_SYNC_URL"]).toBe("https://api.niltv.com");
+    const devOverride = synth("dev", { "niltv:dashboardApiUrl:dev": "https://dashboard.example.test" });
+    expect(ingestEnv(devOverride)["LIBRARY_SYNC_URL"]).toBe("https://dashboard.example.test");
+  });
+
   it("follows the niltv:librarySync:{stage} context value", () => {
     expect(ingestEnv(prodOn)["LIBRARY_SYNC_ENABLED"]).toBe("true");
   });

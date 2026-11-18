@@ -346,7 +346,7 @@ async function attemptLibrarySync(opts: LibrarySyncOptions, deps: LibrarySyncDep
   if (opts.stage !== "dev" && opts.stage !== "prod") {
     return { status: "skipped", reason: `stage ${opts.stage || "(unset)"} is not dev or prod` };
   }
-  if (!opts.dashboardUrl) return { status: "skipped", reason: "DASHBOARD_API_URL unset" };
+  if (!opts.dashboardUrl) return { status: "skipped", reason: "LIBRARY_SYNC_URL unset" };
 
   let items: number | undefined;
   try {

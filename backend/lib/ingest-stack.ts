@@ -85,6 +85,14 @@ export class IngestStack extends Stack {
     const librarySyncEnabled =
       (this.node.tryGetContext(`niltv:librarySync:${stage}`) as string | undefined) ?? (stage === "dev" ? "true" : "false");
     ingestFn.addEnvironment("LIBRARY_SYNC_ENABLED", librarySyncEnabled);
+    // The sync targets the stage's own dashboard, never the shared
+    // DASHBOARD_API_URL above (which reads prod brand posts in every stage):
+    // a dev snapshot must not land in the prod dashboard. Same context key and
+    // defaults as the portal stack.
+    const librarySyncUrl =
+      (this.node.tryGetContext(`niltv:dashboardApiUrl:${stage}`) as string | undefined) ??
+      (stage === "prod" ? "https://api.niltv.com" : "https://api-dev.niltv.com");
+    ingestFn.addEnvironment("LIBRARY_SYNC_URL", librarySyncUrl);
 
     // Same pattern as the api stack: the CloudFront domain comes from cdk.json
     // context so the handler can compose public download URLs for the
