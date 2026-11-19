@@ -7,6 +7,6 @@
     "niltv:cfDomain:prod": "dr60jt51m7xh2.cloudfront.net",
     "niltv:portalOrigins:dev": "https://dev.d7voghxhq0kdq.amplifyapp.com",
     "niltv:librarySync:dev": "true",
-    "niltv:librarySync:prod": "false"
+    "niltv:librarySync:prod": "true"
   }
 }
