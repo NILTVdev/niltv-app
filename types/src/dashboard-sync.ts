@@ -38,6 +38,14 @@ export const DashboardLibraryItem = z.object({
   content_types: z.array(z.string()),
   categories: z.array(z.string()),
   sponsor: z.string().nullable(),
+  /** staff tags set in the admin tool (the content API sends them as partner tags) */
+  tags: z.array(z.string()),
+  /** "episode" | "clip" | "short", as the content API reports it (unset = clip) */
+  asset_type: z.string(),
+  series_id: z.string().nullable(),
+  series_name: z.string().nullable(),
+  season: z.number().int().nullable(),
+  episode: z.number().int().nullable(),
   athletes: z.array(DashboardLibraryAthlete),
   unresolved_handles: z.array(z.string()),
   /** app lifecycle status as stored, e.g. "published" or "withdrawn" */
