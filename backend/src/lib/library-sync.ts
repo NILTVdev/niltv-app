@@ -20,7 +20,7 @@ import {
   DashboardLibrarySync,
   DashboardLibrarySyncResponse,
 } from "@niltv/types";
-import { CHANNEL_PK_PREFIX, getDocClient } from "./db";
+import { CHANNEL_PK_PREFIX, getDocClient, SERIES_PK_PREFIX } from "./db";
 import { allProfiles } from "./roster";
 import type { Item } from "./shape";
 
@@ -45,6 +45,11 @@ export const LIBRARY_SYNC_ATTRIBUTES = [
   "contentTypes",
   "categories",
   "sponsor",
+  "tags",
+  "assetType",
+  "seriesId",
+  "season",
+  "episode",
   "unresolvedHandles",
   "transcodeStatus",
   "withdrawnAt",
@@ -63,8 +68,8 @@ export const LIBRARY_SYNC_ATTRIBUTES = [
 ] as const;
 
 /**
- * One page of the library Scan: every live CONTENT row and every CHANNEL row
- * (for channel names) in one pass, projected to the attributes above. Every
+ * One page of the library Scan: every live CONTENT row, every CHANNEL row (for
+ * channel names) and every SERIES row (for series names) in one pass, projected to the attributes above. Every
  * name is aliased, since several (name, source, duration) are reserved words.
  * Tombstones are filtered out, so a removed clip drops out of the snapshot and
  * the dashboard marks it removed.
@@ -78,10 +83,15 @@ export function libraryScanInput(table: string, startKey?: Record<string, unknow
   return {
     TableName: table,
     FilterExpression:
-      "(begins_with(#a0, :content) OR begins_with(#a0, :channel)) AND SK = :meta AND attribute_not_exists(#removed)",
+      "(begins_with(#a0, :content) OR begins_with(#a0, :channel) OR begins_with(#a0, :series)) AND SK = :meta AND attribute_not_exists(#removed)",
     ProjectionExpression: projection.join(", "),
     ExpressionAttributeNames: names,
-    ExpressionAttributeValues: { ":content": CONTENT_PK_PREFIX, ":channel": CHANNEL_PK_PREFIX, ":meta": "META" },
+    ExpressionAttributeValues: {
+      ":content": CONTENT_PK_PREFIX,
+      ":channel": CHANNEL_PK_PREFIX,
+      ":series": SERIES_PK_PREFIX,
+      ":meta": "META",
+    },
     ...(startKey ? { ExclusiveStartKey: startKey } : {}),
   };
 }
@@ -89,23 +99,26 @@ export function libraryScanInput(table: string, startKey?: Record<string, unknow
 export interface LibraryRows {
   content: Item[];
   channels: Map<string, Item>;
+  series?: Map<string, Item>;
 }
 
 /** Paginated Scan: a Scan filter runs per 1 MB page, so one call would silently miss rows. */
 export async function scanLibraryRows(table: string): Promise<LibraryRows> {
   const content: Item[] = [];
   const channels = new Map<string, Item>();
+  const series = new Map<string, Item>();
   let startKey: Record<string, unknown> | undefined;
   do {
     const out = await getDocClient().send(new ScanCommand(libraryScanInput(table, startKey)));
     for (const row of (out.Items ?? []) as Item[]) {
       const pk = String(row["PK"] ?? "");
       if (pk.startsWith(CHANNEL_PK_PREFIX)) channels.set(String(row["id"] ?? pk.slice(CHANNEL_PK_PREFIX.length)), row);
+      else if (pk.startsWith(SERIES_PK_PREFIX)) series.set(String(row["id"] ?? pk.slice(SERIES_PK_PREFIX.length)), row);
       else if (pk.startsWith(CONTENT_PK_PREFIX)) content.push(row);
     }
     startKey = out.LastEvaluatedKey as Record<string, unknown> | undefined;
   } while (startKey);
-  return { content, channels };
+  return { content, channels, series };
 }
 
 /* ── Field helpers ────────────────────────────────────────────────────────── */
@@ -223,10 +236,21 @@ export function updatedAtFor(row: Item): string | null {
 
 export interface LibraryContext {
   channels: ReadonlyMap<string, Item>;
+  /** SERIES rows by id, for the series name. Optional: a clip in an unknown series keeps its id. */
+  series?: ReadonlyMap<string, Item>;
   profilesById: ReadonlyMap<string, Item>;
   /** CloudFront origin for /video/*, e.g. https://d123.cloudfront.net */
   playbackBase: string;
 }
+
+/** Asset type as the content API reports it (syndication assetTypeOf): unset means clip. */
+export const libraryAssetType = (row: Item): "episode" | "clip" | "short" => {
+  const value = row["assetType"];
+  return value === "episode" || value === "short" ? value : "clip";
+};
+
+const positiveInt = (v: unknown): number | null =>
+  typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
 
 /** One content row → one contract item. */
 export function libraryItemFor(row: Item, ctx: LibraryContext): DashboardLibraryItem {
@@ -234,6 +258,8 @@ export function libraryItemFor(row: Item, ctx: LibraryContext): DashboardLibrary
   const channelId = str(row["channelId"]);
   const channel = channelId ? ctx.channels.get(channelId) : undefined;
   const duration = row["duration"];
+  const seriesId = str(row["seriesId"]);
+  const series = seriesId ? ctx.series?.get(seriesId) : undefined;
   return {
     content_id: String(row["id"] ?? String(row["PK"] ?? "").slice(CONTENT_PK_PREFIX.length)),
     ig_post_id: igPostIdFor(row),
@@ -249,6 +275,12 @@ export function libraryItemFor(row: Item, ctx: LibraryContext): DashboardLibrary
     content_types: strings(row["contentTypes"]),
     categories: strings(row["categories"]),
     sponsor: str(row["sponsor"]),
+    tags: strings(row["tags"]),
+    asset_type: libraryAssetType(row),
+    series_id: seriesId,
+    series_name: str(series?.["name"]),
+    season: positiveInt(row["season"]),
+    episode: positiveInt(row["episode"]),
     athletes: athletesFor(row, ctx.profilesById),
     unresolved_handles: strings(row["unresolvedHandles"]),
     status: libraryStatus(row),
@@ -369,7 +401,7 @@ async function attemptLibrarySync(opts: LibrarySyncOptions, deps: LibrarySyncDep
     for (const p of profiles) if (typeof p["id"] === "string") profilesById.set(p["id"], p);
     const body = buildLibrarySync(
       rows.content,
-      { channels: rows.channels, profilesById, playbackBase: opts.playbackBase },
+      { channels: rows.channels, series: rows.series, profilesById, playbackBase: opts.playbackBase },
       { stage: opts.stage, generatedAt: opts.now ?? new Date() },
     );
     items = body.items.length;

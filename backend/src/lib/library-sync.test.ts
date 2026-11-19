@@ -31,7 +31,11 @@ const profilesById = new Map<string, Item>([
   ["ath-sample-two", { id: "ath-sample-two", name: "Sample Athlete Two", handle: "sample_athlete_two" }],
 ]);
 
-const ctx: LibraryContext = { channels, profilesById, playbackBase: BASE };
+const series = new Map<string, Item>([
+  ["se-sample-show", { PK: "SERIES#se-sample-show", id: "se-sample-show", name: "Sample Show" }],
+]);
+
+const ctx: LibraryContext = { channels, series, profilesById, playbackBase: BASE };
 
 /** A fully tagged Instagram collab clip, as ingest + enrichment store it. */
 const taggedRow = (overrides: Item = {}): Item => ({
@@ -60,6 +64,7 @@ const taggedRow = (overrides: Item = {}): Item => ({
   contentTypes: ["game-day", "bts"],
   categories: ["Game Day"],
   sponsor: "Sample Brand",
+  tags: ["walkout", "Sample Tag"],
   unresolvedHandles: ["unknown_handle"],
   transcodeStatus: "published",
   qc: { app: "ready", site: "ready", partners: "needs-tagging", reasons: ["unresolved handles"], at: "2026-10-02T00:00:00.000Z" },
@@ -93,6 +98,10 @@ const uploadRow = (): Item => ({
   channelId: "ch-niltv",
   athleteId: "ath-sample-two",
   description: "A staff upload.",
+  assetType: "episode",
+  seriesId: "se-sample-show",
+  season: 1,
+  episode: 3,
   source: { kind: "upload", reference: "sample/folder" },
   transcodeStatus: "published",
   withdrawnAt: "2026-10-05T00:00:00.000Z",
@@ -121,6 +130,12 @@ describe("libraryItemFor", () => {
       content_types: ["game-day", "bts"],
       categories: ["Game Day"],
       sponsor: "Sample Brand",
+      tags: ["walkout", "Sample Tag"],
+      asset_type: "clip",
+      series_id: null,
+      series_name: null,
+      season: null,
+      episode: null,
       athletes: [
         { id: "ath-sample-one", name: "Sample Athlete One", handle: "sample_athlete_one" },
         { id: "ath-sample-two", name: "Sample Athlete Two", handle: "sample_athlete_two" },
@@ -152,6 +167,12 @@ describe("libraryItemFor", () => {
       content_types: [],
       categories: [],
       sponsor: null,
+      tags: [],
+      asset_type: "clip",
+      series_id: null,
+      series_name: null,
+      season: null,
+      episode: null,
       athletes: [],
       unresolved_handles: [],
       qc_state: null,
@@ -168,6 +189,9 @@ describe("libraryItemFor", () => {
     expect(item.ig_post_id).toBeNull();
     expect(item.status).toBe("withdrawn");
     expect(item.qc_state).toBe("needs-review");
+    expect(item).toMatchObject({
+      asset_type: "episode", series_id: "se-sample-show", series_name: "Sample Show", season: 1, episode: 3,
+    });
     expect(item.caption).toBe("A staff upload.");
     expect(item.video_url).toBe(`${BASE}/video/up-sample-feature/index.m3u8`);
     expect(item.poster_url).toBeNull();
@@ -241,6 +265,10 @@ describe("libraryScanInput", () => {
     expect(input.ProjectionExpression).not.toContain("rights");
     expect(Object.values(input.ExpressionAttributeNames ?? {})).not.toContain("rights");
     expect(input.FilterExpression).toContain("attribute_not_exists(#removed)");
+    expect(input.ExpressionAttributeValues?.[":series"]).toBe("SERIES#");
+    for (const attr of ["tags", "assetType", "seriesId", "season", "episode"]) {
+      expect(Object.values(input.ExpressionAttributeNames ?? {})).toContain(attr);
+    }
     expect(input.ExclusiveStartKey).toEqual({ PK: "CONTENT#x", SK: "META" });
   });
 });
@@ -398,5 +426,25 @@ describe("dashboard contract fixture", () => {
     }
     expect(readFileSync(FIXTURE, "utf8").replace(/\r\n/g, "\n")).toBe(text);
     expect(DashboardLibrarySync.parse(JSON.parse(text))).toEqual(body);
+  });
+});
+
+describe("series and asset type", () => {
+  it("keeps the series id when the series row is unknown, and ignores bad season numbers", () => {
+    const item = libraryItemFor(taggedRow({ seriesId: "se-missing", season: 0, episode: 2.5, assetType: "short" }), ctx);
+    expect(item).toMatchObject({ series_id: "se-missing", series_name: null, season: null, episode: null, asset_type: "short" });
+  });
+
+  it("reads series from the run's scan", async () => {
+    const posts: string[] = [];
+    const outcome = await runLibrarySync(options(), deps({
+      loadRows: async () => ({ content: [uploadRow()], channels, series }),
+      fetch: (async (_url: unknown, init?: RequestInit) => {
+        posts.push(String(init?.body));
+        return new Response(JSON.stringify({ received: 1, upserted: 1, removed: 0 }), { status: 200 });
+      }) as typeof fetch,
+    }));
+    expect(outcome.status).toBe("sent");
+    expect(JSON.parse(posts[0]!).items[0].series_name).toBe("Sample Show");
   });
 });

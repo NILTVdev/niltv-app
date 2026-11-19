@@ -27,6 +27,15 @@
         "Game Day"
       ],
       "sponsor": "Sample Brand",
+      "tags": [
+        "walkout",
+        "Sample Tag"
+      ],
+      "asset_type": "clip",
+      "series_id": null,
+      "series_name": null,
+      "season": null,
+      "episode": null,
       "athletes": [
         {
           "id": "ath-sample-one",
@@ -65,6 +74,12 @@
       "content_types": [],
       "categories": [],
       "sponsor": null,
+      "tags": [],
+      "asset_type": "clip",
+      "series_id": null,
+      "series_name": null,
+      "season": null,
+      "episode": null,
       "athletes": [],
       "unresolved_handles": [],
       "status": "published",
@@ -90,6 +105,12 @@
       "content_types": [],
       "categories": [],
       "sponsor": null,
+      "tags": [],
+      "asset_type": "episode",
+      "series_id": "se-sample-show",
+      "series_name": "Sample Show",
+      "season": 1,
+      "episode": 3,
       "athletes": [
         {
           "id": "ath-sample-two",
