@@ -49,6 +49,73 @@ per surface and per partner. It is cleared with
 `scripts/import-overrides.ts` (a CSV of ids and the fields a person decided) or
 through admin, which records the same overrides.
 
+## Library sync to the dashboard
+
+After each hourly ingest run, `src/lib/library-sync.ts` sends the dashboard a
+full snapshot of the library with its labels (`POST /api/library/sync`, body
+`DashboardLibrarySync` in `@niltv/types`, snake_case because it mirrors the
+dashboard's endpoint). The dashboard joins it to its Instagram view counts by
+`ig_post_id`. Only public `/video/*` URLs and labels leave; the rights record
+does not. Rows missing from the snapshot (tombstones) are marked removed there.
+
+- Flag: context `niltv:librarySync:{stage}` sets `LIBRARY_SYNC_ENABLED` on the
+  ingest function. On in dev, off in prod until the dashboard endpoint ships.
+- Target: `LIBRARY_SYNC_URL`, the stage's own dashboard (dev posts to
+  `https://api-dev.niltv.com`, prod to `https://api.niltv.com`; override with
+  context `niltv:dashboardApiUrl:{stage}`). It is separate from
+  `DASHBOARD_API_URL`, which still reads prod brand posts in every stage. The
+  dev dashboard must serve the endpoint before the dev sync does anything.
+  Each stage sends `stage` in the body; the dashboard should scope removals to
+  rows of the same stage.
+- Key: `LIBRARY_SYNC_API_KEY_PARAM`, an SSM SecureString holding the target
+  dashboard's API key. The dev and prod dashboards take different keys, so
+  this is separate from `DASHBOARD_API_KEY_PARAM` (the prod key used for brand
+  reads). Dev reads `/niltv/dev/dashboard-dev-api-key`; prod reuses
+  `/niltv/prod/dashboard-api-key`. Override with context
+  `niltv:librarySyncKeyParam:{stage}`; the stack grants `ssm:GetParameter` on
+  whichever name it uses.
+- Body: plain JSON, never compressed, since the dashboard does not
+  decompress. The log line carries `bytes=` so the payload can be checked
+  against the proxy's request size limit.
+- A failed sync is logged (`library-sync: status=failed ...`) and the run
+  carries on. A missing or unreadable key parameter is a failed sync naming
+  the parameter, not a failed run. Above 5000 rows the sync skips rather than
+  truncate, since a partial full snapshot would mark the rest removed.
+- Contract fixture for the dashboard's tests:
+  `backend/test/fixtures/dashboard-library-sync.sample.json`, produced by the
+  mapping code. Regenerate after a mapping change with
+  `UPDATE_FIXTURES=1 npx vitest run src/lib/library-sync.test.ts` in `backend/`.
+
+### Operator notes: dev sync key
+
+A maintainer step, done once before the dev sync can work. Until it is done,
+every dev run logs `library-sync: status=failed ... error="library sync key
+/niltv/dev/dashboard-dev-api-key unreadable (ParameterNotFound ...)"`.
+
+1. Create the parameter in the account and region the stacks use, with the
+   dev dashboard's API key as the value. Never put the key in git, a ticket
+   or a chat.
+
+   ```
+   aws ssm put-parameter --name /niltv/dev/dashboard-dev-api-key --type SecureString --value "<dev dashboard API key>"
+   ```
+
+2. Deploy `niltv-dev-ingest` so the function gets the new env var and grant.
+3. Check the key is accepted with a read-only call before waiting for the
+   schedule. 200 means the key works. 401 or 403 means it was refused.
+
+   ```
+   curl -s -o /dev/null -w "%{http_code}\n" https://api-dev.niltv.com/api/library/status -H "X-API-Key: <dev dashboard API key>"
+   ```
+
+4. Invoke the dev ingest function (or wait for :30) and read its log for
+   `library-sync: status=sent items=<n> bytes=<b> received=<n> ...`. If it says
+   `status=failed ... HTTP 413`, `bytes` has outgrown the proxy limit.
+
+Prod needs no new parameter while it reuses the brand key. If the prod
+dashboard ever takes a different key, create a new parameter and point
+`niltv:librarySyncKeyParam:prod` at it.
+
 ## Bringing the library up to standard
 
 ```

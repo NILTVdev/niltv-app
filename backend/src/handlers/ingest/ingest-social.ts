@@ -40,6 +40,7 @@ import { Channel, Content, Profile } from "@niltv/types";
 import type { ScheduledHandler } from "aws-lambda";
 import { channelContentGsi1Pk, channelKey, configKey, contentKey, getDocClient, profileKey, schoolPolicyKey } from "../../lib/db";
 import { type EnrichContext, applyEnrichment, profilesByHandle, type SchoolPolicy } from "../../lib/enrich";
+import { defaultLibrarySyncDeps, runLibrarySync } from "../../lib/library-sync";
 import { allProfiles } from "../../lib/roster";
 import type { Item } from "../../lib/shape";
 import {
@@ -403,6 +404,26 @@ async function getDashboardApiKey(): Promise<string> {
   const value = out.Parameter?.Value;
   if (!value) throw new Error(`SSM parameter ${paramName} is empty — cannot call the dashboard API`);
   cachedApiKey = value;
+  return value;
+}
+
+// The library sync posts to the stage's own dashboard (LIBRARY_SYNC_URL),
+// whose key differs from the prod key above in dev, so it has its own
+// parameter and cache. A missing parameter fails the sync, never the run.
+let cachedLibrarySyncKey: string | undefined;
+async function getLibrarySyncApiKey(): Promise<string> {
+  if (cachedLibrarySyncKey) return cachedLibrarySyncKey;
+  const paramName = process.env.LIBRARY_SYNC_API_KEY_PARAM ?? "";
+  let value: string | undefined;
+  try {
+    const out = await new SSMClient({}).send(new GetParameterCommand({ Name: paramName, WithDecryption: true }));
+    value = out.Parameter?.Value;
+  } catch (err) {
+    const why = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    throw new Error(`library sync key ${paramName} unreadable (${why})`);
+  }
+  if (!value) throw new Error(`library sync key ${paramName} is empty`);
+  cachedLibrarySyncKey = value;
   return value;
 }
 
@@ -857,4 +878,21 @@ export const handler: ScheduledHandler = async () => {
   );
 
   await dispatchSiteDeploy(ingested);
+
+  // Full library snapshot with labels to the dashboard (lib/library-sync).
+  // Flagged per stage (LIBRARY_SYNC_ENABLED); never throws, so a dashboard
+  // outage cannot fail the ingest run.
+  await runLibrarySync(
+    {
+      enabled: process.env.LIBRARY_SYNC_ENABLED === "true",
+      table,
+      stage: process.env.STAGE ?? "",
+      playbackBase,
+      // The stage's own dashboard (LIBRARY_SYNC_URL), not DASHBOARD_API_URL.
+      dashboardUrl: process.env.LIBRARY_SYNC_URL ?? "",
+      // Its own key: the dev dashboard does not accept the prod key.
+      apiKeyParam: process.env.LIBRARY_SYNC_API_KEY_PARAM ?? "",
+    },
+    defaultLibrarySyncDeps(getLibrarySyncApiKey),
+  );
 };
