@@ -207,16 +207,17 @@ export class ApiStack extends Stack {
     ]) {
       fn.addToRolePolicy(publicReadPolicy);
     }
-    // profile and content-list additionally read the creator-attribution
+    // Profile, content-list, and the directory additionally read the creator-attribution
     // index (design §5 GSI2: the athlete's published clips) — profile for its
     // first-dozen Content tab, content-list for the ?athleteId= pager behind
-    // the profile screen's infinite grid.
+    // the profile screen's infinite grid, and the directory for latest-video previews.
     const creatorIndexPolicy = new iam.PolicyStatement({
       actions: ["dynamodb:Query"],
       resources: [`${table.tableArn}/index/GSI2`],
     });
     profileFn.addToRolePolicy(creatorIndexPolicy);
     contentListFn.addToRolePolicy(creatorIndexPolicy);
+    profilesListFn.addToRolePolicy(creatorIndexPolicy);
 
     // Partner content API: reads on the partner/series/channel/profile/content
     // partitions plus the syndication index (GSI3), and the signing material.
