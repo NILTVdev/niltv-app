@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   applyEnrichment,
+  captionWord,
   deriveEditorial,
+  LEGACY_FALLBACK_TITLE,
+  TITLE_NEEDS_WRITING,
+  titleFor,
   extractHandles,
   extractHashtags,
   inferContentType,
@@ -68,6 +72,62 @@ describe("editorial", () => {
     expect(e.description).toBe("Preseason vibes");
     expect(e.keywords).toEqual(["soccer", "preseason", "duke"]);
     expect(deriveEditorial("@nilstar", "Fallback Title").title).toBe("Fallback Title");
+  });
+});
+
+describe("title ladder", () => {
+  const base = { channelName: "Example State TV", accountSchool: "Example State" };
+
+  it("uses the caption when two words survive, keeping a line whose first sentence is one word", () => {
+    expect(titleFor({ ...base, caption: "Preseason vibes 😓 #soccer" })).toEqual({ title: "Preseason vibes", source: "caption" });
+    expect(titleFor({ ...base, caption: "Consistency! Be consistent even when you don’t feel like it! 🫡\n#reels" }).title).toBe(
+      "Consistency! Be consistent even when you don’t feel like it!",
+    );
+  });
+
+  it("credits a complete athlete before any single-word caption", () => {
+    expect(titleFor({ ...base, caption: "MVP.", athleteName: "Jordan Rivera", athleteSchool: "Example State" })).toEqual({
+      title: "Jordan Rivera, Example State: Example State TV",
+      source: "athlete",
+    });
+  });
+
+  it("takes one real word of caption, spelling out creator shorthand", () => {
+    expect(titleFor({ ...base, caption: "MVP." })).toEqual({ title: "MVP", source: "caption-word" });
+    expect(titleFor({ ...base, caption: "Patience. \n\nShort term discomfort >> long term gains" }).title).toBe("Patience");
+    expect(titleFor({ ...base, caption: "DITL 🧡\n\n#ditl #d1athlete" }).title).toBe("Day in the Life");
+    expect(titleFor({ ...base, caption: "diml ⭐️\n\n#athlete #college" }).title).toBe("Day in My Life");
+    expect(captionWord("3…..2….1…..😈😤⚾️")).toBeUndefined();
+    expect(captionWord("@nilstar")).toBeUndefined();
+  });
+
+  it("names the creator by handle, with school and sport when known", () => {
+    expect(titleFor({ ...base, caption: "😍😍\n\n#volleyball #explore", creatorHandle: "sam.jay", school: "Example State", sport: "volleyball" })).toEqual({
+      title: "@sam.jay, Example State Volleyball",
+      source: "creator",
+    });
+    expect(titleFor({ channelName: "NIL TV", caption: "#bts #photoshoot", creatorHandle: "sam.jay" }).title).toBe("@sam.jay");
+  });
+
+  it("falls to school, sport and format, then to the channel's people", () => {
+    expect(titleFor({ ...base, caption: "💙 #mediaday #soccer", school: "Duke", sport: "soccer", contentType: "media-day" })).toEqual({
+      title: "Duke Soccer Media Day",
+      source: "school-sport",
+    });
+    expect(titleFor({ ...base, caption: "#duke #snowstorm", school: "Duke", accountSchool: "Duke", sport: "none-visible" })).toEqual({
+      title: "Duke’s Athletes",
+      source: "channel",
+    });
+    expect(titleFor({ channelName: "NIL TV", caption: "" }).title).toBe("NIL TV Athletes");
+  });
+
+  it("never produces a generic 'New on' title", () => {
+    const cases = ["", "@nilstar", "😈💙", "#duke #d1", "3…2…1…", "MVP."];
+    for (const caption of cases) {
+      for (const inputs of [{ ...base, caption }, { channelName: "NIL TV", caption }, { ...base, caption, creatorHandle: "sam.jay" }]) {
+        expect(titleFor(inputs).title).not.toMatch(LEGACY_FALLBACK_TITLE);
+      }
+    }
   });
 });
 
@@ -147,6 +207,40 @@ describe("applyEnrichment", () => {
     expect(none["school"]).toBeUndefined();
     expect((none["rights"] as { logoCleared: boolean }).logoCleared).toBe(true);
   });
+
+  it("titles a hashtag-only collab from its creator and queues it for a person", () => {
+    const out = applyEnrichment({ ...row, title: "New on Example State TV", description: "", source: { ...row.source, authorHandle: "sam.jay", caption: "😍😍😍\n\n#volleyball #explore #studentathlete" } }, ctx);
+    expect(out["title"]).toBe("@sam.jay, Example State Volleyball");
+    expect(out["titleSource"]).toBe("creator");
+    expect((out["qc"] as { reasons: string[] }).reasons).toContain(TITLE_NEEDS_WRITING);
+  });
+
+  it("skips our own accounts and team handles as creators", () => {
+    const own = applyEnrichment({ ...row, source: { ...row.source, kind: "instagram-owned", authorHandle: "truebluetv", caption: "💙😈 #duke #soccer" } }, { ...ctx, accountSchool: "Duke", channelName: "TrueBlue TV" });
+    expect(own["title"]).toBe("Duke Soccer");
+    const team = applyEnrichment({ ...row, source: { ...row.source, authorHandle: "dukewlax", caption: "🔥🔥" } }, { ...ctx, accountSchool: "Duke", channelName: "TrueBlue TV" });
+    expect(team["title"]).toBe("Duke’s Athletes");
+  });
+
+  it("does not read an old 'New on' title back as a caption", () => {
+    const legacy = { ...row, title: "New on Example State TV", description: "", source: { kind: "instagram-owned", account: "examplestatetv" } };
+    const out = applyEnrichment(legacy, ctx);
+    expect(out["title"]).toBe("Example State’s Athletes");
+    expect(out["titleSource"]).toBe("channel");
+  });
+
+  it("keeps a staff title, marks it as theirs and leaves it out of the queue", () => {
+    const out = applyEnrichment({ ...row, title: "Media day with the volleyball team", overrides: ["title"], source: { ...row.source, authorHandle: "sam.jay", caption: "😍 #volleyball" } }, ctx);
+    expect(out["title"]).toBe("Media day with the volleyball team");
+    expect(out["titleSource"]).toBe("staff");
+    expect((out["qc"] as { reasons: string[] }).reasons).not.toContain(TITLE_NEEDS_WRITING);
+  });
+
+  it("leaves a caption title out of the queue", () => {
+    const out = applyEnrichment(row, ctx);
+    expect(out["titleSource"]).toBe("caption");
+    expect((out["qc"] as { reasons: string[] }).reasons).not.toContain(TITLE_NEEDS_WRITING);
+  });
 });
 
 describe("qcFor", () => {
@@ -163,5 +257,11 @@ describe("qcFor", () => {
     expect(qc.app).toBe("needs-review");
     expect(qc.site).toBe("needs-review");
     expect(qc.reasons).toContain("no poster");
+  });
+
+  it("queues a rule-made title until a person overrides it", () => {
+    const clip = { id: "x", transcodeStatus: "published", publishedAt: "2026-09-01T00:00:00Z", playbackPath: "/video/x/master.mp4", thumbPath: "/video/x/poster.jpg", title: "Duke’s Athletes", titleSource: "channel" };
+    expect(qcFor(clip, { now: NOW }).reasons).toContain(TITLE_NEEDS_WRITING);
+    expect(qcFor({ ...clip, title: "Snow day practice", overrides: ["title"] }, { now: NOW }).reasons).not.toContain(TITLE_NEEDS_WRITING);
   });
 });

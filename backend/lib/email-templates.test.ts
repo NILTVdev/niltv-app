@@ -25,7 +25,7 @@ describe("Cognito email templates", () => {
 
   it("composes the mark from the stage's CDN, or falls back to the wordmark", () => {
     expect(verificationEmailBody(LOGO_BASE)).toContain(
-      `<img src="${LOGO_BASE}/video/brand/email/niltv-email@2x.png"`,
+      `<img src="${LOGO_BASE}/video/brand/email/niltv-email-gold@2x.png"`,
     );
     const plain = verificationEmailBody(undefined);
     expect(plain).not.toContain("<img");

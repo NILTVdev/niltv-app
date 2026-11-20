@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * NILTV CDK app — seven stacks per stage (design §2, §4.1, §6.8):
+ * NILTV CDK app — eight stacks per stage (design §2, §4.1, §6.8):
  *
  *   niltv-{stage}-foundation   DynamoDB single table + Cognito user pool
  *   niltv-{stage}-api          API Gateway HTTP API + Lambda handlers (+ /partner/v1)
@@ -9,6 +9,7 @@
  *   niltv-{stage}-admin        Staff admin HTTP API (direct, not edge-fronted)
  *   niltv-{stage}-ingest       Social ingest bridge (scheduled)
  *   niltv-{stage}-partner      Partner content API jobs: feeds, lifecycle events, webhooks
+ *   niltv-{stage}-portal       NIL TV Portal API (portal.niltv.com): messaging, schedule, postings
  *
  * Stage comes from CDK context (`cdk synth -c stage=dev`). Only the region is
  * pinned — no account id — so `cdk synth` works without AWS credentials (CI).
@@ -21,6 +22,7 @@ import { FoundationStack } from "../lib/foundation-stack";
 import { IngestStack } from "../lib/ingest-stack";
 import { MediaStack } from "../lib/media-stack";
 import { PartnerStack } from "../lib/partner-stack";
+import { PortalStack } from "../lib/portal-stack";
 
 const app = new App();
 const stage: string = app.node.tryGetContext("stage") ?? "dev";
@@ -92,4 +94,17 @@ new PartnerStack(app, `niltv-${stage}-partner`, {
   env,
   table: foundation.table,
   outputBucket: media.outputBucket,
+});
+
+// NIL TV Portal (portal.niltv.com): the signed-in workspace for athletes,
+// guests and staff. Accepts the website's sign-in (plus the dev test client).
+new PortalStack(app, `niltv-${stage}-portal`, {
+  stage,
+  env,
+  table: foundation.table,
+  userPool: foundation.userPool,
+  audienceClientIds: [
+    foundation.webClient.userPoolClientId,
+    ...(foundation.testClient ? [foundation.testClient.userPoolClientId] : []),
+  ],
 });

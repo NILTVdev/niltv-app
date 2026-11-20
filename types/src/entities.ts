@@ -25,6 +25,7 @@ import {
 export const User = z.object({
   id: Id,
   name: z.string(),
+  displayName: z.string().optional(),
   email: z.string().email(),
   phone: z.string().optional(),
   role: Role.default("fan"),
@@ -149,6 +150,13 @@ export const ContentQc = z.object({
   at: IsoDate,
 });
 export type ContentQc = z.infer<typeof ContentQc>;
+
+/**
+ * The QC reason on a clip whose title a rule made up (from one word of
+ * caption, the creator's handle, the school or the channel) rather than the
+ * caption or a person. The staff library filters on it; a staff title clears it.
+ */
+export const TITLE_NEEDS_WRITING = "title needs writing";
 
 /**
  * Off-platform rights record on a content row (partner content API). Every

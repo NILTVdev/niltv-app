@@ -241,7 +241,7 @@ export function ShowcaseTitlePage({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.rail}
             >
-              <View style={[styles.epCard, styles.epCardCrowned, { backgroundColor: t.surface }]}>
+              <View style={[styles.epCard, styles.epCardCrowned, { backgroundColor: t.surface, borderColor: t.accent }]}>
                 <Pill label="NEW CROWNED" />
                 <Text style={[styles.epTitle, { color: t.text }]}>
                   Finale · Crowning the Champion
@@ -434,7 +434,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   epCardCrowned: {
-    borderColor: tokens.color.gold,
     alignItems: "flex-start",
   },
   epDate: {

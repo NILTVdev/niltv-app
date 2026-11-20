@@ -108,7 +108,7 @@ export default function ChannelScreen() {
       <View style={styles.header}>
         <View style={[styles.badgeRing, { borderColor: t.bg }]}>
           {logo !== undefined ? (
-            <View style={[styles.badge, { backgroundColor: t.surface }]}>
+            <View style={[styles.badge, { backgroundColor: t.dark ? t.surface : "#060608" }]}>
               <Image
                 source={logo}
                 style={styles.badgeLogo}
@@ -124,7 +124,7 @@ export default function ChannelScreen() {
         {logoH !== undefined ? (
           <Image
             source={logoH}
-            style={styles.nameLockup}
+            style={[styles.nameLockup, !t.dark && styles.lightNameLockup]}
             resizeMode="contain"
             accessible
             accessibilityRole="header"
@@ -132,12 +132,12 @@ export default function ChannelScreen() {
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <Text style={styles.name}>{name}</Text>
+          <Text style={[styles.name, { color: t.accent }]}>{name}</Text>
         )}
         {handleLine ? (
           <Text style={[styles.handle, { color: t.subtext }]}>{handleLine}</Text>
         ) : null}
-        {schoolLine ? <Text style={styles.school}>{schoolLine}</Text> : null}
+        {schoolLine ? <Text style={[styles.school, { color: t.accent }]}>{schoolLine}</Text> : null}
 
         {followable ? (
           <GoldButton
@@ -255,11 +255,14 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     marginTop: tokens.spacing.sm,
   },
+  lightNameLockup: {
+    backgroundColor: "#060608",
+    borderRadius: 6,
+  },
   // Text fallback for channels without a lockup (NIL TV, NIL STAR, legacy
   // shells): gold, tracked, uppercase like the site's channel heads; the
   // @handle and school line stay dim beneath it.
   name: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.extrabold,
     fontSize: 24,
     letterSpacing: 1,
@@ -275,7 +278,6 @@ const styles = StyleSheet.create({
   },
   // .chan-cap under the lockup: displayBold 13, tracked, uppercase, gold.
   school: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.displayBold,
     fontSize: tokens.text.meta,
     letterSpacing: 2,

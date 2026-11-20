@@ -1,0 +1,49 @@
+# Response headers for the portal web app on Amplify (app "niltv-portal").
+# portal/scripts/deploy.py applies this file as the app's custom headers
+# before every deploy, so it covers both the dev and prod branches.
+# Edit here, never in the Amplify console: the next deploy overwrites it.
+#
+# The CSP lists what the app really loads:
+#   script, worker, manifest  the app's own files only (no inline scripts)
+#   style, font               the app's CSS and Google Fonts (index.html)
+#   connect                   the portal API (execute-api), Cognito sign-in,
+#                             and S3 for presigned Content Hub uploads
+#   img                       any https image (Markdown in asks, presigned S3)
+#   media                     opened files from S3 and clips on CloudFront
+customHeaders:
+  - pattern: '**'
+    headers:
+      - key: 'Strict-Transport-Security'
+        value: 'max-age=63072000; includeSubDomains'
+      - key: 'X-Frame-Options'
+        value: 'DENY'
+      - key: 'X-Content-Type-Options'
+        value: 'nosniff'
+      - key: 'Referrer-Policy'
+        value: 'strict-origin-when-cross-origin'
+      - key: 'Permissions-Policy'
+        value: 'camera=(), microphone=(), geolocation=()'
+      - key: 'Content-Security-Policy'
+        value: "default-src 'self'; script-src 'self'; worker-src 'self'; manifest-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https://*.s3.amazonaws.com https://*.s3.us-east-1.amazonaws.com https://*.cloudfront.net; connect-src 'self' https://*.execute-api.us-east-1.amazonaws.com https://cognito-idp.us-east-1.amazonaws.com https://*.s3.amazonaws.com https://*.s3.us-east-1.amazonaws.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  # Hashed build files never change, so browsers keep them for a year.
+  - pattern: '/assets/*'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=31536000, immutable'
+  # Files that must be fetched fresh after every deploy.
+  - pattern: '/index.html'
+    headers:
+      - key: 'Cache-Control'
+        value: 'no-cache'
+  - pattern: '/sw.js'
+    headers:
+      - key: 'Cache-Control'
+        value: 'no-cache'
+  - pattern: '/version.json'
+    headers:
+      - key: 'Cache-Control'
+        value: 'no-cache'
+  - pattern: '/manifest.webmanifest'
+    headers:
+      - key: 'Cache-Control'
+        value: 'no-cache'

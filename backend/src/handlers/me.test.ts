@@ -74,15 +74,28 @@ describe("GET /v1/me handler", () => {
       role: "fan",
       is18plus: true,
       pushEnabled: true,
+      appearance: "system",
       votes: { "evt-nilstar-s1": "ent-camila" },
       follows: ["ath-camila"],
       likes: ["c-floor-routine"],
       notificationFollows: [{ targetType: "channel", targetId: "ch-trueblue" }],
+      favorites: { schools: [], sports: [], channels: [] },
     });
 
     // The query is keyed to the caller's own partition.
     const input = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;
     expect(input["ExpressionAttributeValues"]).toEqual({ ":pk": "USER#u-1" });
+  });
+
+  it("returns a saved appearance preference from the META row", async () => {
+    sendMock.mockResolvedValueOnce({
+      Items: [{ ...partitionRows[0], appearance: "dark" }, ...partitionRows.slice(1)],
+    });
+
+    const res = await invoke(authedEvent());
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body ?? "").appearance).toBe("dark");
   });
 
   it("follows LastEvaluatedKey across pages", async () => {
@@ -109,5 +122,173 @@ describe("GET /v1/me handler", () => {
     const res = await invoke(authedEvent());
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body ?? "")).toEqual({ error: "NOT_FOUND" });
+  });
+});
+
+describe("PATCH /v1/me handler", () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+    process.env.TABLE_NAME = "niltv-test";
+    delete process.env.ORIGIN_VERIFY_SECRET;
+  });
+
+  it("returns the updated account response after persisting displayName", async () => {
+    sendMock
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        Items: [
+          {
+            ...partitionRows[0],
+            displayName: "Updated Fan",
+            favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] },
+          },
+          ...partitionRows.slice(1),
+        ],
+      });
+
+    const res = await invoke({
+      ...authedEvent(),
+      body: JSON.stringify({ displayName: "  Updated Fan  " }),
+      requestContext: {
+        ...authedEvent().requestContext,
+        http: { method: "PATCH" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body ?? "")).toMatchObject({
+      userId: "u-1",
+      name: "Test Fan",
+      displayName: "Updated Fan",
+      favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] },
+    });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    const update = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;
+    expect(update).toMatchObject({
+      TableName: "niltv-test",
+      Key: { PK: "USER#u-1", SK: "META" },
+      ConditionExpression: "attribute_exists(PK)",
+      UpdateExpression: "SET displayName = :displayName",
+      ExpressionAttributeValues: { ":displayName": "Updated Fan" },
+    });
+    const query = (sendMock.mock.calls[1]?.[0] as { input: Record<string, unknown> }).input;
+    expect(query["ConsistentRead"]).toBe(true);
+  });
+
+  it("rejects missing, malformed, or invalid display names without writing", async () => {
+    for (const body of [undefined, "{", JSON.stringify({ displayName: "   " }), JSON.stringify({ displayName: "x".repeat(81) })]) {
+      const res = await invoke({
+        ...authedEvent(),
+        body,
+        requestContext: { ...authedEvent().requestContext, http: { method: "PATCH" } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body ?? "")).toEqual({ error: "INVALID_REQUEST" });
+    }
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when the JWT sub claim is missing", async () => {
+    const res = await invoke({
+      body: JSON.stringify({ displayName: "Updated Fan" }),
+      requestContext: { http: { method: "PATCH" }, authorizer: { jwt: { claims: {} } } },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 and does not create a missing account row", async () => {
+    sendMock.mockRejectedValueOnce(Object.assign(new Error("no row"), { name: "ConditionalCheckFailedException" }));
+    const res = await invoke({
+      ...authedEvent(),
+      body: JSON.stringify({ displayName: "Updated Fan" }),
+      requestContext: { ...authedEvent().requestContext, http: { method: "PATCH" } },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PUT /v1/me/appearance handler", () => {
+  beforeEach(() => {
+    sendMock.mockReset();
+    process.env.TABLE_NAME = "niltv-test";
+    delete process.env.ORIGIN_VERIFY_SECRET;
+  });
+
+  it.each(["light", "dark", "system"] as const)("persists %s for the authenticated account", async (appearance) => {
+    sendMock
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        Items: [{ ...partitionRows[0], appearance }, ...partitionRows.slice(1)],
+      });
+
+    const res = await invoke({
+      ...authedEvent(),
+      body: JSON.stringify({ appearance, userId: "u-other" }),
+      requestContext: {
+        ...authedEvent().requestContext,
+        http: { method: "PUT" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body ?? "")).toMatchObject({
+      userId: "u-1",
+      appearance,
+      name: "Test Fan",
+      pushEnabled: true,
+      follows: ["ath-camila"],
+      likes: ["c-floor-routine"],
+      votes: { "evt-nilstar-s1": "ent-camila" },
+      notificationFollows: [{ targetType: "channel", targetId: "ch-trueblue" }],
+    });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+
+    const update = (sendMock.mock.calls[0]?.[0] as { input: Record<string, unknown> }).input;
+    expect(update).toMatchObject({
+      TableName: "niltv-test",
+      Key: { PK: "USER#u-1", SK: "META" },
+      ConditionExpression: "attribute_exists(PK)",
+      UpdateExpression: "SET appearance = :appearance",
+      ExpressionAttributeValues: { ":appearance": appearance },
+    });
+    const query = (sendMock.mock.calls[1]?.[0] as { input: Record<string, unknown> }).input;
+    expect(query["ConsistentRead"]).toBe(true);
+  });
+
+  it("rejects missing, malformed, or invalid request bodies without writing", async () => {
+    for (const body of [undefined, "{", JSON.stringify({}), JSON.stringify({ appearance: "auto" })]) {
+      const res = await invoke({
+        ...authedEvent(),
+        body,
+        requestContext: { ...authedEvent().requestContext, http: { method: "PUT" } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body ?? "")).toEqual({ error: "INVALID_REQUEST" });
+    }
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when the JWT subject is missing", async () => {
+    const res = await invoke({
+      body: JSON.stringify({ appearance: "dark" }),
+      requestContext: { http: { method: "PUT" }, authorizer: { jwt: { claims: {} } } },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 instead of creating a missing account row", async () => {
+    sendMock.mockRejectedValueOnce(
+      Object.assign(new Error("no row"), { name: "ConditionalCheckFailedException" }),
+    );
+    const res = await invoke({
+      ...authedEvent(),
+      body: JSON.stringify({ appearance: "dark" }),
+      requestContext: { ...authedEvent().requestContext, http: { method: "PUT" } },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 });

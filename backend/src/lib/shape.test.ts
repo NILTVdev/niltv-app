@@ -136,10 +136,12 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
     expect(body).toEqual({
       userId: "u-1",
       name: "Test Fan",
+      displayName: undefined,
       email: "fan@example.com",
       role: "fan",
       is18plus: true,
       pushEnabled: false,
+      appearance: "system",
       votes: { "evt-nilstar-s1": "ent-camila" },
       follows: ["ath-camila-garza", "ath-jordan-banks"],
       likes: ["c-floor-routine", "c-audition-camila"],
@@ -147,12 +149,42 @@ describe("mapUserPartition (/v1/me row mapping)", () => {
         { targetType: "channel", targetId: "ch-trueblue" },
         { targetType: "ambassador", targetId: "ath-maya-robinson" },
       ],
+      favorites: { schools: [], sports: [], channels: [] },
     });
+  });
+
+  it("maps saved favorites and defaults them for existing META rows", () => {
+    const saved = mapUserPartition("u-1", [
+      { ...meta, favorites: { schools: ["Duke"], sports: ["soccer"], channels: ["ch-trueblue"] } },
+    ]);
+    expect(saved?.favorites).toEqual({
+      schools: ["Duke"],
+      sports: ["soccer"],
+      channels: ["ch-trueblue"],
+    });
+
+    const legacy = mapUserPartition("u-1", [meta]);
+    expect(legacy?.favorites).toEqual({ schools: [], sports: [], channels: [] });
+  });
+
+  it("defaults malformed stored favorites without failing the account response", () => {
+    const malformed = mapUserPartition("u-1", [
+      { ...meta, favorites: { schools: ["Duke"], sports: ["none-visible"], channels: ["ch-trueblue"] } },
+    ]);
+    expect(malformed?.favorites).toEqual({ schools: [], sports: [], channels: [] });
   });
 
   it("returns undefined when the META row is absent", () => {
     expect(mapUserPartition("u-1", [{ PK: "USER#u-1", SK: "FOLLOW#ath-x" }])).toBeUndefined();
     expect(mapUserPartition("u-1", [])).toBeUndefined();
+  });
+
+  it("maps saved appearance and defaults legacy users to system", () => {
+    const saved = mapUserPartition("u-1", [{ ...meta, appearance: "light" }]);
+    expect(saved?.appearance).toBe("light");
+
+    const legacy = mapUserPartition("u-1", [meta]);
+    expect(legacy?.appearance).toBe("system");
   });
 
   it("keeps '#' inside a NOTIF targetId and skips unknown target types", () => {

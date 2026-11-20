@@ -12,6 +12,8 @@ export const config = {
   awsRegion: process.env.EXPO_PUBLIC_AWS_REGION ?? "us-east-1",
   /** NIL STAR Official Rules (spec §7 compliance link). */
   rulesUrl: process.env.EXPO_PUBLIC_RULES_URL ?? "https://www.niltv.com/nil-star-rules",
+  /** Privacy Policy: Profile and every form link here (App Store 5.1.1(i)). */
+  privacyUrl: process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://niltv.com/privacy-policy/",
 } as const;
 
 export type Config = typeof config;

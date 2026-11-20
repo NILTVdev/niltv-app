@@ -14,6 +14,7 @@ import {
   Subscriber,
 } from "./entities";
 import {
+  AppearancePreference,
   AssetType,
   ContentProvider,
   ContentType,
@@ -228,21 +229,53 @@ export const NotificationFollow = z.object({
 });
 export type NotificationFollow = z.infer<typeof NotificationFollow>;
 
+/** Saved discovery preferences; school names retain the existing string model. */
+export const FavoriteSchool = z.string().trim().min(1).max(80);
+export type FavoriteSchool = z.infer<typeof FavoriteSchool>;
+
+/** Sport interests exclude taxonomy-only classifications, without narrowing Sport itself. */
+export const FavoriteSport = Sport.exclude(["multi-sport", "none-visible"]);
+export type FavoriteSport = z.infer<typeof FavoriteSport>;
+
+/** PUT /v1/me/favorites replaces all three arrays. */
+export const MeFavorites = z.object({
+  schools: z.array(FavoriteSchool).max(50),
+  sports: z.array(FavoriteSport).max(FavoriteSport.options.length),
+  channels: z.array(Id).max(100),
+});
+export type MeFavorites = z.infer<typeof MeFavorites>;
+export const MeFavoritesPutRequest = MeFavorites;
+export type MeFavoritesPutRequest = MeFavorites;
+
 export const MeResponse = z.object({
   userId: Id,
   name: z.string(),
+  displayName: z.string().optional(),
   email: z.string(),
   role: Role,
   is18plus: z.boolean(),
   pushEnabled: z.boolean(),
+  appearance: AppearancePreference.default("system"),
   /** eventId → entryId the user voted for */
   votes: z.record(z.string(), z.string()),
   follows: z.array(Id),
   /** contentIds the user has liked — the client derives per-clip liked state from this */
   likes: z.array(Id).default([]),
   notificationFollows: z.array(NotificationFollow),
+  /** Saved discovery preferences, absent on accounts created before favorites shipped. */
+  favorites: MeFavorites.default({ schools: [], sports: [], channels: [] }),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
+
+/** PATCH /v1/me — update the authenticated user's editable display name. */
+export const MeUpdateRequest = z.object({
+  displayName: z.string().trim().min(1).max(80),
+});
+export type MeUpdateRequest = z.infer<typeof MeUpdateRequest>;
+
+/** PUT /v1/me/appearance — update the authenticated user's appearance preference. */
+export const MeAppearancePutRequest = z.object({ appearance: AppearancePreference });
+export type MeAppearancePutRequest = z.infer<typeof MeAppearancePutRequest>;
 
 /* ── POST /v1/events/{id}/vote (design §6.3) ───────────────────────────────────── */
 

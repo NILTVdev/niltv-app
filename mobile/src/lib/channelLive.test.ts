@@ -1,7 +1,14 @@
 import type { Channel } from "@niltv/types";
 import { describe, expect, it } from "vitest";
 
-import { CAMPUS_CHANNEL_ORDER, CAMPUS_LIVE_MIN, CHANNELS_GRID_HIDDEN, isComingSoon, rosterOrder } from "./channelLive";
+import {
+  CAMPUS_CHANNEL_ORDER,
+  CAMPUS_LIVE_MIN,
+  CHANNELS_GRID_HIDDEN,
+  isComingSoon,
+  notifyChannels,
+  rosterOrder,
+} from "./channelLive";
 
 describe("isComingSoon", () => {
   it("keeps a channel with no count live (fixtures, an older backend)", () => {
@@ -109,5 +116,42 @@ describe("rosterOrder", () => {
   it("keeps the element type (works on a narrower shape than Channel)", () => {
     const sorted = rosterOrder([{ id: "ch-saltcitytv", extra: 1 }, { id: "ch-truebluetv", extra: 2 }]);
     expect(sorted.map((c) => c.extra)).toEqual([2, 1]);
+  });
+});
+
+describe("notifyChannels", () => {
+  // The prod roster on 10/30: three channels have nothing live yet.
+  const roster = [
+    { id: "ch-niltv", clipCount: 380 },
+    { id: "ch-dorecitytv", clipCount: 20 },
+    { id: "ch-chapelhilltv", clipCount: 17 },
+    { id: "ch-nilstar", clipCount: 44 },
+    { id: "ch-starkvilletv", clipCount: CAMPUS_LIVE_MIN },
+    { id: "ch-collegestationtv", clipCount: 7 },
+    { id: "ch-truebluetv", clipCount: 295 },
+    { id: "ch-brazostv", clipCount: 0 },
+    { id: "ch-goldendometv", clipCount: 0 },
+    { id: "ch-goldsalemtv", clipCount: 3 },
+    { id: "ch-redpacktv", clipCount: 11 },
+    { id: "ch-saltcitytv", clipCount: 14 },
+  ];
+
+  it("lists live channels only: network first, then the campus roster in site order", () => {
+    expect(notifyChannels(roster, ["ch-niltv", "ch-nilstar"]).map((c) => c.id)).toEqual([
+      "ch-niltv",
+      "ch-nilstar",
+      "ch-truebluetv",
+      "ch-dorecitytv",
+      "ch-chapelhilltv",
+      "ch-starkvilletv",
+      "ch-collegestationtv",
+      "ch-redpacktv",
+      "ch-saltcitytv",
+    ]);
+  });
+
+  it("drops a grid-hidden channel even once it has clips", () => {
+    const hidden = [...CHANNELS_GRID_HIDDEN][0] ?? "";
+    expect(notifyChannels([{ id: hidden, clipCount: 50 }], [])).toEqual([]);
   });
 });

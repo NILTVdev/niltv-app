@@ -1,0 +1,131 @@
+{
+  "source": "niltv-app",
+  "stage": "dev",
+  "generated_at": "2026-11-18T12:00:00.000Z",
+  "full": true,
+  "items": [
+    {
+      "content_id": "ig-17000000000000001",
+      "ig_post_id": "17000000000000001",
+      "channel_id": "ch-samplecitytv",
+      "channel_name": "Sample City TV",
+      "title": "Game day walkout",
+      "caption": "Game day walkout with the squad #gameday",
+      "summary": "Two athletes walk out before kickoff.",
+      "keywords": [
+        "game day",
+        "walkout"
+      ],
+      "sport": "soccer",
+      "school": "Sample State",
+      "content_type": "game-day",
+      "content_types": [
+        "game-day",
+        "bts"
+      ],
+      "categories": [
+        "Game Day"
+      ],
+      "sponsor": "Sample Brand",
+      "tags": [
+        "walkout",
+        "Sample Tag"
+      ],
+      "asset_type": "clip",
+      "series_id": null,
+      "series_name": null,
+      "season": null,
+      "episode": null,
+      "athletes": [
+        {
+          "id": "ath-sample-one",
+          "name": "Sample Athlete One",
+          "handle": "sample_athlete_one"
+        },
+        {
+          "id": "ath-sample-two",
+          "name": "Sample Athlete Two",
+          "handle": "sample_athlete_two"
+        }
+      ],
+      "unresolved_handles": [
+        "unknown_handle"
+      ],
+      "status": "published",
+      "qc_state": "needs-tagging",
+      "poster_url": "https://cdn.example.test/video/ig-17000000000000001/poster.jpg",
+      "video_url": "https://cdn.example.test/video/ig-17000000000000001/master.mp4",
+      "duration_sec": 23,
+      "posted_at": "2026-10-01T15:00:00.000Z",
+      "updated_at": "2026-10-03T00:00:00.000Z"
+    },
+    {
+      "content_id": "ig-17000000000000002",
+      "ig_post_id": "17000000000000002",
+      "channel_id": "ch-unknown",
+      "channel_name": null,
+      "title": "Sample City TV",
+      "caption": null,
+      "summary": null,
+      "keywords": [],
+      "sport": null,
+      "school": null,
+      "content_type": null,
+      "content_types": [],
+      "categories": [],
+      "sponsor": null,
+      "tags": [],
+      "asset_type": "clip",
+      "series_id": null,
+      "series_name": null,
+      "season": null,
+      "episode": null,
+      "athletes": [],
+      "unresolved_handles": [],
+      "status": "published",
+      "qc_state": null,
+      "poster_url": null,
+      "video_url": null,
+      "duration_sec": null,
+      "posted_at": null,
+      "updated_at": null
+    },
+    {
+      "content_id": "up-sample-feature",
+      "ig_post_id": null,
+      "channel_id": "ch-niltv",
+      "channel_name": "NIL TV",
+      "title": "Sample feature episode",
+      "caption": "A staff upload.",
+      "summary": null,
+      "keywords": [],
+      "sport": null,
+      "school": null,
+      "content_type": null,
+      "content_types": [],
+      "categories": [],
+      "sponsor": null,
+      "tags": [],
+      "asset_type": "episode",
+      "series_id": "se-sample-show",
+      "series_name": "Sample Show",
+      "season": 1,
+      "episode": 3,
+      "athletes": [
+        {
+          "id": "ath-sample-two",
+          "name": "Sample Athlete Two",
+          "handle": "sample_athlete_two"
+        }
+      ],
+      "unresolved_handles": [],
+      "status": "withdrawn",
+      "qc_state": "needs-review",
+      "poster_url": null,
+      "video_url": "https://cdn.example.test/video/up-sample-feature/index.m3u8",
+      "duration_sec": 612.5,
+      "posted_at": "2026-09-20T12:00:00.000Z",
+      "updated_at": "2026-10-04T00:00:00.000Z"
+    }
+  ]
+}

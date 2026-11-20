@@ -1,6 +1,6 @@
 /**
- * Design tokens — the network palette from the web redesign, adopted
- * app-wide with the dark-only look. Do not tweak per-screen.
+ * Design tokens — the network palette from the web redesign. Keep semantic
+ * light/dark surfaces in themePalettes and brand/media colors here.
  */
 export const tokens = {
   color: {
@@ -66,3 +66,48 @@ export const tokens = {
 } as const;
 
 export type Tokens = typeof tokens;
+
+export type ThemeScheme = "light" | "dark";
+
+export interface ThemePalette {
+  dark: boolean;
+  bg: string;
+  surface: string;
+  inset: string;
+  text: string;
+  subtext: string;
+  line: string;
+  accent: string;
+  danger: string;
+  onAccent: string;
+  raisedSurface: string;
+}
+
+export const themePalettes: Record<ThemeScheme, ThemePalette> = {
+  dark: {
+    dark: true,
+    bg: "#060608",
+    surface: "#17171c",
+    inset: "#212127",
+    text: "#f5f5f7",
+    subtext: "#a8a8b3",
+    line: "#26262c",
+    accent: tokens.color.gold,
+    danger: "#d97970",
+    onAccent: "#1a1a1f",
+    raisedSurface: "#3d3d45",
+  },
+  light: {
+    dark: false,
+    bg: "#f6f6f8",
+    surface: "#ffffff",
+    inset: "#ececf0",
+    text: "#16161a",
+    subtext: "#53535d",
+    line: "#8c8c95",
+    accent: "#76560f",
+    danger: "#a6342b",
+    onAccent: "#1a1a1f",
+    raisedSurface: "#ffffff",
+  },
+};

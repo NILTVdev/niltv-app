@@ -9,8 +9,12 @@
  *
  * Media, per hz id (uploaded by a maintainer): hero-loop.mp4
  * is the 30 s muted 720p billboard cut, master-fs.mp4 the full faststart
- * episode the Watch CTA plays in app/theater.tsx, poster.jpg the still. All
- * three exist in both stage buckets under the same keys, so the caller
+ * episode the Watch CTA plays in app/theater.tsx, hero-poster.jpg the 16:9
+ * still the hero and theater show until the first frame draws. It is frame 0
+ * of hero-loop.mp4 (both cuts open on the same frame), so the handoff is
+ * invisible. poster.jpg is the 9:16 rail poster: poster-audit.py keeps every
+ * poster.jpg portrait, so it can never stand in for a landscape still. All
+ * of them exist in both stage buckets under the same keys, so the caller
  * passes its stage CDN (config.apiBase).
  */
 export interface FeaturedSlide {
@@ -33,11 +37,12 @@ export interface FeaturedSlide {
     | { kind: "content"; contentId: string; channelId: string };
 }
 
-/** One horizontal (hz) episode: loop, poster and full cut share a folder. */
+/** One horizontal (hz) episode: loop, stills and full cut share a folder. */
 function horizontal(
   cdn: string,
   id: string,
   copy: { kicker: string; title: string; dek: string; theaterTitle: string; theaterKicker: string },
+  still: "hero-poster.jpg" | "poster.jpg" = "hero-poster.jpg",
 ): FeaturedSlide {
   const dir = `${cdn}/video/${id}`;
   return {
@@ -47,12 +52,12 @@ function horizontal(
     dek: copy.dek,
     aspect: "16:9",
     loopUrl: `${dir}/hero-loop.mp4`,
-    posterUrl: `${dir}/poster.jpg`,
+    posterUrl: `${dir}/${still}`,
     hasAudio: false,
     watch: {
       kind: "theater",
       src: `${dir}/master-fs.mp4`,
-      poster: `${dir}/poster.jpg`,
+      poster: `${dir}/${still}`,
       title: copy.theaterTitle,
       kicker: copy.theaterKicker,
     },
@@ -118,13 +123,20 @@ export function nilStarBillboard(cdn: string): FeaturedSlide {
  * once poster.jpg answers on the stage CDN.
  */
 export function nilStarAuditionsBillboard(cdn: string): FeaturedSlide {
-  return horizontal(cdn, "hz-nilstar-auditions", {
-    // Copy follows the cut's own title card. The dek is one phone
-    // line: WideBillboard never wraps it, so keep it short.
-    kicker: "Audition Compilation",
-    title: "NIL Singing Star Finalists",
-    dek: "Every finalist's audition in one cut.",
-    theaterTitle: "NIL Singing Star Finalists: The Auditions",
-    theaterKicker: "Audition Compilation",
-  });
+  return horizontal(
+    cdn,
+    "hz-nilstar-auditions",
+    {
+      // Copy follows the cut's own title card. The dek is one phone
+      // line: WideBillboard never wraps it, so keep it short.
+      kicker: "Audition Compilation",
+      title: "NIL Singing Star Finalists",
+      dek: "Every finalist's audition in one cut.",
+      theaterTitle: "NIL Singing Star Finalists: The Auditions",
+      theaterKicker: "Audition Compilation",
+    },
+    // This folder's poster.jpg is a 16:9 still the tab gates on, and the
+    // poster audit never reaches it (it is not a catalog item).
+    "poster.jpg",
+  );
 }

@@ -1,7 +1,7 @@
 /**
  * One channel's shelf on the Channels tab (mirroring the site's
- * per-channel rails under the channel wall): the chanh lockup as the head
- * with "See all" opening the channel screen, the "{School}'s Athletes"
+ * per-channel rails under the channel wall): the chanh lockup as the head,
+ * the "{School}'s Athletes"
  * caption, then the channel's newest clips as a strip of 9:16 cards, titles
  * only (the channel is the shelf). First page of GET /v1/content?channelId
  * only; the channel screen is where the list pages, and the strip ends in
@@ -10,7 +10,7 @@
  * never shows a bare head.
  */
 import type { ContentCard } from "@niltv/types";
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Image, StyleSheet, Text, View } from "react-native";
 
 import { useContentList } from "@/api/hooks";
 import { channelDescriptor, channelLogoH } from "@/components/Brand";
@@ -18,6 +18,7 @@ import { Card } from "@/components/Card";
 import { SeeMoreCard } from "@/components/Rail";
 import { RailSkeleton } from "@/components/Skeleton";
 import { tokens } from "@/theme/tokens";
+import { useTheme } from "@/theme/useTheme";
 
 /** The head lockup: chanh art is 3:1, 44 tall here (a rail head, not a page head). */
 const LOCKUP_HEIGHT = 44;
@@ -34,6 +35,7 @@ export function ChannelShelf({
   onSeeAll: () => void;
   onOpenClip: (clip: ContentCard) => void;
 }) {
+  const t = useTheme();
   const list = useContentList(channelId);
   const logoH = channelLogoH(channelId);
   const descriptor = channelDescriptor(channelId);
@@ -49,7 +51,7 @@ export function ChannelShelf({
         {logoH !== undefined ? (
           <Image
             source={logoH}
-            style={styles.lockup}
+            style={[styles.lockup, !t.dark && styles.lightLockup]}
             resizeMode="contain"
             accessible
             accessibilityRole="header"
@@ -57,16 +59,13 @@ export function ChannelShelf({
             accessibilityIgnoresInvertColors
           />
         ) : (
-          <Text numberOfLines={1} style={styles.name}>
+          <Text numberOfLines={1} style={[styles.name, { color: t.accent }]}>
             {name}
           </Text>
         )}
-        <Pressable onPress={onSeeAll} accessibilityRole="link" accessibilityLabel={`See all ${name}`} hitSlop={8}>
-          <Text style={styles.seeAll}>See all ›</Text>
-        </Pressable>
       </View>
       {descriptor ? (
-        <Text numberOfLines={1} style={styles.caption}>
+        <Text numberOfLines={1} style={[styles.caption, { color: t.accent }]}>
           {descriptor}
         </Text>
       ) : null}
@@ -106,24 +105,20 @@ const styles = StyleSheet.create({
     width: LOCKUP_HEIGHT * 3,
     marginLeft: -2,
   },
+  lightLockup: {
+    backgroundColor: "#060608",
+    borderRadius: 6,
+  },
   // Text fallback for a channel without a lockup: the shelf-title voice.
   name: {
-    color: tokens.color.gold,
     flexShrink: 1,
     fontFamily: tokens.font.displayBold,
     fontSize: 19,
     letterSpacing: 3,
     textTransform: "uppercase",
   },
-  // .shelf-all: 13px, 600, dim (same as Rail).
-  seeAll: {
-    color: tokens.color.muted,
-    fontFamily: tokens.font.semibold,
-    fontSize: 13,
-  },
   // .chan-cap, left aligned under the lockup.
   caption: {
-    color: tokens.color.gold,
     fontFamily: tokens.font.displayBold,
     fontSize: tokens.text.meta,
     letterSpacing: 2,

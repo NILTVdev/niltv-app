@@ -22,11 +22,15 @@ describe("email shell", () => {
     expect(html).toContain("Lead copy.");
     expect(html).toContain("Tail copy.");
     expect(html).toContain('href="https://niltv.com"');
+    expect(html).toContain('href="https://niltv.com/legal/privacy/"');
+    expect(html).toContain('href="https://niltv.com/legal/terms/"');
+    expect(html).toContain(">Privacy Policy<");
+    expect(html).toContain(">Terms of Use<");
     expect(html.trimEnd().endsWith("</html>")).toBe(true);
   });
 
   it("swaps the mark for a text wordmark when no CDN base is set", () => {
-    expect(shell("", "https://cdn.example")).toContain('src="https://cdn.example/video/brand/email/niltv-email@2x.png"');
+    expect(shell("", "https://cdn.example")).toContain('src="https://cdn.example/video/brand/email/niltv-email-gold@2x.png"');
     expect(shell("")).not.toContain("<img");
     expect(shell("")).toContain("NIL TV");
   });

@@ -22,14 +22,12 @@ import {
 } from "@/auth/cognito";
 import { useAuthStore } from "@/auth/store";
 import { GoldButton } from "@/components/GoldButton";
+import { PrivacyLink } from "@/components/PrivacyLink";
 import { Sheet } from "@/components/Sheet";
 import { goBack } from "@/lib/navigation";
 import { track } from "@/telemetry";
 import { tokens } from "@/theme/tokens";
 import { useTheme } from "@/theme/useTheme";
-
-/** Muted red for inline error copy. */
-const ERROR_RED = "#b04a3f";
 
 type Mode = "signIn" | "signUp" | "confirm" | "resetRequest" | "resetConfirm";
 type SignUpStep = 1 | 2 | 3;
@@ -763,7 +761,7 @@ export function AuthForms() {
                 textContentType="emailAddress"
                 editable={!busy}
               />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
               <GoldButton label="Continue" onPress={continueFromStep1} disabled={busy} />
             </>
           ) : null}
@@ -828,7 +826,7 @@ export function AuthForms() {
                 />
               </View>
               <PasswordChecklist issues={pwIssues} passwordsMatch={passwordsMatch} />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
               <GoldButton
                 label="Continue"
                 onPress={continueFromStep2}
@@ -866,9 +864,10 @@ export function AuthForms() {
               {dobNotice ? (
                 <Text style={[styles.info, { color: t.subtext }]}>{dobNotice}</Text>
               ) : null}
-              {dobError ? <Text style={styles.error}>{dobError}</Text> : null}
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {dobError ? <Text style={[styles.error, { color: t.danger }]}>{dobError}</Text> : null}
+              {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
               <GoldButton label="Sign Up Free" onPress={submitSignUp} busy={busy} />
+              <PrivacyLink />
             </>
           ) : null}
 
@@ -943,7 +942,7 @@ export function AuthForms() {
           >
             <Text style={[styles.forgot, { color: t.accent }]}>Forgot password?</Text>
           </Pressable>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
           <GoldButton label="Sign In" onPress={submitSignIn} busy={busy} />
           <Pressable onPress={() => switchMode("signUp")} accessibilityRole="button">
             <Text style={[styles.switch, { color: t.accent }]}>
@@ -966,7 +965,7 @@ export function AuthForms() {
             maxLength={6}
             editable={!busy}
           />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
           <GoldButton label="Confirm" onPress={submitConfirm} busy={busy} />
           <View style={styles.confirmLinks}>
             <Pressable onPress={resend} accessibilityRole="button" disabled={busy}>
@@ -997,7 +996,7 @@ export function AuthForms() {
             textContentType="emailAddress"
             editable={!busy}
           />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
           <GoldButton label="Send Code" onPress={submitResetRequest} busy={busy} />
           <Pressable
             onPress={leaveResetFlow}
@@ -1094,7 +1093,7 @@ export function AuthForms() {
             />
           </View>
           <PasswordChecklist issues={pwIssues} passwordsMatch={passwordsMatch} />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={[styles.error, { color: t.danger }]}>{error}</Text> : null}
           <GoldButton
             label="Reset Password"
             onPress={submitResetConfirm}
@@ -1146,7 +1145,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   error: {
-    color: ERROR_RED,
     fontFamily: tokens.font.semibold,
     fontSize: 13,
     lineHeight: 18,

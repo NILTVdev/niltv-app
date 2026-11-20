@@ -10,6 +10,7 @@ import {
   EntryDetail,
   EventCard,
   type HomeHero,
+  MeFavorites,
   MeResponse,
   NotificationFollow,
 } from "@niltv/types";
@@ -256,6 +257,7 @@ export function mapUserPartition(userId: string, rows: Item[]): MeResponse | und
   const likes: string[] = [];
   const votes: Record<string, string> = {};
   const notificationFollows: NotificationFollow[] = [];
+  const storedFavorites = MeFavorites.safeParse(meta["favorites"]);
 
   for (const row of rows) {
     const sk = String(row["SK"]);
@@ -276,13 +278,16 @@ export function mapUserPartition(userId: string, rows: Item[]): MeResponse | und
   return MeResponse.parse({
     userId,
     name: meta["name"],
+    displayName: meta["displayName"],
     email: meta["email"],
     role: meta["role"],
     is18plus: meta["is18plus"] === true,
     pushEnabled: meta["pushEnabled"] === true,
+    appearance: meta["appearance"],
     votes,
     follows,
     likes,
     notificationFollows,
+    favorites: storedFavorites.success ? storedFavorites.data : undefined,
   });
 }

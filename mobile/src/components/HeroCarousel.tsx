@@ -13,8 +13,11 @@
  * player for the whole carousel. The active slide's reel is the only source
  * ever loaded — swiping replaces it, so cross-slide audio is structurally
  * impossible. The video surface mounts immediately for the active slide and
- * sits UNDER the poster; the poster hides once the shared player reports
- * readyToPlay, so there is never a black slide. Mount-first matters on web:
+ * sits UNDER the poster; the poster hides on the first frame the view draws
+ * of the slide's own reel (the feed's and theater's latch), so there is never
+ * a black slide. Not on player status: it still reads readyToPlay for the
+ * previous reel when a swipe lands, which dropped the poster onto an empty
+ * band and then raised it again. Mount-first matters on web:
  * the web player only loads once a view's element attaches, so gating the
  * mount on readiness deadlocks there (poster forever, video never). Index
  * tracking rides onScroll (fires on every platform), not just momentum-end.
@@ -128,6 +131,7 @@ function SlideView({
   muted,
   chipTop,
   onToggleMute,
+  onFirstFrame,
 }: {
   slide: Slide;
   width: number;
@@ -137,12 +141,14 @@ function SlideView({
   compact: boolean;
   /** Attach the video surface (active slide with a reel) — see header note. */
   mountVideo: boolean;
+  /** This slide's reel has drawn a frame: the poster can come down. */
   videoReady: boolean;
   player: ReturnType<typeof useVideoPlayer>;
   muted: boolean;
   /** Keeps the sound chip clear of the floated top bar. */
   chipTop: number;
   onToggleMute: () => void;
+  onFirstFrame: () => void;
 }) {
   const wide = slide.aspect === "16:9";
   const bandH = Math.round((width * 9) / 16);
@@ -189,6 +195,7 @@ function SlideView({
             nativeControls={false}
             contentFit={wide ? "contain" : "cover"}
             surfaceType="textureView"
+            onFirstFrameRender={onFirstFrame}
             style={[frame, wide ? styles.band : null]}
           />
         ) : null}
@@ -316,7 +323,6 @@ export function HeroCarousel({
     p.muted = true;
   });
   const { status } = useEvent(player, "statusChange", { status: player.status });
-  const videoReady = status === "readyToPlay";
 
   const spotlight = events.find((ev) => inSubmissions(ev) || ev.status === "live");
   const countdown = useCountdown(
@@ -458,20 +464,42 @@ export function HeroCarousel({
       };
     }, []),
   );
+  // The reel whose first frame is on screen. A frame counts only once the
+  // swap to that reel has resolved: the new slide's view attaches while the
+  // old reel is still loaded and draws a frame of it first.
+  const [shownVideo, setShownVideo] = useState<string | null>(null);
+  const swappedRef = useRef<string | null>(null);
+  const onFirstFrame = () => {
+    if (swappedRef.current !== null && swappedRef.current === loadedRef.current) {
+      setShownVideo(swappedRef.current);
+    }
+  };
   useEffect(() => {
     if (loadedRef.current === activeVideo) return;
     loadedRef.current = activeVideo;
+    swappedRef.current = null;
+    // Cached on disk, so swiping back to a slide starts it without a refetch.
     player
-      .replaceAsync(activeVideo)
+      .replaceAsync(activeVideo ? { uri: activeVideo, useCaching: true } : null)
       .then(() => {
-        if (loadedRef.current === activeVideo && activeVideo && focusedRef.current) {
-          player.play();
-        }
+        if (loadedRef.current !== activeVideo) return;
+        swappedRef.current = activeVideo;
+        if (activeVideo && focusedRef.current) player.play();
       })
       .catch(() => {
         loadedRef.current = null;
       });
   }, [activeVideo, player]);
+  // Safety net: if the first-frame event is ever missed, a reel that has
+  // been ready for a second still takes the poster down rather than playing
+  // behind a still forever.
+  useEffect(() => {
+    if (status !== "readyToPlay" || !activeVideo || shownVideo === activeVideo) return;
+    const timer = setTimeout(() => {
+      if (swappedRef.current === activeVideo) setShownVideo(activeVideo);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [status, activeVideo, shownVideo]);
   useEffect(() => {
     applyMuted(player, muted);
   }, [muted, player]);
@@ -500,6 +528,9 @@ export function HeroCarousel({
           if (i !== indexRef.current && i >= 0 && i < slides.length) {
             indexRef.current = i;
             setIndex(i);
+            // Same batch as the index, so a slide swiped back to never
+            // renders with its last visit's frame flag and an empty band.
+            setShownVideo(null);
             hapticSelect();
           }
         }}
@@ -512,11 +543,12 @@ export function HeroCarousel({
             active={i === index}
             compact={compact}
             mountVideo={i === index && item.videoUrl !== undefined}
-            videoReady={videoReady}
+            videoReady={item.videoUrl !== undefined && item.videoUrl === shownVideo}
             player={player}
             muted={muted}
             chipTop={chipTop}
             onToggleMute={() => setMuted(!muted)}
+            onFirstFrame={onFirstFrame}
           />
         )}
       />

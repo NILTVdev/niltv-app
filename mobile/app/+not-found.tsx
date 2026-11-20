@@ -11,7 +11,7 @@ export default function NotFoundScreen() {
     <View
       style={[
         styles.screen,
-        { backgroundColor: t.dark ? tokens.color.ink : "#ffffff" },
+        { backgroundColor: t.bg },
       ]}
     >
       <Text style={[styles.title, { color: t.text }]}>Not Found</Text>
