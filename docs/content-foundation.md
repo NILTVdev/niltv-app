@@ -31,8 +31,11 @@ The athlete directory requires explicit staff clearance: set `publicVisible` usi
 roster confirmation never grants clearance. **Publish profile** independently sets
 `profilePublished`; cleared athletes can link to their videos while their profile
 is unpublished. Roster imports preserve both staff decisions. Deploy the API and
-admin changes together, review existing athletes, then enable the existing
-`flags.ambassadorDirectory` flag to expose the directory in the app.
+admin changes together and review existing athletes before releasing the mobile
+directory. Until staff grants clearance, existing athletes disappear from public
+directory and ambassador surfaces and their athlete pages return 404. The regular
+directory is available from Profile; `flags.ambassadorDirectory` controls the
+separate ambassador rail and route.
 
 | Field | From | Confidence |
 |---|---|---|
