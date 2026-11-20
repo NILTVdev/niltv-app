@@ -213,6 +213,7 @@ async function main(): Promise<void> {
     ["DELETE", "/v1/me"],
     ["PUT", "/v1/me/follows/ath-x"],
     ["POST", "/v1/me/likes/ig-x"],
+    ["POST", "/v1/me/shares/ig-x"],
     ["POST", "/v1/events/ev-x/vote"],
     ["POST", "/v1/me/devices"],
     ["PUT", "/v1/me/push"],
